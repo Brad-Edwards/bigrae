@@ -12,7 +12,8 @@
 #     registry (DB + cache + storage + redis channel layer);
 #   * a real OIDC authorization-code login (against a local Cognito-shaped
 #     provider double) drives /login -> authorize -> /oidc/callback, provisions
-#     the first-login user + profile, and establishes the session used below (#988);
+#     the first-login user + native principal/binding/session, and establishes
+#     the session used below (#988);
 #   * an authenticated websocket handshake completes through the real ASGI
 #     stack (AllowedHostsOriginValidator + AuthMiddlewareStack + a routed
 #     consumer);
@@ -73,6 +74,12 @@ ELASTICMQ=shifter-smoke-elasticmq
 MIGRATE=shifter-smoke-migrate
 BOOTSTRAP=shifter-smoke-inbox-bootstrap
 IDP=shifter-smoke-idp
+FGA_ADMIN=shifter-smoke-openfga-admin
+FGA_RUNTIME=shifter-smoke-openfga-runtime
+IDENTITY=shifter-smoke-native-identity
+RUN_LABEL="bigrae.stack-smoke.run=$$-$(date +%s)"
+FIXTURE_DIR=""
+NETWORK_CREATED=0
 
 # --- Local Cognito-shaped OIDC provider double (#988) -----------------------
 # Drives the *real* login flow (/login -> authorize -> /oidc/callback ->
@@ -120,10 +127,16 @@ fail() {
 
 cleanup() {
   local rc=$?
+  local owned_ids
+  if ! owned_ids="$(docker ps -aq --filter "label=$RUN_LABEL")"; then
+    printf 'stack-smoke: could not inventory owned containers for cleanup\n' >&2
+    owned_ids=""
+    rc=1
+  fi
   if [[ $rc -ne 0 ]]; then
     log "FAILURE (exit ${rc}) - bounded container diagnostics"
     local c
-    for c in "$MIGRATE" "$BOOTSTRAP" "$WEB" "$IDP" ${WORKER_CONTAINERS[@]+"${WORKER_CONTAINERS[@]}"}; do
+    for c in $owned_ids; do
       # Redact OIDC authorization-code-flow secrets that can surface in gunicorn
       # request lines / IdP logs (auth code, state, nonce, tokens, session key,
       # client secret) before emitting the bounded log tail (#988).
@@ -132,11 +145,16 @@ cleanup() {
         | sed "s/^/[$c] /" || true
     done
   fi
-  docker rm -f \
-    "$WEB" "$MIGRATE" "$BOOTSTRAP" "$PG" "$REDIS" "$ELASTICMQ" "$IDP" \
-    ${WORKER_CONTAINERS[@]+"${WORKER_CONTAINERS[@]}"} >/dev/null 2>&1 || true
-  docker network rm "$SMOKE_NETWORK" >/dev/null 2>&1 || true
+  if [[ -n "$owned_ids" ]]; then
+    # IDs come only from this run's ownership label, never from fixed names.
+    # shellcheck disable=SC2086
+    docker rm -fv $owned_ids >/dev/null 2>&1 || true
+  fi
+  if [[ "$NETWORK_CREATED" == 1 ]]; then
+    docker network rm "$SMOKE_NETWORK" >/dev/null 2>&1 || true
+  fi
   rm -f ${SESSION_FILES[@]+"${SESSION_FILES[@]}"} >/dev/null 2>&1 || true
+  [[ -z "$FIXTURE_DIR" ]] || rm -rf "$FIXTURE_DIR"
   return $rc
 }
 trap cleanup EXIT
@@ -145,6 +163,12 @@ trap cleanup EXIT
 
 gen_secret() { python3 -c 'import secrets; print(secrets.token_urlsafe(48))'; }
 gen_fernet_key() { python3 -c 'import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())'; }
+smoke_run() { docker run --label "$RUN_LABEL" "$@"; }
+
+# This helper uses the same pinned released server and database duties as the
+# native OpenFGA integration harness. No test provider or activated-row seed.
+# shellcheck source=scripts/stack-smoke/openfga_fixture.sh
+source "$SCRIPT_DIR/openfga_fixture.sh"
 
 wait_for() {
   # wait_for <timeout_s> <description> <command...>
@@ -209,6 +233,7 @@ from pathlib import Path
 from django.conf import settings
 from cms.models import RaesPackageSource
 from cms.scenarios.inbox import load_inbox_manifest
+from management.models import Principal
 root = Path(settings.RAES_PACKAGE_ROOT).resolve()
 shipped = {str(path.parent.relative_to(root)) for path in root.rglob("pack.yaml")}
 declared = {request.package_ref for request in load_inbox_manifest()}
@@ -223,6 +248,12 @@ conformed = set(
 if conformed != declared:
     print(f"release-conformed packs {sorted(conformed)} != manifest packs {sorted(declared)}", file=sys.stderr)
     sys.exit(1)
+sources = RaesPackageSource.objects.filter(package_ref__in=declared)
+operator = Principal.objects.get(user__username="stack-smoke-operator", kind=Principal.Kind.HUMAN)
+if sources.filter(scope_kind="installation", owner_principal_uuid=operator.uuid, registered_by__isnull=True,
+                  is_operator_published=True, account_uuid__isnull=True, organization_uuid__isnull=True,
+                  workspace_uuid__isnull=True, conformance_report_ref__startswith="urn:shifter:pack-conformance:").count() != len(declared):
+    raise SystemExit("shipped catalog lacks native installation custody/publication")
 '; then
     fail "${container}: shipped environment packs do not match the in-box manifest"
   fi
@@ -231,28 +262,33 @@ if conformed != declared:
 assert_oidc_user_absent() {
   # First-login provisioning is only *proven* if the account does not pre-exist:
   # a stale row would let a broken provisioning path pass silently (#988).
-  if ! docker exec -e "EXPECT_EMAIL=${STUB_EMAIL}" "$WEB" python manage.py shell -c '
+  if ! docker exec -e "EXPECT_EMAIL=${STUB_EMAIL}" -e "EXPECT_SUB=${STUB_SUBJECT}" \
+    -e "EXPECT_ISS=${STUB_ISSUER_URL}" "$WEB" python manage.py shell -c '
 import os, sys
 from django.contrib.auth import get_user_model
+from management.models import ProviderBinding
 if get_user_model().objects.filter(email__iexact=os.environ["EXPECT_EMAIL"]).exists():
     print("OIDC login user exists before the flow ran (stale state)", file=sys.stderr)
     sys.exit(1)
+if ProviderBinding.objects.filter(issuer=os.environ["EXPECT_ISS"], subject=os.environ["EXPECT_SUB"]).exists():
+    raise SystemExit("OIDC provider binding exists before the browser flow")
 '; then
     fail "OIDC login user already exists before login (cannot prove first-login provisioning)"
   fi
 }
 
 assert_oidc_user_provisioned() {
-  # Prove the callback provisioned exactly one user + one UserProfile bound to
-  # the verified (issuer, subject) — not a directly written setup row (#988).
-  if ! docker exec \
+  # Prove native identity and the exact callback-established session. The
+  # session key arrives only on stdin, never on argv or in the environment.
+  if ! docker exec -i \
     -e "EXPECT_EMAIL=${STUB_EMAIL}" \
     -e "EXPECT_SUB=${STUB_SUBJECT}" \
     -e "EXPECT_ISS=${STUB_ISSUER_URL}" \
     "$WEB" python manage.py shell -c '
 import os, sys
 from django.contrib.auth import get_user_model
-from management.models import UserProfile
+from management.models import Principal, PrincipalSession, ProviderBinding, UserProfile
+from django.utils import timezone
 users = list(get_user_model().objects.filter(email__iexact=os.environ["EXPECT_EMAIL"]))
 if len(users) != 1:
     print(f"expected exactly one OIDC user, found {len(users)}", file=sys.stderr)
@@ -267,7 +303,13 @@ if profile.cognito_sub != os.environ["EXPECT_SUB"] or profile.issuer != os.envir
 if UserProfile.objects.filter(cognito_sub=os.environ["EXPECT_SUB"]).count() != 1:
     print("verified subject is bound to more than one profile", file=sys.stderr)
     sys.exit(1)
-'; then
+principal = Principal.objects.get(user=users[0], kind=Principal.Kind.HUMAN, is_active=True)
+if not ProviderBinding.objects.filter(principal=principal, issuer=os.environ["EXPECT_ISS"], subject=os.environ["EXPECT_SUB"]).exists():
+    raise SystemExit("first login did not establish the exact native provider binding")
+sessions = PrincipalSession.objects.filter(session_key=sys.stdin.read().strip(), principal_uuid=principal.uuid, expire_date__gt=timezone.now())
+if sessions.count() != 1 or sessions.get().get_decoded().get("_auth_user_id") != str(users[0].pk):
+    raise SystemExit("first login did not establish the native principal session")
+' < "$session_file"; then
     fail "first-login OIDC provisioning did not produce the expected user + bound profile"
   fi
 }
@@ -275,6 +317,22 @@ if UserProfile.objects.filter(cognito_sub=os.environ["EXPECT_SUB"]).count() != 1
 # --- main -------------------------------------------------------------------
 
 command -v docker >/dev/null 2>&1 || fail "docker is required"
+# Refuse collisions before creating anything. Cleanup is additionally limited
+# to owned labels, so a competing run cannot make us delete its containers.
+for name in "$WEB" "$PG" "$REDIS" "$ELASTICMQ" "$MIGRATE" "$BOOTSTRAP" "$IDP" "$FGA_ADMIN" "$FGA_RUNTIME" "$IDENTITY"; do
+  if docker container inspect "$name" >/dev/null 2>&1; then
+    fail "container name already exists: $name"
+  fi
+done
+while IFS='|' read -r wname _; do
+  [[ -z "$wname" ]] && continue
+  if docker container inspect "shifter-smoke-${wname}" >/dev/null 2>&1; then
+    fail "worker container name already exists: shifter-smoke-${wname}"
+  fi
+done <<< "$SMOKE_WORKER_SPECS"
+if docker network inspect "$SMOKE_NETWORK" >/dev/null 2>&1; then
+  fail "network name already exists: $SMOKE_NETWORK"
+fi
 
 log "Generating ephemeral smoke secrets"
 DJANGO_SECRET_KEY="$(gen_secret)"
@@ -288,15 +346,16 @@ else
 fi
 
 log "Creating private docker network and dependency doubles"
-docker network create "$SMOKE_NETWORK" >/dev/null
+docker network create --label "$RUN_LABEL" "$SMOKE_NETWORK" >/dev/null
+NETWORK_CREATED=1
 
-docker run -d --name "$PG" --network "$SMOKE_NETWORK" \
+smoke_run -d --name "$PG" --network "$SMOKE_NETWORK" \
   -e POSTGRES_DB="$DB_NAME" -e POSTGRES_USER="$DB_USER" -e POSTGRES_PASSWORD="$DB_PASSWORD" \
   "$PG_IMAGE" >/dev/null
 
-docker run -d --name "$REDIS" --network "$SMOKE_NETWORK" "$REDIS_IMAGE" >/dev/null
+smoke_run -d --name "$REDIS" --network "$SMOKE_NETWORK" "$REDIS_IMAGE" >/dev/null
 
-docker run -d --name "$ELASTICMQ" --network "$SMOKE_NETWORK" \
+smoke_run -d --name "$ELASTICMQ" --network "$SMOKE_NETWORK" \
   -v "${SCRIPT_DIR}/elasticmq.conf:/opt/elasticmq.conf:ro" \
   "$ELASTICMQ_IMAGE" >/dev/null
 
@@ -304,7 +363,7 @@ docker run -d --name "$ELASTICMQ" --network "$SMOKE_NETWORK" \
 # interpreter (reusing its in-image PyJWT/cryptography); the script is bind-
 # mounted read-only and needs no cloud access.
 log "Starting the local OIDC provider double"
-docker run -d --name "$IDP" --network "$SMOKE_NETWORK" \
+smoke_run -d --name "$IDP" --network "$SMOKE_NETWORK" \
   -v "${SCRIPT_DIR}:/smoke:ro" --entrypoint python \
   "$SMOKE_IMAGE" /smoke/stub_idp.py \
   --host 0.0.0.0 --port "$IDP_PORT" \
@@ -313,7 +372,7 @@ docker run -d --name "$IDP" --network "$SMOKE_NETWORK" \
   --redirect-uri "$STUB_REDIRECT_URI" \
   --subject "$STUB_SUBJECT" --email "$STUB_EMAIL" >/dev/null
 
-wait_for 60 "postgres" docker exec "$PG" pg_isready -U "$DB_USER" -d "$DB_NAME"
+wait_for 60 "postgres TCP" docker exec "$PG" pg_isready -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME"
 wait_for 60 "redis" docker exec "$REDIS" redis-cli ping
 wait_for 30 "oidc provider double (JWKS)" docker exec "$IDP" \
   python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${IDP_PORT}${STUB_JWKS_PATH}', timeout=2)"
@@ -360,21 +419,32 @@ declare -a common_env=(
 # deploy does (a dedicated migration Job / one-shot). Every long-running
 # container below then boots with SKIP_MIGRATIONS=1.
 log "Running database migrations once (dedicated one-shot)"
-docker run --rm --name "$MIGRATE" --network "$SMOKE_NETWORK" \
+smoke_run --rm --name "$MIGRATE" --network "$SMOKE_NETWORK" \
   "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
   "$SMOKE_IMAGE" python manage.py migrate --noinput
 
-# Register the in-box seed once, as the AWS and GCP deploy jobs do after
-# migrations. The shipped packs reach the image only through the explicit
-# Dockerfile copies from shifter/environment-packs/, so this proves that the
-# built image registers and release-conforms them from its own bytes (#2550).
-log "Registering the in-box environment packs from the image (one-shot)"
-docker run --rm --name "$BOOTSTRAP" --network "$SMOKE_NETWORK" \
-  "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
-  "$SMOKE_IMAGE" python manage.py bootstrap_inbox_catalog
+log "Starting released OpenFGA and publishing the built image authorization model"
+start_openfga
+
+log "Proving the real entrypoint refuses runtime before native activation"
+if smoke_run --rm --network "$SMOKE_NETWORK" "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
+  "$SMOKE_IMAGE" python manage.py shell -c 'raise SystemExit("runtime gate did not stop execution")' \
+  > "$FIXTURE_DIR/pre-activation.log" 2>&1; then
+  fail 'runtime started before native activation'
+fi
+grep -q 'Identity runtime is not activated' "$FIXTURE_DIR/pre-activation.log" \
+  || { cat "$FIXTURE_DIR/pre-activation.log"; fail 'pre-activation failure was not the identity gate'; }
+
+log "Activating identity through the real cutover/bootstrap ceremony"
+smoke_run --rm --name "$IDENTITY" --network "$SMOKE_NETWORK" \
+  "${common_env[@]}" -e SKIP_MIGRATIONS=1 -e SHIFTER_IDENTITY_MAINTENANCE=true \
+  -v "$SCRIPT_DIR:/smoke:ro" \
+  -v "$FIXTURE_DIR/cutover.json:/smoke-facts/cutover.json:ro" \
+  -v "$FIXTURE_DIR/bootstrap.json:/smoke-facts/bootstrap.json:ro" \
+  "$SMOKE_IMAGE" python manage.py shell -c 'from runpy import run_path; run_path("/smoke/bootstrap_native_identity.py", run_name="__main__")'
 
 log "Booting web container through the real entrypoint"
-docker run -d --name "$WEB" --network "$SMOKE_NETWORK" \
+smoke_run -d --name "$WEB" --network "$SMOKE_NETWORK" \
   -p "127.0.0.1:${SMOKE_WEB_PORT}:8000" \
   "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
   "$SMOKE_IMAGE" >/dev/null
@@ -385,6 +455,33 @@ note "Readiness 200 OK"
 assert_skipped_migrations "$WEB"
 assert_home_writable "$WEB"
 note "HOME writable as the image's non-root user"
+
+log "Obtaining current catalog proof through a real native operator login"
+operator_session_file="$(mktemp)"
+chmod 600 "$operator_session_file"
+SESSION_FILES+=("$operator_session_file")
+operator_session="$(smoke_run --rm --network "$SMOKE_NETWORK" \
+  -v "$SCRIPT_DIR:/smoke:ro" --entrypoint python "$SMOKE_IMAGE" /smoke/oidc_login.py \
+  --portal-origin "https://${WEB}:8000" --portal-transport "http://${WEB}:8000" \
+  --login-hint stack-smoke-operator@example.test --protected-path /dashboard/)"
+[[ -n "$operator_session" ]] || fail 'operator OIDC login did not establish a real session'
+printf '%s' "$operator_session" > "$operator_session_file"
+unset operator_session
+touch "$FIXTURE_DIR/catalog-credential"
+chmod 600 "$FIXTURE_DIR/catalog-credential"
+smoke_run --rm --user 0 --entrypoint chown -v "$FIXTURE_DIR/catalog-credential:/run/catalog-credential" \
+  "$SMOKE_IMAGE" "$(smoke_run --rm --entrypoint id "$SMOKE_IMAGE" -u)" /run/catalog-credential
+smoke_run --rm -i --network "$SMOKE_NETWORK" "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
+  -v "$SCRIPT_DIR:/smoke:ro" -v "$FIXTURE_DIR/catalog-credential:/run/catalog-credential" \
+  "$SMOKE_IMAGE" python manage.py shell --no-imports \
+  -c 'from runpy import run_path; run_path("/smoke/issue_catalog_credential.py", run_name="__main__")' \
+  < "$operator_session_file"
+
+log "Registering, qualifying and publishing shipped packs with native bearer proof"
+smoke_run --rm --name "$BOOTSTRAP" --network "$SMOKE_NETWORK" \
+  "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
+  -v "$FIXTURE_DIR/catalog-credential:/run/catalog-credential:ro" \
+  "$SMOKE_IMAGE" python manage.py bootstrap_inbox_catalog --credential-file /run/catalog-credential
 assert_shipped_packs_match_manifest "$WEB"
 note "Image ships exactly the release-conformed in-box manifest packs"
 
@@ -404,7 +501,7 @@ session_file="$(mktemp)"
 chmod 600 "$session_file"
 SESSION_FILES+=("$session_file")
 session_key="$(
-  docker run --rm --network "$SMOKE_NETWORK" \
+  smoke_run --rm --network "$SMOKE_NETWORK" \
     -v "${SCRIPT_DIR}:/smoke:ro" --entrypoint python \
     "$SMOKE_IMAGE" /smoke/oidc_login.py \
     --portal-origin "https://${WEB}:8000" \
@@ -414,10 +511,9 @@ session_key="$(
 [[ -n "$session_key" ]] || fail "real OIDC login flow did not establish a session"
 printf '%s' "$session_key" > "$session_file"
 
-# Prove first-login provisioning resulted from the callback: exactly one Django
-# user + one UserProfile bound to the verified (issuer, subject).
+# Prove the callback created the native identity and its exact session.
 assert_oidc_user_provisioned
-note "First-login provisioning verified (one user + bound profile)"
+note "First-login provisioning verified (user, native principal/binding/session + profile)"
 
 log "Proving authenticated websocket handshake through the real ASGI stack"
 # Reuses the callback-established session (no directly minted fallback).
@@ -442,7 +538,7 @@ while IFS='|' read -r wname hbfile wcmd; do
   # wcmd is an intentional word-split command line, e.g.
   # "python manage.py run_worker --queue cms --wait-time 1".
   # shellcheck disable=SC2086
-  docker run -d --name "$cname" --network "$SMOKE_NETWORK" \
+  smoke_run -d --name "$cname" --network "$SMOKE_NETWORK" \
     "${common_env[@]}" -e SKIP_MIGRATIONS=1 \
     "$SMOKE_IMAGE" $wcmd >/dev/null
   note "Waiting for ${wname} heartbeat ${hbfile}"

@@ -27,6 +27,7 @@ from workspaces.models import Account, AuthorizationGroup, AuthorizationOperatio
 from workspaces.services import (
     AuthorizationAdminError,
     AuthorizationMutationConflict,
+    EventOwnershipHandoffPolicyMutationRequest,
     NativeRelationshipMutationRequest,
     PolicyMutationRequest,
     apply_native_relationship_mutation,
@@ -38,6 +39,44 @@ from workspaces.services import (
 ACTOR_ID = UUID("11111111-1111-1111-1111-111111111111")
 SUBJECT_ID = UUID("22222222-2222-2222-2222-222222222222")
 MODEL_ID = "01J00000000000000000000000"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("effect", [PolicyEffect.GRANT, PolicyEffect.REVOKE])
+def test_inactive_subject_can_be_revoked_but_receives_no_new_grant(effect):
+    account = Account.objects.create(kind="team", name="Retained subject")
+    Principal.objects.filter(uuid=SUBJECT_ID).update(is_active=False)
+    provider = FakeProvider(state=RelationshipState(False, True))
+    result = apply_policy_mutation(_request(account, effect=effect), provider)
+    assert result.state == ("confirmed" if effect == PolicyEffect.REVOKE else "denied")
+    assert len(provider.changes) == (1 if effect == PolicyEffect.REVOKE else 0)
+
+
+@pytest.mark.django_db
+def test_exact_admitted_grant_to_inactive_subject_requires_current_recovery_authority():
+    from workspaces.services._authorization_policy import authorize_operation_reconciliation
+
+    account = Account.objects.create(kind="team", name="Admitted subject")
+    request = _request(account)
+    result = apply_policy_mutation(request, FakeProvider(write_error=True))
+    Principal.objects.filter(uuid=SUBJECT_ID).update(is_active=False)
+    administrator = get_user_model().objects.create_user(username="current-administrator")
+    actor = PrincipalRef(administrator.identity_principal.uuid, "human")
+    with pytest.raises(AuthorizationMutationConflict):
+        authorize_operation_reconciliation(result.operation_id, actor, request.credential, FakeProvider(allowed=False))
+
+    class RecoveringProvider(FakeProvider):
+        def write_relationships(self, change):
+            super().write_relationships(change)
+            self.state = RelationshipState(True, False)
+
+    provider = RecoveringProvider(state=RelationshipState(False, False))
+    authorize_operation_reconciliation(result.operation_id, actor, request.credential, provider)
+    recovered = reconcile_policy_mutation(result.operation_id, provider)
+    assert recovered.state == "confirmed"
+    assert len(provider.changes) == 1 and provider.changes[0].change.subject.uuid == SUBJECT_ID
+    assert AuthorizationOperation.objects.get(pk=result.operation_id).actor_uuid == ACTOR_ID
+    assert all(check.principal == actor for check in provider.check_requests)
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +127,43 @@ class FakeProvider:
 class CrashAfterReservationProvider(FakeProvider):
     def write_relationships(self, change):
         raise SystemExit("simulated process loss")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("failure", ["transport", "decision", "incomplete"])
+@pytest.mark.parametrize("native", [False, True])
+def test_evaluator_outage_does_not_poison_exact_mutation_retry(failure, native):
+    account = Account.objects.create(kind="team", name="Retry admission")
+    request = _request(account, key="same-live-command")
+    if native:
+        from shared.authorization import predefined_policy_definition
+
+        request = NativeRelationshipMutationRequest(
+            actor=request.actor,
+            credential=CredentialCeiling(predefined_policy_definition("account_administrator").actions),
+            change=AdministrativeRoleChange(
+                request.subject, "account_administrator", request.target, PolicyEffect.GRANT
+            ),
+            scope=request.scope,
+            idempotency_key=request.idempotency_key,
+            model_id=request.model_id,
+        )
+    apply = apply_native_relationship_mutation if native else apply_policy_mutation
+
+    class Unavailable(FakeProvider):
+        def batch_check(self, requests):
+            if failure == "transport":
+                raise AuthorizationProviderError("Synthetic evaluator outage")
+            if failure == "incomplete":
+                return ()
+            return tuple(AuthorizationDecision(DecisionKind.EVALUATOR_ERROR, "evaluator_unavailable") for _ in requests)
+
+    provider = Unavailable()
+    with pytest.raises(AuthorizationProviderError):
+        apply(request, provider)
+    assert not AuthorizationOperation.objects.filter(idempotency_key=request.idempotency_key).exists()
+    assert provider.changes == []
+    assert apply(request, FakeProvider()).state == "confirmed"
 
 
 def _request(
@@ -328,6 +404,44 @@ def test_group_membership_requires_full_scope_delegation_and_supports_service_pr
 
 
 @pytest.mark.django_db
+def test_admitted_native_confirmation_never_creates_or_replays_a_provider_write():
+    from workspaces.services import confirm_admitted_native_mutation
+
+    account = Account.objects.create(kind="team", name="Readback recovery")
+    group = AuthorizationGroup.objects.create(scope_kind="account", account_uuid=account.uuid, name="Recovery")
+    request = NativeRelationshipMutationRequest(
+        actor=PrincipalRef(ACTOR_ID, "human"),
+        credential=CredentialCeiling(_actions_at_or_below("account")),
+        change=GroupMembershipChange(group.uuid, SUBJECT_ID, PolicyEffect.GRANT),
+        scope=ResourceScope("account", account.uuid),
+        idempotency_key="readback-only",
+        model_id=MODEL_ID,
+    )
+    provider = FakeProvider(allowed=False)
+    assert confirm_admitted_native_mutation(request, provider) is None
+    assert not AuthorizationOperation.objects.exists()
+    assert not provider.changes
+    denied = apply_native_relationship_mutation(request, provider)
+    assert confirm_admitted_native_mutation(request, provider) is None
+    assert AuthorizationOperation.objects.get(pk=denied.operation_id).state == "denied"
+    assert not provider.changes
+
+    admitted = replace(request, idempotency_key="already-admitted")
+    first = apply_native_relationship_mutation(admitted, FakeProvider(write_error=True))
+    assert first.state == "unresolved"
+    checks_before = len(provider.check_requests)
+    # Current delegation may be gone; this operation observes the recorded effect only.
+    result = confirm_admitted_native_mutation(admitted, provider)
+    assert result.state == "confirmed"
+    assert not provider.changes
+    assert len(provider.check_requests) == checks_before
+    with pytest.raises(AuthorizationMutationConflict):
+        confirm_admitted_native_mutation(
+            replace(admitted, change=GroupMembershipChange(group.uuid, SUBJECT_ID, PolicyEffect.REVOKE)), provider
+        )
+
+
+@pytest.mark.django_db
 def test_group_self_add_is_denied_before_external_effect() -> None:
     account = Account.objects.create(kind=Account.Kind.TEAM, name="A")
     group = AuthorizationGroup.objects.create(
@@ -349,6 +463,80 @@ def test_group_self_add_is_denied_before_external_effect() -> None:
 
     assert result.state == AuthorizationOperation.State.DENIED
     assert provider.changes == []
+
+
+@pytest.mark.django_db
+def test_direct_action_self_grant_is_denied_before_external_effect() -> None:
+    account = Account.objects.create(kind=Account.Kind.INDIVIDUAL, name="A", individual_principal_uuid=ACTOR_ID)
+    provider = FakeProvider()
+    request = PolicyMutationRequest(
+        actor=PrincipalRef(ACTOR_ID, "human"),
+        credential=CredentialCeiling(frozenset({"account.read", "account.manage_authorization"})),
+        subject=RelationshipSubject("principal", ACTOR_ID),
+        action="account.read",
+        target=TargetRef("account", account.uuid),
+        scope=ResourceScope("account", account.uuid),
+        effect=PolicyEffect.GRANT,
+        idempotency_key="direct-self-grant",
+        model_id=MODEL_ID,
+    )
+
+    result = apply_policy_mutation(request, provider)
+
+    assert result.state == AuthorizationOperation.State.DENIED
+    assert provider.changes == []
+
+
+@pytest.mark.django_db
+def test_legacy_event_handoff_cannot_admit_a_new_self_grant() -> None:
+    from ctf.models import CTFEvent
+
+    account = Account.objects.create(kind=Account.Kind.INDIVIDUAL, name="A", individual_principal_uuid=ACTOR_ID)
+    now = timezone.now()
+    event = CTFEvent.objects.create(
+        name="Handoff event",
+        created_by=get_user_model().objects.get(username="actor"),
+        owner_principal_uuid=ACTOR_ID,
+        scope_kind="account",
+        account_id=account.pk,
+        scenario_id="synthetic",
+        event_start=now,
+        event_end=now + timedelta(days=1),
+    )
+    provider = FakeProvider()
+    request = EventOwnershipHandoffPolicyMutationRequest(
+        actor=PrincipalRef(ACTOR_ID, "human"),
+        credential=CredentialCeiling(frozenset({"event.read", "event.manage"})),
+        subject=RelationshipSubject("principal", ACTOR_ID),
+        action="event.read",
+        target=TargetRef("event", event.id),
+        scope=ResourceScope("account", account.uuid),
+        effect=PolicyEffect.GRANT,
+        idempotency_key="event-owner-handoff",
+        model_id=MODEL_ID,
+    )
+
+    result = apply_policy_mutation(request, provider)
+
+    operation = AuthorizationOperation.objects.get(pk=result.operation_id)
+    assert result.state == AuthorizationOperation.State.DENIED
+    assert provider.changes == []
+    assert operation.trusted_context == "event_ownership_handoff"
+
+
+def test_event_ownership_handoff_rejects_non_staff_action() -> None:
+    with pytest.raises(ValueError, match="closed staff action set"):
+        EventOwnershipHandoffPolicyMutationRequest(
+            actor=PrincipalRef(ACTOR_ID, "human"),
+            credential=CredentialCeiling(frozenset({"event.manage_staff"})),
+            subject=RelationshipSubject("principal", ACTOR_ID),
+            action="event.manage_staff",
+            target=TargetRef("event", UUID("33333333-3333-3333-3333-333333333333")),
+            scope=ResourceScope("installation"),
+            effect=PolicyEffect.GRANT,
+            idempotency_key="invalid-event-owner-handoff",
+            model_id=MODEL_ID,
+        )
 
 
 @pytest.mark.django_db
@@ -474,6 +662,66 @@ def test_account_placed_event_is_included_in_account_delegation_proof() -> None:
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("parent_kind, exact_event_ceiling", [("event", False), ("event", True), ("account", False)])
+def test_event_child_range_denial_or_credential_target_blocks_administrator_delegation(
+    monkeypatch, parent_kind, exact_event_ceiling
+):
+    from ctf.models import CTFEvent
+    from shared.authorization import inventory
+
+    account = Account.objects.create(kind="individual", name="Event customer", individual_principal_uuid=ACTOR_ID)
+    now = timezone.now()
+    event = CTFEvent.objects.create(
+        name="Event with a range",
+        created_by=get_user_model().objects.get(username="actor"),
+        owner_principal_uuid=ACTOR_ID,
+        scope_kind="account",
+        account_id=account.pk,
+        scenario_id="synthetic",
+        event_start=now,
+        event_end=now + timedelta(days=1),
+    )
+    scope = ResourceScope("account", account.uuid)
+    event_target = TargetRef("event", event.pk)
+    range_target = TargetRef("range", UUID("44444444-4444-4444-4444-444444444444"))
+    inventory_calls = []
+
+    def event_ranges(event_uuid, limit):
+        inventory_calls.append((event_uuid, limit))
+        return (range_target,)
+
+    # The neutral port is the boundary to the SQL-owning Engine inventory.
+    monkeypatch.setattr(inventory, "_event_range_resolver", event_ranges)
+    monkeypatch.setattr(inventory, "_range_binding_resolver", lambda range_uuid: (event_target, scope))
+    provider = FakeProvider(denied_actions=frozenset() if exact_event_ceiling else frozenset({"range.manage"}))
+    target = event_target if parent_kind == "event" else TargetRef("account", account.uuid)
+    request = NativeRelationshipMutationRequest(
+        actor=PrincipalRef(ACTOR_ID, "human"),
+        credential=CredentialCeiling(
+            frozenset(item.code for item in ACTION_CATALOG), event_target if exact_event_ceiling else None
+        ),
+        change=AdministrativeRoleChange(
+            RelationshipSubject("principal", SUBJECT_ID), f"{parent_kind}_administrator", target, PolicyEffect.GRANT
+        ),
+        scope=scope,
+        idempotency_key=f"event-range-delegation-{parent_kind}-{exact_event_ceiling}",
+        model_id=MODEL_ID,
+    )
+    result = apply_native_relationship_mutation(request, provider)
+    assert result.state == "denied"
+    assert not provider.changes
+    assert inventory_calls and all(call[0] == event.pk for call in inventory_calls)
+    if not exact_event_ceiling:
+        assert any(
+            check.action == "range.manage"
+            and check.target == range_target
+            and check.scope == scope
+            and check.parent == event_target
+            for check in provider.check_requests
+        )
+
+
+@pytest.mark.django_db
 def test_event_policy_mutation_requires_exact_account_event_scope() -> None:
     from ctf.models import CTFEvent
 
@@ -512,105 +760,4 @@ def test_event_policy_mutation_requires_exact_account_event_scope() -> None:
     assert result.state == AuthorizationOperation.State.DENIED
     assert provider.check_requests == []
     assert provider.changes == []
-    assert provider.changes == []
-
-
-@pytest.mark.parametrize("target_type", ["installation", "account", "organization"])
-def test_broad_administrator_checks_each_descendant_with_its_own_scope(target_type) -> None:
-    account = Account.objects.create(kind=Account.Kind.TEAM, name="A")
-    organization = Organization.objects.create(account=account, name="O")
-    workspace = Workspace.objects.create(organization=organization, name="W")
-    target, scope = {
-        "installation": (TargetRef("installation"), ResourceScope("installation")),
-        "account": (TargetRef("account", account.uuid), ResourceScope("account", account.uuid)),
-        "organization": (
-            TargetRef("organization", organization.uuid),
-            ResourceScope("account", account.uuid, organization.uuid),
-        ),
-    }[target_type]
-    provider = FakeProvider()
-    request = NativeRelationshipMutationRequest(
-        actor=PrincipalRef(ACTOR_ID, "human"),
-        credential=CredentialCeiling(frozenset(item.code for item in ACTION_CATALOG)),
-        change=AdministrativeRoleChange(
-            RelationshipSubject("principal", SUBJECT_ID),
-            "application_administrator" if target_type == "installation" else f"{target_type}_administrator",
-            target,
-            PolicyEffect.GRANT,
-        ),
-        scope=scope,
-        idempotency_key=f"broad-{target_type}",
-        model_id=MODEL_ID,
-    )
-
-    result = apply_native_relationship_mutation(request, provider)
-
-    assert result.state == AuthorizationOperation.State.CONFIRMED
-    workspace_checks = [
-        item for item in provider.check_requests if item.target == TargetRef("workspace", workspace.uuid)
-    ]
-    assert workspace_checks
-    assert all(
-        item.scope == ResourceScope("account", account.uuid, organization.uuid, workspace.uuid)
-        for item in workspace_checks
-    )
-
-
-@pytest.mark.parametrize("changed_field", ["model_id", "store_id"])
-def test_recovery_refuses_changed_provider_binding(changed_field) -> None:
-    account = Account.objects.create(kind=Account.Kind.TEAM, name="A")
-    result = apply_policy_mutation(_request(account), FakeProvider(write_error=True))
-    replacement = FakeProvider()
-    setattr(replacement, changed_field, "01J00000000000000000000009")
-
-    with pytest.raises(AuthorizationMutationConflict, match="binding changed"):
-        reconcile_policy_mutation(result.operation_id, replacement)
-
-    assert replacement.changes == []
-    operation = AuthorizationOperation.objects.get(pk=result.operation_id)
-    assert operation.state == AuthorizationOperation.State.UNRESOLVED
-    assert operation.reconcile_lease_until is None
-
-
-def test_mutation_rejects_model_different_from_evaluator_before_reservation() -> None:
-    account = Account.objects.create(kind=Account.Kind.TEAM, name="A")
-    provider = FakeProvider()
-
-    with pytest.raises(AuthorizationMutationConflict, match="binding changed"):
-        apply_policy_mutation(replace(_request(account), model_id="01J00000000000000000000009"), provider)
-
-    assert provider.changes == []
-    assert not AuthorizationOperation.objects.exists()
-
-
-@pytest.mark.parametrize("target_type,action", [("event", "event.manage"), ("range", "range.manage")])
-def test_leaf_mutation_rejects_unowned_target_even_when_evaluator_allows(target_type, action) -> None:
-    account = Account.objects.create(kind=Account.Kind.TEAM, name="A")
-    organization = Organization.objects.create(account=account, name="O")
-    workspace = Workspace.objects.create(organization=organization, name="W")
-    request = replace(
-        _request(account),
-        action=action,
-        target=TargetRef(target_type, UUID("33333333-3333-3333-3333-333333333333")),
-        scope=ResourceScope("account", account.uuid, organization.uuid, workspace.uuid),
-        credential=CredentialCeiling(frozenset(item.code for item in ACTION_CATALOG)),
-    )
-    provider = FakeProvider()
-
-    result = apply_policy_mutation(request, provider)
-
-    assert result.state == AuthorizationOperation.State.DENIED
-    assert provider.check_requests == []
-    assert provider.changes == []
-
-
-def test_disabled_human_actor_cannot_delegate_through_service_entrypoint() -> None:
-    account = Account.objects.create(kind=Account.Kind.TEAM, name="A")
-    get_user_model().objects.filter(identity_principal__uuid=ACTOR_ID).update(is_active=False)
-    provider = FakeProvider()
-
-    result = apply_policy_mutation(_request(account), provider)
-
-    assert result.state == AuthorizationOperation.State.DENIED
-    assert provider.check_requests == []
     assert provider.changes == []

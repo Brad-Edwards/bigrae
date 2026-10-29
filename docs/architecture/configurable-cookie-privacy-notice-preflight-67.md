@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-01
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/67>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/67>
 
 This issue is requirement-free. The GitHub issue title, body, and acceptance
 criteria are the shipping contract. This note is intentionally not an

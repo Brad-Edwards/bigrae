@@ -9,7 +9,7 @@ Date: 2026-06-23
 
 Requirement: GEN-001, Documentation Required for Major Features
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/670>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/670>
 
 ## Scope Boundary
 
@@ -70,7 +70,7 @@ accepted requirement asks for one.
 | Docs tests | `shifter/shifter_platform/tests/documentation/test_helpers.py`, `test_views.py` | Reuse helper/view tests for renderer or navigation behavior. Avoid brittle content-specific tests. |
 | Workflow routing | `.github/workflows/deploy.yml`, `.github/quality-path-filters.yaml`, `.gc/plan-rules.md` | Ordinary docs-only diffs may skip broad Quality; guardrail docs and enforcement changes must still run architecture gates. |
 | Architecture enforcement | `scripts/adr_guard/adr_guard.py`, `docs/adr/index.yaml`, `docs/adr/exceptions.yaml` | Add enforcement here only if GEN-001 becomes a real guardrail, and document the rule in ADR docs. |
-| Requirement evidence | Ground Control traceability, canonical repo `Brad-Edwards/shifter` | Use existing `DOCUMENTS` links for doc artifacts and `GITHUB_ISSUE` for the tracking issue. |
+| Requirement evidence | Ground Control traceability, canonical repo `Brad-Edwards/bigrae` | Use existing `DOCUMENTS` links for doc artifacts and `GITHUB_ISSUE` for the tracking issue. |
 | Release notes | `changelog.d/README.md` | Add fragments for user-visible behavior or pipeline changes; do not treat fragments as docs deliverables. |
 
 ## Cross-Cutting Layers The Design Must Pass

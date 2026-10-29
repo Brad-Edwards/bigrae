@@ -23,4 +23,4 @@ Event branding enables differentiated event experiences, important for events co
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent logo_url and theme_color branding fields)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/ctf/EventHomePage.tsx` (Participant event home applies the event theme color and logo)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#639` (CTF-1402: Theming)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#639` (CTF-1402: Theming)

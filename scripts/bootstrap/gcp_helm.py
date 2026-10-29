@@ -166,16 +166,30 @@ def _live_items(
     runner: ProcessRunner, env: Mapping[str, str | None], kind: str, namespace: str
 ) -> dict[str, Mapping[str, object]]:
     """Return the metadata of the live objects of one type, keyed by name."""
-    result = runner.run(["kubectl", "get", kind, *_scope_args(namespace), "-o", "json"], env=env, check=False)
-    if result.returncode != 0:
-        return {}
+    result = runner.run(["kubectl", "get", kind, *_scope_args(namespace), "-o", "json"], env=env)
     try:
-        items = json.loads(result.stdout or "{}").get("items", [])
-    except (json.JSONDecodeError, AttributeError):
-        return {}
-    return {
-        str(item.get("metadata", {}).get("name")): item.get("metadata", {}) for item in items if isinstance(item, dict)
-    }
+        inventory = json.loads(result.stdout)
+        if not isinstance(inventory, dict) or not isinstance(inventory.get("items"), list):
+            raise ValueError
+        items = inventory["items"]
+        metadata = [_inventory_metadata(item, namespace) for item in items]
+        names = [item["name"] for item in metadata]
+        if len(set(names)) != len(names):
+            raise ValueError
+    except (ValueError, TypeError):
+        raise HelmReleaseError("Kubernetes ownership inventory is invalid") from None
+    return {str(item["name"]): item for item in metadata}
+
+
+def _inventory_metadata(item: object, namespace: str) -> Mapping[str, object]:
+    """Validate one live ownership row before the caller can adopt any object."""
+    if not isinstance(item, dict) or not isinstance(item.get("metadata"), dict):
+        raise ValueError
+    metadata = item["metadata"]
+    name = metadata.get("name")
+    if not isinstance(name, str) or not name or metadata.get("namespace", namespace) != namespace:
+        raise ValueError
+    return metadata
 
 
 def _owned_by_release(metadata: Mapping[str, object], target: str) -> bool:
@@ -221,14 +235,18 @@ def adopt_objects(
     grouped: dict[tuple[str, str], list[str]] = {}
     for kind, namespace, name in owned_objects(documents):
         grouped.setdefault((kind, namespace), []).append(name)
+    inventories = {key: _live_items(runner, env, *key) for key in sorted(grouped)}
+    pending: list[tuple[str, str]] = []
     for (kind, namespace), names in sorted(grouped.items()):
-        live = _live_items(runner, env, kind, namespace)
+        live = inventories[kind, namespace]
         for name in names:
             metadata = live.get(name)
             if metadata is None or _owned_by_release(metadata, f"{kind}/{name}"):
                 continue
-            _adopt(runner, env, f"{kind}/{name}", namespace)
-            adopted.append(f"{kind}/{name}")
+            pending.append((f"{kind}/{name}", namespace))
+    for target, namespace in pending:
+        _adopt(runner, env, target, namespace)
+        adopted.append(target)
     if adopted:
         info(f"Adopted {len(adopted)} existing objects into the Helm release")
     return adopted

@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-16
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/898>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/898>
 
 Companion docs:
 

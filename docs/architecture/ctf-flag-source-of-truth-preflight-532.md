@@ -11,7 +11,7 @@
 
 Status: pre-implementation guidance
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/532>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/532>
 
 > **Decision (implemented).** The issue chose a **single-release full removal**:
 > the legacy `CTFChallenge.flag_hash` column, its runtime read fallback, and the

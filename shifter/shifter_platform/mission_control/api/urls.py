@@ -51,6 +51,7 @@ urlpatterns = [
         name="raes-participant-runtimes",
     ),
     path("agents/", views.AgentListView.as_view(), name="agents-list"),
+    path("launch-workspaces/", views.LaunchWorkspaceListView.as_view(), name="launch-workspaces-list"),
     path("scenarios/", views.ScenarioListView.as_view(), name="scenarios-list"),
     path("upload/initiate/", views.UploadInitiateView.as_view(), name="upload-initiate"),
     path("upload/complete/", views.UploadCompleteView.as_view(), name="upload-complete"),

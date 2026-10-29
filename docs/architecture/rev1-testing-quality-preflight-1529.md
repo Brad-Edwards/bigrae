@@ -3,7 +3,7 @@
 > **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
 
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1529>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1529>
 
 ## Decision
 

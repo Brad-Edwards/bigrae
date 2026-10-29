@@ -44,7 +44,9 @@ def test_replay_same_key_recovers_without_duplicate(authenticated_client, make_a
     assert second.json()["range"] is not None
     assert second.json()["range"]["request_id"] == first.json()["range"]["request_id"]
 
-    assert PublicOperationRetryBinding.objects.filter(actor_key=str(user.id)).count() == 1
+    from shared.principal_port import principal_for_user
+
+    assert PublicOperationRetryBinding.objects.filter(actor_key=str(principal_for_user(user).uuid)).count() == 1
 
 
 def test_same_key_different_selection_conflicts(authenticated_client, make_agent, hydratable_scenario):

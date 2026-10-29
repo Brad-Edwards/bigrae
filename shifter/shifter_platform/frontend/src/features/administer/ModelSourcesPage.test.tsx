@@ -11,12 +11,28 @@ vi.mock("@/api/client", () => ({ apiFetch: vi.fn() }));
 const api = vi.mocked(apiFetch);
 beforeEach(() => { api.mockReset(); });
 
+function policyOrganizations(url: string) {
+  if (url === "/administer/organizations/") {
+    return { count: 1, results: [{ uuid: "org-1", name: "Workshop" }] };
+  }
+  return undefined;
+}
+
 it("allows tenant administrators to add a source from the tenant", async () => {
-  api.mockImplementation(async (url) => url === "/workspaces/organizations/" ?
-    { results: [{ uuid: "org-1", name: "Workshop" }] } : { results: [] });
+  api.mockImplementation(async (url) => policyOrganizations(url) ?? { results: [] });
   renderRoute(<ModelSourcesPage />);
   fireEvent.click(await screen.findByRole("button", { name: "Add model source" }));
   expect(screen.getByLabelText("Provider")).toBeInTheDocument();
+});
+
+it("discovers organization grants without requiring parent account discovery", async () => {
+  api.mockImplementation(async (url) => policyOrganizations(url) ?? { results: [] });
+  renderRoute(<ModelSourcesPage />);
+  await screen.findByRole("button", { name: "Add model source" });
+  expect(api).toHaveBeenCalledWith("/administer/organizations/", expect.objectContaining({
+    query: { integration: "model_sources", offset: 0, limit: 25 },
+  }));
+  expect(api).not.toHaveBeenCalledWith("/accounts/", expect.anything());
 });
 
 it("does not show credential controls on denied organization access", async () => {
@@ -30,7 +46,8 @@ it("retires unused credentials through the tenant and reports retained versions"
   const source = { id: "source-1", revision: 2, state: "ready", enabled: true,
     configuration: { name: "Workshop model", model: "synthetic", region: "provider-managed" } };
   api.mockImplementation(async (url) => {
-    if (url === "/workspaces/organizations/") return { results: [{ uuid: "org-1", name: "Workshop" }] };
+    const organizationResponse = policyOrganizations(url);
+    if (organizationResponse) return organizationResponse;
     if (url === "/cms/organizations/org-1/model-sources/") return { results: [source] };
     if (url.endsWith("retire-credentials/")) return { retired: 0 };
     return { results: [] };

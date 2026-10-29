@@ -28,4 +28,4 @@ External users (customers, partners, CTF participants) need a frictionless authe
 
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/migrations/0033_isolated_participant_accounts.py` (Retirement of invite-token authentication and fields)
 - DOCUMENTS → DOCUMENTATION `docs/features/access-credentials.md` (Current login/recovery and explicit retirement)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#585` (Historical magic-link implementation)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#585` (Historical magic-link implementation)

@@ -2,7 +2,7 @@
 
 Status: active
 
-Issue: [#1329](https://github.com/Brad-Edwards/shifter/issues/1329)
+Issue: [#1329](https://github.com/Brad-Edwards/bigrae/issues/1329)
 
 Governing decision: [ADR-040](../adr/index.yaml)
 
@@ -109,6 +109,6 @@ application: bootstrap, dashboard, CMS catalog and scenario editor, Mission
 Control, and CTF. Endpoints without a single-page-application
 consumer are excluded from generation until their consumer lands, at which point
 their routes are added to the contract additively. The CTF surface is excluded
-until its workspace ([#1372](https://github.com/Brad-Edwards/shifter/issues/1372))
+until its workspace ([#1372](https://github.com/Brad-Edwards/bigrae/issues/1372))
 is built. Exclusion affects only schema generation; runtime routing and behavior
 are unchanged.

@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-28
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1222>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1222>
 
 This is a requirement-free preflight. The GitHub issue is the shipping
 contract: self-hosted deploy runners must stop living in the account default

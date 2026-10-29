@@ -1,5 +1,14 @@
 [
   {
+    "rule_id": "ADR-070-R1",
+    "owner": "@Brad-Edwards",
+    "reason": "CVE-2026-56857 is a reviewed platform false positive only for opt/google-cloud-sdk/bin/gke-gcloud-auth-plugin in the Linux deployer image. The official Go advisory https://vuln.go.dev/ID/GO-2026-6604.json limits both affected imports to GOOS=windows. Google Cloud CLI 591.0.0 and the latest rapid component manifest name plugin 0.5.20 archive 20261016073856 with SHA-256 7ca2be31d6faa232b733cd3e91b98e182771516732d7230c19196b51cde7f823; the downloaded, checksum-verified binary reports go1.27.1, GOOS=linux, GOARCH=amd64. The exact CVE/path entry in the deployer-only Trivy file expires on the same date; no other artifact or vulnerability is exempted. Tracking: #2321.",
+    "expires_on": "2026-11-30",
+    "paths": [
+      "platform/deployer/gcp/trivyignore.yaml"
+    ]
+  },
+  {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
     "reason": "CKV_K8S_35 (prefer secret files over environment variables): the guacamole-client Deployment reads the guacamole-runtime Secret through envFrom. The pinned Guacamole 1.6.0 image has a confirmed file-secret regression (GUACAMOLE-2119): its entrypoint has no _FILE variable support, and it links the PostgreSQL authentication extension through an environment-variable-driven feature framework. A correct file-delivery fix must fork the custom image entrypoint to build guacamole.properties from a mounted file and link the extension without the environment path, which is a higher-risk change to participant remote access. The image fork is tracked in #2565. The `checkov.io/skip1: CKV_K8S_35` annotation on the chart's guacamole-client Deployment points back to this entry. The chart is the only renderer since ADR-070, so the same acceptance now covers every rendered profile.",

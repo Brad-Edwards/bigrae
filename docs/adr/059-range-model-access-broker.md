@@ -4,7 +4,7 @@
 
 **Superseded by [ADR-068](068-model-access-broker-parked.md) (2026-10-05):** the broker is parked and not supported for use; keyless-direct (ADR-064) is the only live model path. This record is kept as history of the parked implementation.
 
-Proposed for [#681](https://github.com/Brad-Edwards/shifter/issues/681),
+Proposed for [#681](https://github.com/Brad-Edwards/bigrae/issues/681),
 PLAT-202, 2026-09-06. This is an implementation decision for review; it does
 not advertise an installed capability or qualified provider.
 
@@ -83,8 +83,8 @@ protocol versions, and approved billing features come from validated
 deployment configuration. Model tool-use content is untrusted data, never
 permission to execute a tool. External tools require their own catalog
 entry and grant. The detailed contracts are in the
-[architecture](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/architecture.md) and
-[threat model](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/security.md).
+[architecture](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/architecture.md) and
+[threat model](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/security.md).
 
 ## Alternatives
 
@@ -108,7 +108,7 @@ Existing direct credential paths remain cleanup compatibility paths during
 migration. They cannot satisfy this ADR or be an outage fallback. AWS and
 other adapters need independent qualification; a provider-neutral interface
 is not parity evidence. Delivery and proof owners are listed in the
-[implementation backlog](https://github.com/Brad-Edwards/shifter/blob/dev/docs/architecture/model-access/delivery.md).
+[implementation backlog](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/model-access/delivery.md).
 
 Registry checks validate documentation structure and existing import rules.
 They do not prove this proposed runtime boundary.

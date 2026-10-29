@@ -141,24 +141,42 @@ class TestRealtimeBus:
         publish_event_notification(ctf_event_active, "announcement", {"subject": "s"})
         assert not WebSocketNotification.objects.exists()
 
-    def test_subscription_authorization(self, ctf_event_active, participant_user, organizer_user, django_user_model):
+    def test_subscription_authorization(
+        self,
+        ctf_event_active,
+        participant_user,
+        organizer_user,
+        django_user_model,
+        live_session_credential,
+        monkeypatch,
+    ):
         from ctf.services.notification.realtime import _can_subscribe, event_topic
+        from shared.authorization import AuthorizationDecision, DecisionKind, configured_authorization_provider
 
         _register(ctf_event_active, "member", user=participant_user)
         stranger = django_user_model.objects.create_user(username="s@test.com", email="s@test.com")
         topic = event_topic(ctf_event_active.pk)
+        organizer_proof = live_session_credential(organizer_user)
 
-        assert _can_subscribe(organizer_user, topic) is True
-        assert _can_subscribe(participant_user, topic) is True
-        assert _can_subscribe(stranger, topic) is False
+        assert _can_subscribe(organizer_proof, topic) is True
+        assert _can_subscribe(live_session_credential(participant_user), topic) is True
+        assert _can_subscribe(live_session_credential(stranger), topic) is False
 
-        # A demoted owner keeps no event feed on ownership alone (#2617).
-        from django.contrib.auth.models import Group
+        # Keep the same live proof and owner; revoke only native read policy (#2617).
+        provider = configured_authorization_provider()
+        check = provider.check
+        checked = []
 
-        from shared.auth import CTF_ORGANIZER_GROUP
+        def deny_current_grant(request):
+            if request.action == "event.read" and request.principal == organizer_proof.principal:
+                checked.append(request)
+                return AuthorizationDecision(DecisionKind.DENIED, "policy_denied")
+            return check(request)
 
-        organizer_user.groups.remove(Group.objects.get(name=CTF_ORGANIZER_GROUP))
-        assert _can_subscribe(organizer_user, topic) is False
+        monkeypatch.setattr(provider, "check", deny_current_grant)
+        assert _can_subscribe(organizer_proof, topic) is False
+        assert checked
+        assert _can_subscribe(live_session_credential(participant_user), topic) is True
 
     def test_first_blood_published_once(self, ctf_event_active, participant_user, monkeypatch):
         from ctf.enums import ChallengeCategory, ChallengeDifficulty

@@ -21,6 +21,6 @@ Risk register and audit logging are implemented platform features but were not r
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#559` (Architecture review: make audit logging durable or explicitly degraded instead of swallowing failures)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#559` (Architecture review: make audit logging durable or explicitly degraded instead of swallowing failures)
 - IMPLEMENTS → PULL_REQUEST `731` (Audit Logging)
 - IMPLEMENTS → GITHUB_ISSUE `151` (Issue #151)

@@ -22,7 +22,7 @@ from workspaces.models import Workspace, WorkspaceMembership
 from workspaces.roles import WorkspaceOperation
 
 from ._account import AccountScopeError, hierarchy_target_scope
-from ._account_policy_admin import _require_action
+from ._account_policy_admin import _fence_actor, _require_action
 from ._account_policy_lifecycle import _scope_for_lifecycle
 from ._authorization import _deny, authorize_bound_workspace
 
@@ -57,6 +57,7 @@ class PolicyRangeRebindAuthorization:
     owner: PrincipalRef
     source_account_id: int
     source_organization_id: int
+    credential: CredentialContext
 
 
 def authorize_policy_range_rebind(
@@ -75,7 +76,9 @@ def authorize_policy_range_rebind(
         source_scope = _scope_for_lifecycle(source.uuid, restore=True)
         target_scope = hierarchy_target_scope("workspace", destination.uuid)
         for row, scope in ((source, source_scope), (destination, target_scope)):
-            _require_action(actor, provider, "workspace.manage_range_scope", TargetRef("workspace", row.uuid), scope)
+            actor = _require_action(
+                actor, provider, "workspace.manage_range_scope", TargetRef("workspace", row.uuid), scope
+            )
     except AccountScopeError as exc:
         raise _deny("scope_denied") from exc
     if source.organization.account_id is None:
@@ -88,11 +91,16 @@ def authorize_policy_range_rebind(
         owner,
         source.organization.account_id,
         source.organization_id,
+        actor,
     )
 
 
 def lock_policy_range_rebind(proof: PolicyRangeRebindAuthorization) -> tuple[int, int]:
     """Recheck both ancestry projections and destination membership under ordered locks."""
+    try:
+        _fence_actor(proof.credential)
+    except AccountScopeError as exc:
+        raise _deny("scope_denied") from exc
     ids = sorted({proof.source_workspace_id, proof.target_workspace_id})
     rows = {
         row.pk: row
@@ -196,5 +204,7 @@ def authorize_policy_range_scope_listing(
 ) -> int:
     """Administrative scope inspection includes archived sources for safe evacuation."""
     scope = _scope_for_lifecycle(workspace_uuid, restore=True)
-    _require_action(actor, provider, "workspace.manage_range_scope", TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(
+        actor, provider, "workspace.manage_range_scope", TargetRef("workspace", workspace_uuid), scope
+    )
     return Workspace.objects.get(uuid=workspace_uuid).pk

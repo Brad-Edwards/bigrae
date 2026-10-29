@@ -11,6 +11,7 @@ from shared.authorization import AuthorizationDecision, CredentialCeiling, Decis
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.models import AuditLog
+from tests._credential_helpers import persisted_credential
 from workspaces import services
 from workspaces.models import Workspace
 
@@ -30,12 +31,14 @@ class Provider:
 
 def _actor():
     principal = Principal.objects.create(kind="service", name="Administrator")
-    return CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"workspace.manage_egress"})),
-        frozenset(),
+    return persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"workspace.manage_egress"})),
+            frozenset(),
+        )
     )
 
 

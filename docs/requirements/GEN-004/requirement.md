@@ -21,7 +21,7 @@ The codebase ships a documentation Django app and a versioned documentation tree
 
 ## Traceability
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#60` (Portal: Add documentation section)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#463` (Any authenticated user can access internal technical documentation and infrastructure runbooks)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#60` (Portal: Add documentation section)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#463` (Any authenticated user can access internal technical documentation and infrastructure runbooks)
 - IMPLEMENTS → CONFIG `shifter/shifter_platform/config/urls.py` (docs/ route mounted in the platform)
 - DOCUMENTS → DOCUMENTATION `docs/product-overview.md` (Documentation portal index)

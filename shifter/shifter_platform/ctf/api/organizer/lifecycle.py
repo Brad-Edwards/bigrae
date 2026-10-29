@@ -2,8 +2,8 @@
 
 Lifecycle transitions delegate to the authoritative ``ctf.services.event``
 state machine; these views own only HTTP shape and ownership resolution.
-Lifecycle, task, and cleanup control require the ``lifecycle`` capability: the
-owner and full co-organizers hold it; moderators and judges do not (#1922).
+Lifecycle, task, and cleanup control require current native
+``event.manage_lifecycle`` authority (#1922).
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from ctf.api.organizer._audit import (
 from ctf.api.organizer._base import (
     _EVENT_READ,
     _EVENT_WRITE,
-    _actor,
+    _credential,
     _event_authority,
     _raise_bad_request,
     _raise_conflict,
@@ -65,7 +65,7 @@ class EventLifecycleView(APIView):
 
         try:
             event = _resolve_owned_event(request, event_id, capability=EventCapability.LIFECYCLE)
-            source = _event_authority(request, event, EventCapability.LIFECYCLE)
+            source = _event_authority()
             serializer = EventLifecycleRequestSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             action = serializer.validated_data["action"]
@@ -73,7 +73,7 @@ class EventLifecycleView(APIView):
             # audit share one transaction (ADR-052-R4). The service asserts the
             # lifecycle capability again (defense in depth, #1922).
             with transaction.atomic():
-                self._apply(event, action, actor_id=_actor(request).pk)
+                self._apply(event, action, actor_id=_credential(request))
                 _audit_admin_mutation(request, event, source, f"event.lifecycle.{action}")
             event.refresh_from_db()
             return Response({"id": str(event.id), "name": event.name, "status": event.status})
@@ -81,7 +81,7 @@ class EventLifecycleView(APIView):
             return exc.to_response(request)
 
     @staticmethod
-    def _apply(event: CTFEvent, action: str, *, actor_id: int) -> None:
+    def _apply(event: CTFEvent, action: str, *, actor_id: object) -> None:
         """Run the transition via the service (asserts lifecycle capability); refusal is a 409."""
         from ctf.services.event import apply_event_lifecycle_transition
 
@@ -163,7 +163,7 @@ class TaskRunNowView(APIView):
     @extend_schema(request=None, responses=ScheduledTaskSerializer)
     def post(self, request: Request, event_id: UUID, task_id: UUID) -> Response:
         """Reschedule the task to now; the scheduler executes it on its next poll."""
-        from ctf.exceptions import CTFNotFoundError, CTFStateError
+        from ctf.exceptions import CTFCommunicationError, CTFNotFoundError, CTFStateError
         from ctf.services.event.scheduling import run_task_now
         from shared.api_tokens.models import ApiToken
 
@@ -175,11 +175,15 @@ class TaskRunNowView(APIView):
             auth = getattr(request, "auth", None)
             actor_token_id = auth.pk if isinstance(auth, ApiToken) else None
             try:
-                # A platform-admin override records intent before the task runs (ADR-052-R4).
+                # Record policy-authorized intent before any task side effect.
                 with admin_external_audit(request, "event.task.run_now"):
-                    task = run_task_now(event_id, task_id, actor_id=_actor(request).pk, actor_token_id=actor_token_id)
+                    task = run_task_now(event_id, task_id, actor_id=_credential(request), actor_token_id=actor_token_id)
             except CTFNotFoundError:
                 _raise_not_found("Scheduled task not found.")
+            except CTFCommunicationError as exc:
+                from ctf.api._base import ctf_error_response
+
+                return ctf_error_response(request, exc)
             except CTFStateError:
                 _raise_conflict("Only pending tasks can be run now.")
             return Response(_task_payload(task))
@@ -221,10 +225,12 @@ class EventCleanupControlView(APIView):
         """
         from django.db import transaction
 
+        from ctf.services.authorization import admit_event_actions
+        from ctf.services.event import get_event
         from ctf.services.event.scheduling import cancel_event_cleanup, defer_event_cleanup
 
         action = data["action"]
-        actor_id = _actor(request).pk
+        actor_id = admit_event_actions(_credential(request), get_event(event_id), "event.manage_lifecycle")
         with transaction.atomic():
             if action == "defer":
                 hours = data.get("hours")

@@ -1,7 +1,7 @@
 // Synthetic E2E actors. Staff / threat-research / standard are pre-seeded by the
 // `seed_e2e` management command (dev_login cannot set is_staff or the Threat
 // Research group); the CTF organizer/participant sessions are established by
-// dev_login itself. Each actor's authenticated session is captured once by
+// dev_login itself. `seed_e2e_ctf` adds the inbox actor's event and messages. Each actor's authenticated session is captured once by
 // auth.setup.ts into a storageState file the journey specs reuse.
 
 export type DevUserType = "standard" | "ctf_organizer" | "ctf_participant";
@@ -22,6 +22,8 @@ export const ACTORS = {
   standard: { email: "e2e-standard@example.com", userType: "standard", state: `${AUTH_DIR}/standard.json` },
   organizer: { email: "e2e-organizer@example.com", userType: "ctf_organizer", state: `${AUTH_DIR}/organizer.json` },
   participant: { email: "e2e-participant@example.com", userType: "ctf_participant", state: `${AUTH_DIR}/participant.json` },
+  // Seeded into one event with inbox messages by `seed_e2e_ctf` (#2053).
+  inbox: { email: "e2e-inbox@example.com", userType: "ctf_participant", state: `${AUTH_DIR}/inbox.json` },
 } as const satisfies Record<string, Actor>;
 
 export type ActorName = keyof typeof ACTORS;

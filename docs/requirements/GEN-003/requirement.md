@@ -21,8 +21,8 @@ The repo contains MCP servers that run with operator AWS credentials. The comman
 
 ## Traceability
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#457` (Command injection in mcp/ngfw run_command allows shell execution on the portal host)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#459` (Multiple shell injection paths in mcp/ops allow code execution on the MCP host)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#457` (Command injection in mcp/ngfw run_command allows shell execution on the portal host)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#459` (Multiple shell injection paths in mcp/ops allow code execution on the MCP host)
 - CONSTRAINS → ADR `ADR-010` (MCP servers invoke external CLIs via argv arrays, never shell strings)
 - IMPLEMENTS → CODE_FILE `mcp/shared/aws-helpers.js` (Shared AWS CLI argv-array execution helpers)
 - DOCUMENTS → DOCUMENTATION `mcp/ops/SECURITY.md` (ops MCP command execution guardrails)

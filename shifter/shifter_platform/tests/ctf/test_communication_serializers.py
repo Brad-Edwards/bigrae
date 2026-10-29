@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.api.serializers.communication import (
     CommunicationCampaignSummarySerializer,
     CommunicationInboxItemSerializer,
@@ -19,6 +18,7 @@ from ctf.api.serializers.communication import (
 from ctf.enums import ParticipantStatus
 from ctf.models import CTFParticipant, RecipientSnapshot
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
+from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = pytest.mark.django_db
 
@@ -33,7 +33,7 @@ def _released(organizer_user, ctf_event):
     )
     campaign = create_campaign(
         organizer_user,
-        str(workspace_services.resolve_personal_workspace(organizer_user).workspace_uuid),
+        individual_account_uuid(organizer_user),
         CampaignDraft(
             title="Kickoff",
             origin="organizer_staff",
@@ -44,6 +44,7 @@ def _released(organizer_user, ctf_event):
             subject="Welcome",
             body="Hello",
         ),
+        parent_type="account",
     )
     intent = release_campaign(campaign, occurrence_key="occ-ser", actor_user_id=organizer_user.id)
     return campaign, intent
@@ -64,6 +65,8 @@ def test_inbox_item_exposes_only_bounded_fields(organizer_user, ctf_event):
         "acknowledgement_policy",
         "read_at",
         "acknowledged_at",
+        "dismissed_at",
+        "action_required",
         "created_at",
     }
     # The recipient's address (and any other coordinate) must never surface.

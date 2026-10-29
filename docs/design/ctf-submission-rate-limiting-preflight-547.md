@@ -2,7 +2,7 @@
 
 Status: pre-implementation guidance
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/547>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/547>
 
 ## Boundary
 

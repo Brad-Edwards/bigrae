@@ -1,8 +1,7 @@
 """Organizer attribution for per-participant range actions (#2617).
 
-The range service acts as the participant, so the range's own audit row names
-the participant. This event-scoped row names the requesting organizer and the
-authority that admitted them.
+This event-scoped row supplements the owning range service's native principal
+audit with the requested participant and the policy authority that admitted it.
 """
 
 from __future__ import annotations
@@ -15,9 +14,7 @@ from shared.audit import (
     AuditEntityType,
     AuditEvent,
     audit_log,
-    get_actor_from_request,
-    get_client_ip,
-    get_request_id,
+    request_audit,
 )
 
 if TYPE_CHECKING:
@@ -27,11 +24,13 @@ if TYPE_CHECKING:
     from rest_framework.request import Request
 
     from ctf.models import CTFEvent
+    from shared.credentials import CredentialContext
 
 
 def audit_organizer_participant_range_action(
     *,
     request: Request | HttpRequest,
+    credential: CredentialContext,
     event: CTFEvent,
     participant_id: UUID,
     operation: str,
@@ -41,15 +40,16 @@ def audit_organizer_participant_range_action(
 
     The write is best effort, so the range action itself is unchanged.
     """
-    actor_type, actor_id = get_actor_from_request(request)
+    attribution = request_audit(request, credential=credential)
     audit_log(
         AuditEvent(
             entity_type=AuditEntityType.CONFIG,
             entity_id=_entity_id_from_uuid(event.pk),
             entity_ref=str(event.pk),
             action=AuditAction.UPDATE,
-            actor_type=actor_type,
-            actor_id=actor_id,
+            actor_type=attribution.actor_type,
+            actor_id=attribution.actor_id,
+            actor_principal_uuid=attribution.actor_principal_uuid,
             new_state={
                 "operation": operation,
                 "authority_source": authority_source,
@@ -57,8 +57,8 @@ def audit_organizer_participant_range_action(
                 "participant_id": str(participant_id),
             },
             context="ctf_organizer_participant_range_action",
-            source_ip=get_client_ip(request),
-            request_id=get_request_id(request),
-            user_agent=request.META.get("HTTP_USER_AGENT", "")[:255],
+            source_ip=attribution.source_ip,
+            request_id=attribution.request_id,
+            user_agent=attribution.user_agent[:255],
         )
     )

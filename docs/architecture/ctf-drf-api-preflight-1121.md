@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: PLAT-106, "Unified DRF API Surface"
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1121>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1121>
 
 This note narrows the repo-wide PLAT-106 DRF conventions to the CTF JSON API
 migration. It is intentionally not an implementation plan.

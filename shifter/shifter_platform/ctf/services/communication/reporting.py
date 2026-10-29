@@ -1,9 +1,9 @@
 """Authorized read projections for the communications console (#2052).
 
 Every function here reads existing ledger rows; none writes, reserves capacity, or
-calls a transport. Callers authorize the complete campaign target set first
-(``admission.reauthorize``); this module adds the per-event checks that a single
-projection needs. Projections carry bounded identifiers, counts, and display
+calls a transport. Public functions authorize the complete campaign target set through the owning
+read-admission boundary; recipient projections additionally require exact-event
+roster authority. Projections carry bounded identifiers, counts, and display
 names only: never a delivery coordinate, a body outside the reviewed preview, or
 another event's roster.
 """
@@ -17,12 +17,10 @@ from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.models import User
 from django.db.models import Count
 from django.utils import timezone
 
-import workspaces.services as workspace_services
-from ctf.enums import EventCapability, EventStatus, ScheduledTaskType
+from ctf.enums import ScheduledTaskType
 from ctf.enums_communication import DeliveryStatus, IntentStatus
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import (
@@ -33,10 +31,12 @@ from ctf.models import (
     MessageRevision,
     RecipientSnapshot,
 )
-from ctf.services.authorization import events_with_capability, resolve_event_authority
 from ctf.services.communication.adapters import registered_channels
+from ctf.services.communication.admission import AdmissionActor
 from ctf.services.communication.audience import recipient_queryset
 from ctf.services.communication.backpressure import max_audience
+from ctf.services.communication.read_admission import authorized_campaign
+from ctf.services.communication.targets import list_target_options, list_targets
 
 # Upper bound on timeline rows per source; the console reports truncation.
 MAX_TIMELINE_ROWS = 100
@@ -47,65 +47,6 @@ _NOT_FOUND = "CTF_COMMUNICATION_NOT_FOUND"
 def _unavailable() -> CTFCommunicationError:
     """Return the one opaque denial shared by missing and unauthorized lookups."""
     return CTFCommunicationError("Unavailable", code=_NOT_FOUND)
-
-
-def _workspace_bindings(user: User) -> dict[int, tuple[UUID, str]]:
-    """Map each active workspace the actor may use for communications to (uuid, name)."""
-    names = {
-        context.workspace_uuid: context.workspace_name
-        for context in workspace_services.list_actor_workspace_contexts(user)
-    }
-    operation = workspace_services.WorkspaceOperation.USE_CTF_COMMUNICATIONS
-    bindings: dict[int, tuple[UUID, str]] = {}
-    for workspace_id in workspace_services.authorized_workspace_ids(user, operation):
-        try:
-            authorization = workspace_services.authorize_bound_workspace(user, workspace_id, operation)
-        except workspace_services.WorkspaceAuthorizationError:
-            # Archived workspace or membership removed since the id query.
-            continue
-        bindings[workspace_id] = (authorization.workspace_uuid, names.get(authorization.workspace_uuid, ""))
-    return bindings
-
-
-def list_targets(user: User, *, workspace_uuid: UUID | None, limit: int, offset: int) -> dict[str, Any]:
-    """Return the workspaces and events where ``user`` may author a communication.
-
-    An event qualifies when the actor holds the notifications capability on it and
-    may use communications in its active workspace. Cancelled events are omitted
-    because release refuses them.
-    """
-    bindings = _workspace_bindings(user)
-    if workspace_uuid is not None:
-        bindings = {key: value for key, value in bindings.items() if value[0] == workspace_uuid}
-        if not bindings:
-            raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_WORKSPACE_DENIED")
-    events = list(
-        events_with_capability(user, capability=EventCapability.NOTIFICATIONS.value)
-        .filter(workspace_id__in=list(bindings))
-        .exclude(status=EventStatus.CANCELLED.value)
-        .order_by("event_start", "pk")[offset : offset + limit + 1]
-    )
-    rows = []
-    for event in events[:limit]:
-        # The workspace filter already excludes null bindings; this narrows the type.
-        if event.workspace_id is None:
-            continue
-        rows.append(
-            {
-                "id": event.pk,
-                "name": event.name,
-                "status": event.status,
-                "event_timezone": event.event_timezone,
-                "event_start": event.event_start,
-                "event_end": event.event_end,
-                "workspace_id": bindings[event.workspace_id][0],
-            }
-        )
-    return {
-        "workspaces": [{"id": uuid, "name": name} for uuid, name in sorted(bindings.values(), key=lambda v: v[1])],
-        "events": rows,
-        "next_offset": offset + limit if len(events) > limit else None,
-    }
 
 
 def _due_at(campaign: CommunicationCampaign) -> datetime | None:
@@ -129,7 +70,7 @@ def trigger_projection(campaign: CommunicationCampaign) -> dict[str, Any]:
     return {"kind": campaign.trigger_spec.get("kind"), "due_at": _due_at(campaign)}
 
 
-def preview(campaign: CommunicationCampaign, revision_id: UUID) -> dict[str, Any]:
+def _preview(campaign: CommunicationCampaign, revision_id: UUID) -> dict[str, Any]:
     """Project one reviewed revision and the current audience estimate.
 
     Counts aggregate the release audience query per event without loading
@@ -248,7 +189,7 @@ def _occurrence_events(
     return events, totals
 
 
-def delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int) -> dict[str, Any]:
+def _delivery_report(campaign: CommunicationCampaign, *, limit: int, offset: int) -> dict[str, Any]:
     """Aggregate delivery state per occurrence, event, and channel.
 
     Delivery commands and receipts are counted in separate grouped queries, so a
@@ -306,8 +247,8 @@ def _recipient_row(snapshot: RecipientSnapshot) -> dict[str, Any]:
     }
 
 
-def recipient_rows(
-    user: User, campaign: CommunicationCampaign, *, intent_id: UUID, event_id: UUID, limit: int, offset: int
+def _recipient_rows(
+    campaign: CommunicationCampaign, *, intent_id: UUID, event_id: UUID, limit: int, offset: int
 ) -> dict[str, Any]:
     """Return minimal per-recipient state for one occurrence and one target event.
 
@@ -319,8 +260,6 @@ def recipient_rows(
     event = campaign.target_events.filter(pk=event_id).first()
     if intent is None or event is None:
         raise _unavailable()
-    if resolve_event_authority(user, event, capability=EventCapability.PARTICIPANTS.value) is None:
-        raise _unavailable()
     snapshots = list(
         RecipientSnapshot.objects.filter(intent=intent, event=event)
         .select_related("participant", "participant__team", "receipt")
@@ -331,14 +270,32 @@ def recipient_rows(
     return {"results": rows, "next_offset": offset + limit if len(snapshots) > limit else None}
 
 
-def _actor(user_id: int | None, token_id: int | None, labels: dict[int, str], via: str = "") -> dict[str, str] | None:
-    """Return a display actor; ``None`` when no human identity was recorded."""
-    if user_id is None:
+def _actor(
+    user_id: int | None,
+    token_id: int | None,
+    labels: dict[int, str],
+    via: str = "",
+    *,
+    principal_uuid: UUID | None = None,
+) -> dict[str, Any] | None:
+    """Retain native attribution without guessing a human from a service contact."""
+    if user_id is None and principal_uuid is None:
         return None
-    return {"label": labels.get(user_id, ""), "via": via or ("api_token" if token_id is not None else "session")}
+    if not via:
+        if token_id is not None:
+            via = "api_token"
+        elif user_id is not None:
+            via = "session"
+        else:
+            via = "credential"
+    return {
+        "label": labels.get(user_id, "") if user_id is not None else "Principal",
+        "via": via,
+        "principal_uuid": principal_uuid,
+    }
 
 
-def _entry(kind: str, at: datetime, actor: dict[str, str] | None, **extra: Any) -> dict[str, Any]:
+def _entry(kind: str, at: datetime, actor: dict[str, Any] | None, **extra: object) -> dict[str, Any]:
     """Build one timeline entry with every optional field present."""
     base = {"kind": kind, "at": at, "actor": actor, "revision_number": None, "intent_id": None}
     return {**base, "status": None, "due_at": None, **extra}
@@ -346,7 +303,7 @@ def _entry(kind: str, at: datetime, actor: dict[str, str] | None, **extra: Any) 
 
 def _intent_entries(intent: CommunicationIntent, labels: dict[int, str]) -> list[dict[str, Any]]:
     """Return the scheduled, released, and terminal entries for one occurrence."""
-    actor = _actor(intent.actor_user_id, intent.actor_token_id, labels)
+    actor = _actor(intent.actor_user_id, intent.actor_token_id, labels, principal_uuid=intent.initiating_principal_uuid)
     extra = {
         "intent_id": intent.pk,
         "revision_number": intent.revision.revision_number,
@@ -359,14 +316,20 @@ def _intent_entries(intent: CommunicationIntent, labels: dict[int, str]) -> list
     if intent.released_at is not None:
         # A timed occurrence is released by the scheduler on the author's authority.
         via = "scheduler" if intent.due_at is not None else ""
-        release_actor = _actor(intent.actor_user_id, intent.actor_token_id, labels, via=via)
+        release_actor = _actor(
+            intent.actor_user_id,
+            intent.actor_token_id,
+            labels,
+            via=via,
+            principal_uuid=intent.initiating_principal_uuid,
+        )
         entries.append(_entry("released", intent.released_at, release_actor, **extra))
     if intent.status in (IntentStatus.EXPIRED.value, IntentStatus.FENCED.value):
         entries.append(_entry(intent.status, intent.updated_at, None, **extra))
     return entries
 
 
-def activity_timeline(campaign: CommunicationCampaign) -> dict[str, Any]:
+def _activity_timeline(campaign: CommunicationCampaign) -> dict[str, Any]:
     """Return the body-free campaign timeline built from ledger attribution.
 
     Entries cover creation, each revision, each scheduled or released occurrence,
@@ -387,24 +350,66 @@ def activity_timeline(campaign: CommunicationCampaign) -> dict[str, Any]:
     user_ids |= {revision.actor_user_id for revision in revisions} | {intent.actor_user_id for intent in intents}
     labels = dict(get_user_model().objects.filter(pk__in=user_ids - {None}).values_list("pk", "username"))
 
-    entries = [_entry("created", campaign.created_at, _actor(campaign.created_by_id, campaign.actor_token_id, labels))]
+    entries = [
+        _entry(
+            "created",
+            campaign.created_at,
+            _actor(
+                campaign.created_by_id, campaign.actor_token_id, labels, principal_uuid=campaign.creator_principal_uuid
+            ),
+        )
+    ]
     for revision in revisions:
-        actor = _actor(revision.actor_user_id, revision.actor_token_id, labels)
+        actor = _actor(
+            revision.actor_user_id, revision.actor_token_id, labels, principal_uuid=revision.actor_principal_uuid
+        )
         entries.append(_entry("revised", revision.created_at, actor, revision_number=revision.revision_number))
     for intent in intents:
         entries.extend(_intent_entries(intent, labels))
     if campaign.cancelled_at is not None:
-        actor = _actor(campaign.cancelled_by_user_id, campaign.cancelled_by_token_id, labels)
+        actor = _actor(
+            campaign.cancelled_by_user_id,
+            campaign.cancelled_by_token_id,
+            labels,
+            principal_uuid=campaign.cancelled_by_principal_uuid,
+        )
         entries.append(_entry("cancelled", campaign.cancelled_at, actor))
     order = {id(item): index for index, item in enumerate(entries)}
     entries.sort(key=lambda item: (item["at"], order[id(item)]))
     return {"entries": entries, "truncated": truncated}
 
 
+def preview(campaign_id: UUID, revision_id: UUID, *, actor: AdmissionActor) -> dict[str, Any]:
+    """Read reviewed content only after current complete-target admission."""
+    with authorized_campaign(campaign_id, actor) as campaign:
+        return _preview(campaign, revision_id)
+
+
+def delivery_report(campaign_id: UUID, *, actor: AdmissionActor, limit: int, offset: int) -> dict[str, Any]:
+    """Read aggregate delivery facts behind the owning admission boundary."""
+    with authorized_campaign(campaign_id, actor) as campaign:
+        return _delivery_report(campaign, limit=limit, offset=offset)
+
+
+def recipient_rows(
+    campaign_id: UUID, *, actor: AdmissionActor, intent_id: UUID, event_id: UUID, limit: int, offset: int
+) -> dict[str, Any]:
+    """Read minimal roster facts with independent exact-event roster authority."""
+    with authorized_campaign(campaign_id, actor, participant_event_id=event_id) as campaign:
+        return _recipient_rows(campaign, intent_id=intent_id, event_id=event_id, limit=limit, offset=offset)
+
+
+def activity_timeline(campaign_id: UUID, *, actor: AdmissionActor) -> dict[str, Any]:
+    """Read body-free attribution only after complete-target admission."""
+    with authorized_campaign(campaign_id, actor) as campaign:
+        return _activity_timeline(campaign)
+
+
 __all__ = [
     "MAX_TIMELINE_ROWS",
     "activity_timeline",
     "delivery_report",
+    "list_target_options",
     "list_targets",
     "preview",
     "recipient_rows",

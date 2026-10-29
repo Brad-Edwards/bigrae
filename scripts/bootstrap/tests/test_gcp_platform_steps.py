@@ -23,7 +23,6 @@ from gcp_process import ProcessResult
 from gcp_terraform import (
     TerraformStepError,
     apply_destroy_settings,
-    artifact_registry_kms_adoption,
     backend_prefix,
     deployment_values,
     drop_unremovable_kms_resources,
@@ -184,21 +183,6 @@ class TestTerraformSteps:
         empty = FakeRunner()
         apply_destroy_settings(empty, ctx)
         assert not empty.find("terraform", f"-chdir={ctx.root}", "apply")
-
-    def test_reinstall_adopts_the_key_ring_that_a_destroy_left(self, inputs):
-        # gcp-destroy drops the key ring from state; a reinstall adopts it (#2643).
-        ctx = terraform_context(inputs, inputs.workdir, {})
-        assert artifact_registry_kms_adoption(FakeRunner(), ctx, inputs) == ("-var=adopt_artifact_registry_kms=true",)
-        absent = FakeRunner().on(["gcloud", "kms", "keyrings", "describe"], ProcessResult(1))
-        assert artifact_registry_kms_adoption(absent, ctx, inputs) == ()
-        managed = FakeRunner().on(
-            ["terraform", f"-chdir={ctx.root}", "state", "list"],
-            ProcessResult(
-                0, "module.platform_core.module.portal_artifact_registry.google_kms_key_ring.artifact_registry\n"
-            ),
-        )
-        assert artifact_registry_kms_adoption(managed, ctx, inputs) == ()
-        assert not managed.find("gcloud", "kms")
 
     def test_state_list_failure_is_an_empty_state(self, inputs):
         ctx = terraform_context(inputs, inputs.workdir, {})

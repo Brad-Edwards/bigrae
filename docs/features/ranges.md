@@ -158,12 +158,16 @@ This is irreversible. All range data is deleted.
 A deployment can keep a **warm pool** of pre-provisioned, system-owned ranges so an
 initial launch is handed a ready range instead of waiting for cold provisioning.
 Warm pooling is **disabled by default**; an operator enables it in `bigrae.yaml`
-under `settings.warm_pool`.
+under `settings.warm_pool`. An active pool also requires
+`WARM_POOL_SERVICE_CREDENTIAL_UUID`, set to the UUID of an active,
+installation-scoped service admission with `installation.launch_range`. The UUID
+is a non-secret reference; the workload still authenticates through its normal
+keyless service identity. Startup fails if an active policy has no valid reference.
 
 How it behaves:
 
 - Launch first tries to atomically claim a compatible ready range from the pool. On
-  a hit, the range is transferred to the launching user with **fresh, fully
+  a hit, the range is transferred to the launching principal and account scope with **fresh, fully
   re-established credentials and access**. No prior tenant's data, credentials, or
   sessions cross the ownership boundary. On a miss (empty pool, an incompatible
   request, or a backend without warm support), launch **falls back to normal cold

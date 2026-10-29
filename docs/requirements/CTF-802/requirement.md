@@ -21,4 +21,4 @@ Real-time notification delivery is a platform capability. Mission Control alread
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#665` (CTF-802: Real-Time Notifications)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#665` (CTF-802: Real-Time Notifications)

@@ -3,7 +3,7 @@
 > **Historical implementation record.** This issue-scoped preflight is not current-system authority. See the [current-state handbook](../technical/architecture.md) and accepted, superseding ADRs.
 
 
-Architecture guidance for [#2535](https://github.com/Brad-Edwards/shifter/issues/2535).
+Architecture guidance for [#2535](https://github.com/Brad-Edwards/bigrae/issues/2535).
 The supplied issue is the delivery contract; no Ground Control requirement is
 attached. This note records intended behavior, not implemented defaults or an
 implementation plan. It applies ADR-008/011 config and identity boundaries,
@@ -93,7 +93,7 @@ variation belongs at the project operator seam, not in guest/range state.
 | Host/OS exposure: `installation.contract.CommandSpec`, doctor execution seams, existing GCP readback scripts | Use fixed argv arrays with `shell=False`, validated identifiers, bounded timeouts and bounded JSON/log queries. ADC/WIF handles authentication; tokens, keys and model bodies never enter argv, command logs or shell substitution. No environment dumps, credential-bearing diagnostic URLs or raw Terraform-state artifacts. |
 | Error and observability boundaries: `log_redact`, `shared.log_sanitize`, `config._logging_config`, `shared.api.errors`, operation results | Report allowlisted control names/status/settings and bounded reason codes. Fingerprint identifiers in ordinary runtime logs; keep provider payloads, principal inventories, secret references, prompts/responses and raw SDK errors out of public errors, events and metrics. Do not add a logging formatter, cloud-audit event schema or HTTP error envelope. |
 | Persistence: Engine operation/ownership records and `shared.audit` | Preserve generation, placement, ownership and partial-failure evidence through existing services/repositories. Cloud Logging stores provider records; the application audit ledger stores application decisions. Do not duplicate cloud logs in PostgreSQL, add a telemetry state machine or expand provisioner database grants. |
-| Repo policy/workflows | Preserve `.ground-control.yaml`, `.gc/plan-rules.md`, `.importlinter`, Terraform root validation inventory/lockfiles, `.tflint.hcl`, Checkov policy and exception registry, `_quality.yml`, `deploy.yml` and `_gcp-dev.yml`. Use canonical `Brad-Edwards/shifter`, synthetic fixtures and generic public evidence. No private pack details or new requirement/traceability records for this requirement-free issue. |
+| Repo policy/workflows | Preserve `.ground-control.yaml`, `.gc/plan-rules.md`, `.importlinter`, Terraform root validation inventory/lockfiles, `.tflint.hcl`, Checkov policy and exception registry, `_quality.yml`, `deploy.yml` and `_gcp-dev.yml`. Use canonical `Brad-Edwards/bigrae`, synthetic fixtures and generic public evidence. No private pack details or new requirement/traceability records for this requirement-free issue. |
 
 ## Validation and evidence semantics
 

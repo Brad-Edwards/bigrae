@@ -6,9 +6,11 @@ import pytest
 from django.utils import timezone
 
 from engine.models import PreparationAttempt, PreparationOperation
-from engine.services import cancel_artifact_preparation, request_artifact_preparation
+from engine.services import cancel_artifact_preparation
 from engine.services._preparation_worker import attempt_token, record_preparation_worker_result
 from shared.cloud.types import TaskInterruptDisposition
+from shared.identity_scope import ResourceScope
+from tests.engine.services._preparation_fixtures import request_artifact_preparation
 from tests.engine.services.test_preparation_operations import administrator, grant, installed, operator, package_input
 from tests.shared.raes.test_prepared_artifacts import admission_arguments
 
@@ -140,15 +142,16 @@ def test_result_does_not_advance_until_worker_pods_are_absent(operator, installe
 
 
 @pytest.mark.parametrize("failure", ["provider", "cancel-race", "revoked", "expired", "worker"])
-def test_failed_or_stale_work_never_reaches_inventory_and_keeps_cleanup(operator, installed, grant, runtime, failure):
+def test_failed_or_stale_work_never_reaches_inventory_and_keeps_cleanup(
+    operator, installed, grant, runtime, failure, monkeypatch
+):
     from engine.models import PreparedArtifactAdmission
 
     controller, task, observer = runtime
     operation = request_artifact_preparation(operator, installed.id, package_input())
     if failure == "expired":
-        PreparationAttempt.objects.filter(operation_id=operation.id).update(
-            expires_at=timezone.now() - timedelta(seconds=1)
-        )
+        deadline = PreparationAttempt.objects.get(operation_id=operation.id).expires_at
+        monkeypatch.setattr(timezone, "now", lambda: deadline + timedelta(seconds=1))
     elif failure == "revoked":
         grant.active = False
         grant.save(update_fields=["active"])
@@ -208,14 +211,14 @@ def test_prepared_inventory_projection_rejects_mapping_drift(operator, installed
     for key in ("inputs", "build", "output"):
         receipt(operation.id, evidence[key])
         controller.reconcile_preparation(operation.id)
-    supplied = list_backend_artifacts(provider="gce")
+    supplied = list_backend_artifacts(provider="gce", credential=operator, scope=ResourceScope("installation"))
     assert supplied[0].image_id == "555"
     assert supplied[0].materialization.operation_id == operation.id
     admission = PreparedArtifactAdmission.objects.get(operation_id=operation.id)
     mapping = admission.image_mapping
     mapping.image_ref = "projects/test-project/global/images/changed"
     mapping.save(update_fields=["image_ref"])
-    assert list_backend_artifacts(provider="gce") == []
+    assert list_backend_artifacts(provider="gce", credential=operator, scope=ResourceScope("installation")) == []
 
 
 def test_terminal_job_without_a_receipt_is_failed_and_cleaned(operator, installed, runtime):
@@ -227,3 +230,19 @@ def test_terminal_job_without_a_receipt_is_failed_and_cleaned(operator, installe
     row = PreparationOperation.objects.get(pk=operation.id)
     assert row.state == "failed" and row.cleanup_pending
     assert task.stopped
+
+
+def test_prepared_output_is_reused_without_worker_or_private_operation_disclosure(operator, installed, runtime):
+    from engine.models import PreparationAttempt, PreparationOperation
+
+    controller, _task, _observer = runtime
+    operation = request_artifact_preparation(operator, installed.id, package_input())
+    evidence = admission_arguments()
+    for key in ("inputs", "build", "output"):
+        receipt(operation.id, evidence[key])
+        controller.reconcile_preparation(operation.id)
+    before = PreparationAttempt.objects.count()
+    result = request_artifact_preparation(operator, installed.id, package_input())
+    assert result.state == "available" and result.reused and result.id is None
+    assert PreparationOperation.objects.count() == 1
+    assert PreparationAttempt.objects.count() == before

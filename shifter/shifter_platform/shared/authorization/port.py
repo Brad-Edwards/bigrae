@@ -43,6 +43,10 @@ class AuthorizationProvider(Protocol):
         page_size: int = 100,
     ) -> RelationshipChangePage: ...
 
+    def read_relationship_subjects(self, relation: str, object_value: str, *, limit: int = 2) -> tuple[str, ...]:
+        """Read a bounded set of subjects for the exact provider relation and object."""
+        ...
+
 
 class AuthorizationProviderBindingError(RuntimeError):
     """No unique runtime authorization provider factory is available."""

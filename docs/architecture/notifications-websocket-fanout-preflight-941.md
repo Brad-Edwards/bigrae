@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-20
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/941>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/941>
 
 Superseded note: ADR-027 / issue #1195 removed the legacy experiments app and
 its direct experiment-status websocket. References below to experiment-specific

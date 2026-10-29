@@ -22,5 +22,5 @@ Event metadata is the minimum information needed to create and present a CTF eve
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFEvent model - name, description, scenario_id fields)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#663` (CTF-707: Event Metadata)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#663` (CTF-707: Event Metadata)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/provision.py` (Range provisioning uses event.scenario_id (provision_participant_range))

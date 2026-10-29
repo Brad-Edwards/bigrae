@@ -84,8 +84,19 @@ def _lock_range(operation_id: UUID | str) -> Range | None:
     join. Related rows are resolved afterwards and locked explicitly, in the
     declared primary-key order, by the paths that mutate them.
     """
-    from engine.models import Range
+    from engine.models import Range, WarmRangeGeneration
 
+    # Claim, activation, creation and retirement serialize on the ledger before
+    # the runtime. Results must take that same order before their READY/FAILED
+    # transition updates the ledger. Recheck the operation after waiting: a
+    # concurrent lifecycle may have advanced the runtime while this was queued.
+    request_id = (
+        Range.objects.filter(provisioner_operation_id=operation_id)
+        .values_list("request__request_id", flat=True)
+        .first()
+    )
+    if request_id is not None:
+        WarmRangeGeneration.objects.select_for_update().filter(request_id=request_id).first()
     return Range.objects.select_for_update().filter(provisioner_operation_id=operation_id).first()
 
 

@@ -11,7 +11,7 @@
 
 Status: pre-implementation guidance
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1183>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1183>
 
 Issue #1183 is a security maintenance fix for regex-backed CTF flags. The
 invariant is that participant-triggered flag verification has bounded CPU cost

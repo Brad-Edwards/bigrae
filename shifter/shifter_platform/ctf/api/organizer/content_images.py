@@ -21,22 +21,24 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ctf.api._base import CTF_ORGANIZER_PERMISSIONS, CTF_ROLE_PERMISSIONS, _CtfApiError
+from ctf.api._base import CTF_AUTH_PERMISSIONS, CTF_ORGANIZER_PERMISSIONS, _CtfApiError
 from ctf.api.organizer._base import (
     _EVENT_OR_PLAY_READ,
     _EVENT_READ,
-    _actor,
+    _credential,
     _raise_not_found,
     _resolve_owned_event,
 )
+from ctf.exceptions import CTFError
+from shared.api.errors import api_error_response
 from shared.api.schema import ApiErrorSerializer
 
 if TYPE_CHECKING:
     from uuid import UUID
 
 _IMAGE_NOT_FOUND = "Image not found"
-# A ready copy never changes: a new source URL is a new row with a new id.
-_IMAGE_CACHE_CONTROL = "private, max-age=86400, immutable"
+# Bytes are immutable; access is revocable. Every fetch must reach admission.
+_IMAGE_CACHE_CONTROL = "private, no-store"
 
 
 class OrganizerContentImageSerializer(serializers.Serializer):
@@ -89,7 +91,7 @@ class EventContentImagesView(APIView):
 class ContentImageView(APIView):
     """Send one ready first-party image copy (GET)."""
 
-    permission_classes = CTF_ROLE_PERMISSIONS
+    permission_classes = CTF_AUTH_PERMISSIONS
     required_read_scopes = _EVENT_OR_PLAY_READ
 
     @extend_schema(responses={(200, "image/*"): OpenApiTypes.BINARY, 404: ApiErrorSerializer})
@@ -104,13 +106,17 @@ class ContentImageView(APIView):
                 .filter(pk=image_id, status=ContentImageStatus.READY)
                 .first()
             )
-            if image is None or not can_read_content_image(_actor(request), image):
+            if image is None or not can_read_content_image(_credential(request), image):
                 _raise_not_found(_IMAGE_NOT_FOUND)
             data = read_content_image(image)
             if data is None:
                 _raise_not_found(_IMAGE_NOT_FOUND)
         except _CtfApiError as exc:
             return exc.to_response(request)
+        except CTFError:
+            return api_error_response(
+                code="dependency_unavailable", message="Service unavailable", status_code=503, request=request
+            )
         response = HttpResponse(data, content_type=image.content_type)
         response["Content-Disposition"] = "inline"
         response["Content-Length"] = str(len(data))

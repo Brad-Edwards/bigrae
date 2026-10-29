@@ -11,6 +11,7 @@ from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.operation_authority import (
     authority_resource_scope,
     credential_reference_fields,
+    credential_reference_from_fields,
     credential_reference_from_record,
 )
 
@@ -25,6 +26,7 @@ def test_session_reference_roundtrip_keeps_empty_http_scopes_and_exact_action_ta
     )
     fields = credential_reference_fields(credential)
     assert credential_reference_from_record(SimpleNamespace(**fields)) == credential
+    assert credential_reference_from_fields(fields) == credential
     assert set(fields) == {
         "initiating_principal_uuid",
         "initiating_principal_kind",
@@ -59,6 +61,26 @@ def test_unknown_scope_or_noncanonical_record_cannot_carry_secret_material():
     fields["credential_ceiling_actions"] = "range.manage\nrange.manage"
     with pytest.raises(ValueError, match="Operation authority unavailable"):
         credential_reference_from_record(SimpleNamespace(**fields))
+    with pytest.raises(ValueError, match="Operation authority unavailable"):
+        credential_reference_from_fields(fields)
+
+
+@pytest.mark.parametrize("change", ["missing", "text-uuid", "untyped-ceiling", "invalid-kind"])
+def test_scalar_snapshot_decoder_requires_the_same_closed_record_shape(change):
+    credential = CredentialContext(
+        PrincipalRef(uuid4(), "human"), "session", uuid4(), CredentialCeiling(frozenset({"range.read"})), frozenset()
+    )
+    fields = credential_reference_fields(credential)
+    if change == "missing":
+        fields.pop("credential_uuid")
+    elif change == "text-uuid":
+        fields["credential_uuid"] = str(credential.credential_uuid)
+    elif change == "untyped-ceiling":
+        fields["credential_ceiling_actions"] = None
+    else:
+        fields["credential_kind"] = "unknown"
+    with pytest.raises(ValueError, match="Operation authority unavailable"):
+        credential_reference_from_fields(fields)
 
 
 def test_recorded_authority_scope_preserves_resolved_ancestry():

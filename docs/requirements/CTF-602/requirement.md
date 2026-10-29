@@ -29,4 +29,4 @@ Invitation-based registration is essential for private or enterprise CTF events 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/invitation.html` (Invitation email HTML template with magic link)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/invitation.txt` (Invitation email plain text template with magic link)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (URL routing for registration, invite send, resend-invite endpoints)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#651` (CTF-602: Participant Invitation)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#651` (CTF-602: Participant Invitation)

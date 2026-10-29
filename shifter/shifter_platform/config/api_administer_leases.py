@@ -5,9 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
+from django.http import QueryDict
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers
 from rest_framework.authentication import SessionAuthentication
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -68,23 +70,34 @@ class StrictObjectSerializer(serializers.Serializer):
         unknown = set(data) - set(self.fields)
         if unknown:
             raise serializers.ValidationError(dict.fromkeys(sorted(unknown), "Unknown field."))
+        if isinstance(data, QueryDict):
+            errors = {
+                name: "This field is required."
+                for name, field in self.fields.items()
+                if field.required and name not in data
+            }
+            errors.update({name: "Supply exactly one value." for name in data if len(data.getlist(name)) != 1})
+            if errors:
+                raise serializers.ValidationError(errors)
         return super().to_internal_value(data)
 
 
 class StrictIntegerField(serializers.IntegerField):
-    """Integer field that rejects booleans, strings, and fractional values."""
+    """Keep JSON integers strict while parsing published HTML form scalars."""
 
     def to_internal_value(self, data: Any) -> int:
-        if isinstance(data, bool) or not isinstance(data, int):
+        if not isinstance(getattr(self.root, "initial_data", None), QueryDict) and (
+            isinstance(data, bool) or not isinstance(data, int)
+        ):
             self.fail("invalid")
         return super().to_internal_value(data)
 
 
 class StrictBooleanField(serializers.BooleanField):
-    """Boolean field that rejects integer/string coercion."""
+    """Keep JSON booleans strict while parsing published HTML form scalars."""
 
     def to_internal_value(self, data: Any) -> bool:
-        if not isinstance(data, bool):
+        if not isinstance(getattr(self.root, "initial_data", None), QueryDict) and not isinstance(data, bool):
             self.fail("invalid", input=data)
         return super().to_internal_value(data)
 
@@ -248,13 +261,15 @@ class MissionControlLeasePolicySettingsView(_LeasePolicyAdminView):
 class MissionControlTenantLeasePolicyView(_LeasePolicyAdminView):
     """Replace the complete runtime tenant policy under revision CAS."""
 
+    serializer_class = ReplaceLeasePolicySerializer
+
     @extend_schema(
         request=ReplaceLeasePolicySerializer,
         responses=MissionControlLeasePolicySettingsSerializer,
         operation_id="api_v1_administer_mission_control_lease_policy_tenant_replace",
     )
     def put(self, request: Request) -> Response:
-        serializer = ReplaceLeasePolicySerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
@@ -272,13 +287,15 @@ class MissionControlTenantLeasePolicyView(_LeasePolicyAdminView):
 class MissionControlTenantLeasePolicyResetView(_LeasePolicyAdminView):
     """Explicitly remove the runtime tenant replacement."""
 
+    serializer_class = ResetLeasePolicySerializer
+
     @extend_schema(
         request=ResetLeasePolicySerializer,
         responses=MissionControlLeasePolicySettingsSerializer,
         operation_id="api_v1_administer_mission_control_lease_policy_tenant_reset",
     )
     def post(self, request: Request) -> Response:
-        serializer = ResetLeasePolicySerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             reset_tenant_lease_policy(
@@ -294,13 +311,15 @@ class MissionControlTenantLeasePolicyResetView(_LeasePolicyAdminView):
 class MissionControlGroupLeasePolicyView(_LeasePolicyAdminView):
     """Replace one policy-eligible RBAC group's complete lease policy."""
 
+    serializer_class = ReplaceLeasePolicySerializer
+
     @extend_schema(
         request=ReplaceLeasePolicySerializer,
         responses=MissionControlLeasePolicySettingsSerializer,
         operation_id="api_v1_administer_mission_control_lease_policy_group_replace",
     )
     def put(self, request: Request, group_id: int) -> Response:
-        serializer = ReplaceLeasePolicySerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         try:
@@ -319,13 +338,15 @@ class MissionControlGroupLeasePolicyView(_LeasePolicyAdminView):
 class MissionControlGroupLeasePolicyResetView(_LeasePolicyAdminView):
     """Explicitly remove one group policy so the group inherits tenant policy."""
 
+    serializer_class = ResetLeasePolicySerializer
+
     @extend_schema(
         request=ResetLeasePolicySerializer,
         responses=MissionControlLeasePolicySettingsSerializer,
         operation_id="api_v1_administer_mission_control_lease_policy_group_reset",
     )
     def post(self, request: Request, group_id: int) -> Response:
-        serializer = ResetLeasePolicySerializer(data=request.data)
+        serializer = self.serializer_class(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
             reset_group_lease_policy(
@@ -352,7 +373,7 @@ class _PreparedLeasePolicyMixin:
     """Dormant service-capable admission; activation belongs to S8."""
 
     permission_classes = [IsAuthenticatedSessionOrApiToken]
-    parser_classes = [ClosedJSONParser]
+    parser_classes = [ClosedJSONParser, FormParser, MultiPartParser]
     policy_administration = True
 
 

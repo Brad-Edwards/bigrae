@@ -27,7 +27,7 @@ from ctf.api.organizer._audit import (
 )
 from ctf.api.organizer._base import (
     _EVENT_WRITE,
-    _actor,
+    _credential,
     _raise_bad_request,
     _raise_forbidden,
     _resolve_owned_event,
@@ -74,7 +74,7 @@ class EventContentRefreshView(APIView):
             # Non-rollbackable content reconciliation: record override intent
             # before the first side effect, then the correlated outcome.
             with admin_external_audit(request, "content.refresh"):
-                result = self._refresh(event, expected, actor_id=_actor(request).pk)
+                result = self._refresh(event, expected, actor_id=_credential(request))
             return Response(
                 {
                     "event_id": str(event.id),
@@ -90,7 +90,7 @@ class EventContentRefreshView(APIView):
             return exc.to_response(request)
 
     @staticmethod
-    def _refresh(event: CTFEvent, expected_current_digest: str, *, actor_id: int) -> ContentRefreshResult:
+    def _refresh(event: CTFEvent, expected_current_digest: str, *, actor_id: object) -> ContentRefreshResult:
         """Resolve configured content and run the reconciler, mapping errors to envelopes."""
         from ctf.exceptions import CTFPermissionError, CTFStateError, CTFValidationError
         from ctf.services import refresh_event_ctf_content, resolve_scenario_ctf_content

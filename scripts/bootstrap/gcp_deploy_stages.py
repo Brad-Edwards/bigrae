@@ -255,8 +255,8 @@ def sync_policy_credentials(
 
 
 def restart_policy_clients(runner: ProcessRunner) -> None:
-    """Restart the released policy servers and the portal so they read new credentials."""
-    for deployment in ("openfga", "openfga-admin", "portal-web"):
+    """Restart only policy servers; application restore requires native activation."""
+    for deployment in ("openfga", "openfga-admin"):
         runner.run(["kubectl", "rollout", "restart", f"deployment/{deployment}", "-n", "shifter-platform"])
     for deployment in ("openfga", "openfga-admin"):
         runner.run(
@@ -287,6 +287,9 @@ class RolloutRequest:
     identities: Mapping[str, str]
     evidence: EvidenceRun
     first_install: bool
+    identity_cutover_facts: str = ""
+    identity_bootstrap_facts: str = ""
+    catalog_credential_file: str = ""
 
 
 def rollout_stage(
@@ -296,6 +299,7 @@ def rollout_stage(
     request: RolloutRequest,
 ) -> bool:
     """Render, migrate, upgrade, verify, and wait. Return True when the certificate is Active."""
+    from gcp_catalog import initialize_catalog
     from gcp_control_plane import (
         ensure_gcp_control_plane_namespaces,
         run_gcp_database_migrations,
@@ -309,6 +313,12 @@ def rollout_stage(
         remove_retired_objects,
         render_chart,
         write_values,
+    )
+    from gcp_identity_cutover import (
+        activate_identity_cutover,
+        identity_cutover_boundary,
+        migrate_policy_datastore,
+        retire_disabled_broker,
     )
     from gcp_openvpn import ensure_pki, pool_output, roll_out_pool
     from gcp_rollout import (
@@ -340,15 +350,30 @@ def rollout_stage(
         values_file = write_values(inputs.workdir, values)
         values_files = [profile_values_path(inputs.profile), values_file]
         ensure_gcp_control_plane_namespaces()
-        adopt_objects(runner, {}, render_chart(runner, {}, values_files))
-        run_gcp_database_migrations(outputs, values_file)
-        sync_gcp_guacamole_runtime_secret(gdc_config(inputs), outputs)
+        documents = render_chart(runner, {}, values_files)
+        # Only prerequisite bindings change before a conclusive probe. Policy
+        # rotation that makes the incumbent runtime unverifiable stops here.
         policy_enabled = sync_policy_credentials(runner, inputs, outputs)
-        helm_upgrade(runner, {}, values_files)
-        retire_inventoried_artifacts(runner, inputs, context)
-        remove_retired_objects(runner, {})
-        if policy_enabled:
-            restart_policy_clients(runner)
+        with identity_cutover_boundary(
+            runner,
+            documents,
+            inputs.workdir,
+            cutover_facts=request.identity_cutover_facts,
+            bootstrap_facts=request.identity_bootstrap_facts,
+        ) as cutover:
+            run_gcp_database_migrations(outputs, values_file)
+            if policy_enabled and cutover.required:
+                migrate_policy_datastore(runner, documents)
+                restart_policy_clients(runner)
+            activate_identity_cutover(runner, cutover)
+            sync_gcp_guacamole_runtime_secret(gdc_config(inputs), outputs)
+            retire_disabled_broker(runner, enabled=broker_enabled)
+            adopt_objects(runner, {}, documents)
+            helm_upgrade(runner, {}, values_files)
+            retire_inventoried_artifacts(runner, inputs, context)
+            remove_retired_objects(runner, {})
+            if policy_enabled and not cutover.required:
+                restart_policy_clients(runner)
         restart_workloads(runner, {}, model_broker_enabled=broker_enabled)
         wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled)
         if pool:
@@ -371,6 +396,12 @@ def rollout_stage(
         wait_for_ingress_address(runner, {})
         active = wait_for_certificate(
             runner, {}, hostname=inputs.public_hostname, require_active=not request.first_install
+        )
+        initialize_catalog(
+            runner,
+            documents,
+            credential_file=request.catalog_credential_file,
+            hostname=inputs.public_hostname,
         )
     success("Rollout stage complete")
     return active

@@ -12,6 +12,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 
+from shared.credentials import CredentialContext
 from shared.enums import WebSocketCloseCode
 
 User = get_user_model()
@@ -46,11 +47,15 @@ def consumer():
 
 
 def _scope(user, instance_uuid="test-uuid-1234"):
-    return {
+    scope = {
         "type": "websocket",
         "user": user,
         "url_route": {"kwargs": {"instance_uuid": instance_uuid}},
     }
+    credential = getattr(user, "credential", None)
+    if isinstance(credential, CredentialContext):
+        scope["credential_context"] = credential
+    return scope
 
 
 @pytest.fixture
@@ -60,8 +65,10 @@ def unauthenticated_scope():
 
 
 @pytest.fixture
-def real_user(db):
-    return User.objects.create_user(username="ssh-consumer@example.com", email="ssh-consumer@example.com")
+def real_user(db, live_session_credential):
+    user = User.objects.create_user(username="ssh-consumer@example.com", email="ssh-consumer@example.com")
+    user.credential = live_session_credential(user)
+    return user
 
 
 @pytest.fixture
@@ -105,6 +112,7 @@ class TestSSHConsumerConnectGuards:
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.postgres
 class TestSSHConsumerConnectRealRange:
     """Connect driven through the real engine.services.connect_terminal.
 
@@ -116,13 +124,25 @@ class TestSSHConsumerConnectRealRange:
     """
 
     @pytest.mark.asyncio
+    async def test_native_range_rejects_a_user_without_session_proof(
+        self, consumer, seeded_ssh_range, secrets_boundary
+    ):
+        user, instance = seeded_ssh_range
+        consumer.scope = _scope(user, instance["uuid"])
+        consumer.scope.pop("credential_context")
+        with secrets_boundary() as secrets:
+            await consumer.connect()
+        consumer.close.assert_awaited_once_with(code=WebSocketCloseCode.PERMISSION_DENIED)
+        secrets.get_secret_value.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_rejects_when_no_active_range(self, consumer, real_user):
-        """No active range -> connect_terminal raises ValueError -> NOT_FOUND."""
-        consumer.scope = _scope(real_user, "no-such-instance")
+        """Native guest authority hides unavailable resources behind a denial."""
+        consumer.scope = _scope(real_user, "11111111-1111-4111-8111-111111111111")
 
         await consumer.connect()
 
-        consumer.close.assert_awaited_once_with(code=WebSocketCloseCode.NOT_FOUND)
+        consumer.close.assert_awaited_once_with(code=WebSocketCloseCode.PERMISSION_DENIED)
 
     @pytest.mark.asyncio
     async def test_rejects_on_ssh_connection_failure(self, consumer, seeded_ssh_range, secrets_boundary):

@@ -12,10 +12,31 @@ from tests.shared.cloud.test_preparation_installation_readback import observed_f
 pytestmark = pytest.mark.django_db
 
 
+@pytest.fixture(autouse=True)
+def native_grant_policy(monkeypatch):
+    """Grant explicit native administration only to the fixture's selected operator."""
+    from types import SimpleNamespace
+
+    from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+    allowed = set()
+
+    def check(request):
+        granted = request.action == "installation.manage_adapters" and request.principal.uuid in allowed
+        return AuthorizationDecision(
+            DecisionKind.ALLOWED if granted else DecisionKind.DENIED, "policy_allowed" if granted else "policy_denied"
+        )
+
+    monkeypatch.setattr(port, "_provider_factory", lambda: SimpleNamespace(check=check))
+    return allowed
+
+
 @pytest.fixture
-def operator():
+def operator(native_grant_policy):
+    from shared.principal_port import principal_for_user
+
     user = User.objects.create_user("cloud-operator")
-    user.user_permissions.add(Permission.objects.get(codename="manage_preparation_grants"))
+    native_grant_policy.add(principal_for_user(user).uuid)
     return user
 
 

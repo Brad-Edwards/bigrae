@@ -34,7 +34,7 @@ from django.db import transaction
 
 from ctf.enums import RecoveryFailureCategory, RecoveryPhase, RecoveryStrategy
 from ctf.exceptions import CTFError, CTFNotFoundError, CTFRangeError, CTFValidationError
-from ctf.models import CTFParticipant, CTFRangeRecovery
+from ctf.models import CTFEvent, CTFParticipant, CTFRangeRecovery
 from ctf.services.range.recovery_steps import (
     _complete_recovery,
     _ensure_old_range_blocked,
@@ -42,12 +42,11 @@ from ctf.services.range.recovery_steps import (
     _ensure_rebuild_replacement_ready,
     _ensure_spare_attached,
     _ensure_spare_reserved,
-    _participant_user,
 )
 from shared.log_sanitize import safe_log_value
 
 if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+    from ctf.services.actors import EventActor
 
 logger = logging.getLogger(__name__)
 
@@ -66,16 +65,24 @@ def _validate_strategy(strategy: str) -> None:
 def _claim_recovery(
     participant_id: UUID,
     strategy: str,
-    operator: User | None,
+    operator: EventActor,
 ) -> tuple[CTFParticipant, CTFRangeRecovery, int]:
     """Lock the participant, validate inputs, and get-or-create the recovery intent row.
 
-    No ``select_related``: ``user`` is nullable (``FOR UPDATE`` rejects the
-    nullable side of an outer join on PostgreSQL) and joining ``event`` would
-    widen the lock to an event-wide row lock -- both load lazily under the
-    lock, mirroring ``ctf.services.range.provision.provision_participant_range``.
+    Verify retained native cleanup before SQL locks. The event mutex then
+    precedes the participant lock and serializes recovery with cancellation.
+    The locked participant query avoids nullable related-row joins.
     """
+    from ctf.services.authorization import admit_event_actions
+
+    try:
+        candidate = CTFParticipant.objects.select_related("event").get(pk=participant_id)
+    except CTFParticipant.DoesNotExist:
+        raise CTFNotFoundError("Participant unavailable") from None
+    operator = admit_event_actions(operator, candidate.event, "event.manage_ranges")
+    retained_old_id = _verified_retained_old_range(candidate, strategy)
     with transaction.atomic():
+        CTFEvent.objects.select_for_update().get(pk=candidate.event_id)
         try:
             participant = CTFParticipant.objects.select_for_update().get(pk=participant_id)
         except CTFParticipant.DoesNotExist:
@@ -84,6 +91,11 @@ def _claim_recovery(
                 details={"participant_id": str(participant_id)},
             ) from None
 
+        if (participant.range_instance_id, participant.range_request_id) != (
+            candidate.range_instance_id,
+            candidate.range_request_id,
+        ):
+            raise CTFRangeError("Participant range assignment changed")
         if participant.user_id is None:
             raise CTFValidationError(
                 "Participant must be registered before range recovery",
@@ -93,17 +105,14 @@ def _claim_recovery(
                 },
             )
 
-        old_range_instance_id = participant.range_instance_id
-        if old_range_instance_id is None:
-            raise CTFRangeError(
-                "Participant has no range assigned to recover",
-                details={
-                    "participant_id": str(participant_id),
-                    "failure_category": RecoveryFailureCategory.VALIDATION_FAILED.value,
-                },
-            )
+        old_range_instance_id = _recoverable_old_range(participant, candidate.range_request_id, retained_old_id)
 
         _validate_strategy(strategy)
+        from ctf.services.actors import event_actor_credential, event_actor_user_id
+        from ctf.services.authorization import assert_event_action
+
+        assert_event_action(operator, participant.event, "event.manage_ranges")
+        credential = event_actor_credential(operator)
 
         recovery, created = CTFRangeRecovery.objects.get_or_create(
             participant=participant,
@@ -111,7 +120,8 @@ def _claim_recovery(
             strategy=strategy,
             defaults={
                 "event": participant.event,
-                "created_by": operator,
+                "created_by_id": event_actor_user_id(operator),
+                "initiated_by_principal_uuid": credential.principal.uuid,
             },
         )
         if created:
@@ -179,7 +189,7 @@ def recover_participant_range(
     participant_id: UUID,
     *,
     strategy: str,
-    operator: User,
+    operator: EventActor,
     spare_range_instance_id: int | None = None,
 ) -> dict[str, Any]:
     """Recover a participant's range that is beyond in-place repair.
@@ -219,6 +229,9 @@ def recover_participant_range(
     )
 
     participant, recovery, old_range_instance_id = _claim_recovery(participant_id, strategy, operator)
+    from ctf.services.actors import event_actor_credential
+
+    credential = event_actor_credential(operator)
 
     if recovery.phase == RecoveryPhase.COMPLETED.value:
         logger.info("recover_participant_range: recovery=%s already completed", recovery.pk)
@@ -230,16 +243,16 @@ def recover_participant_range(
         if strategy == RecoveryStrategy.REBUILD.value:
             # PLAT-202: the replacement inherits the old range's model-access
             # membership subject, so published range-scoped restrictions carry over.
-            from ctf.services.model_access_sharing import participant_model_admission_subject
+            from ctf.bridges import cms_resolve_model_access_range_reference
 
-            model_subject = participant_model_admission_subject(participant)
-            _ensure_old_range_blocked(recovery, old_range_instance_id, _participant_user(participant))
-            _ensure_rebuild_replacement_ready(recovery, participant, model_subject)
+            model_subject = cms_resolve_model_access_range_reference(old_range_instance_id)
+            _ensure_old_range_blocked(recovery, old_range_instance_id, credential)
+            _ensure_rebuild_replacement_ready(recovery, participant, model_subject, credential)
         else:
             # reassign_spare reserves the spare before teardown (no stranding).
             _ensure_spare_reserved(recovery, participant, spare_range_instance_id)
-            _ensure_old_range_blocked(recovery, old_range_instance_id, _participant_user(participant))
-            _ensure_spare_attached(recovery, participant)
+            _ensure_old_range_blocked(recovery, old_range_instance_id, credential)
+            _ensure_spare_attached(recovery, participant, credential)
         _ensure_participant_repointed(participant, recovery)
         _complete_recovery(recovery, participant, operator)
     except Exception as exc:
@@ -269,3 +282,45 @@ def get_recovery_status(participant_id: UUID) -> dict[str, Any] | None:
     if recovery is None:
         return None
     return _recovery_result(recovery)
+
+
+def _verified_retained_old_range(candidate: CTFParticipant, strategy: str) -> int | None:
+    """Verified exact old-generation cleanup may preserve a previously admitted recovery."""
+    if candidate.range_instance_id is None and candidate.range_request_id is not None:
+        from ctf.bridges import cms_is_event_range_cleanup_verified_absent
+
+        retained = (
+            CTFRangeRecovery.objects.filter(participant=candidate, strategy=strategy)
+            .exclude(phase=RecoveryPhase.COMPLETED.value)
+            .order_by("-created_at", "pk")
+            .first()
+        )
+        if retained is not None and cms_is_event_range_cleanup_verified_absent(
+            candidate.event_id, retained.old_range_instance_id, candidate.range_request_id
+        ):
+            return retained.old_range_instance_id
+    return None
+
+
+def _recoverable_old_range(
+    participant: CTFParticipant, expected_request_id: UUID | None, retained_old_id: int | None
+) -> int:
+    """Allow only the current old generation or exact verified cleanup retained by this request."""
+    old_range_instance_id = participant.range_instance_id
+    if (
+        old_range_instance_id is None
+        and retained_old_id is not None
+        and participant.range_request_id == expected_request_id
+        and participant.range_status == ""
+    ):
+        old_range_instance_id = retained_old_id
+    if old_range_instance_id is None:
+        raise CTFRangeError(
+            "Participant has no range assigned to recover",
+            details={
+                "participant_id": str(participant.pk),
+                "failure_category": RecoveryFailureCategory.VALIDATION_FAILED.value,
+            },
+        )
+
+    return old_range_instance_id

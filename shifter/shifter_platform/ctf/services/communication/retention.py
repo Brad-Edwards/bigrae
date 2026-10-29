@@ -11,15 +11,33 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, QuerySet
 from django.utils import timezone
 
 from ctf.models import CommunicationCampaign, CommunicationIntent, CTFNotification, MessageRevision, RecipientSnapshot
 
 logger = logging.getLogger(__name__)
+
+
+def expired_campaign_ids(*, now: datetime | None = None, retention_days: int | None = None) -> QuerySet[Any]:
+    """Return ids of campaigns whose latest target event ended before the retention cut-off.
+
+    The one retention decision: the purge deletes these campaigns, and inbox reads
+    exclude them so purge lag never extends participant access (#2053).
+    """
+    now = now or timezone.now()
+    if retention_days is None:
+        retention_days = settings.CTF_COMMUNICATION_RETENTION_DAYS
+    cutoff = now - timedelta(days=retention_days)
+    return (
+        CommunicationCampaign.objects.annotate(latest_event_end=Max("target_events__event_end"))
+        .filter(latest_event_end__isnull=False, latest_event_end__lt=cutoff)
+        .values_list("id", flat=True)
+    )
 
 
 def purge_expired_communications(*, now: datetime | None = None, retention_days: int | None = None) -> dict[str, int]:
@@ -31,17 +49,7 @@ def purge_expired_communications(*, now: datetime | None = None, retention_days:
     ``QuerySet.delete`` (a real delete, not the soft-delete escape hatch), so the
     bodies and encrypted coordinates are erased. Returns bounded counts.
     """
-    now = now or timezone.now()
-    if retention_days is None:
-        retention_days = settings.CTF_COMMUNICATION_RETENTION_DAYS
-    cutoff = now - timedelta(days=retention_days)
-
-    expired = (
-        CommunicationCampaign.objects.annotate(latest_event_end=Max("target_events__event_end"))
-        .filter(latest_event_end__isnull=False, latest_event_end__lt=cutoff)
-        .values_list("id", flat=True)
-    )
-    campaign_ids = list(expired)
+    campaign_ids = list(expired_campaign_ids(now=now, retention_days=retention_days))
     if not campaign_ids:
         return {"campaigns_purged": 0, "revisions_purged": 0, "snapshots_purged": 0}
 

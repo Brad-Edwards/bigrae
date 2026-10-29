@@ -46,6 +46,7 @@ class MembershipMapping:
 
     scope_kind: str
     scope_id: int
+    user_id: int
     principal_uuid: UUID
     role: str
 
@@ -109,12 +110,27 @@ def _classify_shared_memberships(
             # Principal-only facts already have their durable identity. They are
             # not legacy user/role rows and must remain untouched by this plan.
             continue
+        role_blocker = legacy_membership_role_blocker(scope_kind, role)
+        if role_blocker is not None:
+            blockers.append(MappingBlocker(role_blocker, scope_id))
+            continue
         principal_uuid = principal_by_user.get(user_id)
         if not isinstance(principal_uuid, UUID) or principal_uuid.int == 0:
             blockers.append(MappingBlocker("principal_missing", user_id))
         else:
-            mappings.append(MembershipMapping(scope_kind, scope_id, principal_uuid, role))
+            mappings.append(MembershipMapping(scope_kind, scope_id, user_id, principal_uuid, role))
     return mappings, blockers
+
+
+def legacy_membership_role_blocker(scope_kind: str, role: str) -> str | None:
+    """Only explicitly supported legacy grants may be cleared during conversion."""
+    if (scope_kind, role) == ("workspace", "admin"):
+        # Native direct_administrator includes ownership transfer, which the
+        # legacy workspace admin could not perform. Do not silently elevate it.
+        return "workspace_admin_policy_disposition_required"
+    if (scope_kind, role) not in {("organization", "admin"), ("workspace", "owner"), ("workspace", "member")}:
+        return "legacy_membership_role_unsupported"
+    return None
 
 
 def _principal_mapping_blockers(principal_by_user: Mapping[int, UUID]) -> list[MappingBlocker]:
@@ -150,17 +166,14 @@ def _classify_shared_organization(
     principal_by_user: Mapping[int, UUID],
     owner_ids_by_workspace: Mapping[int, set[int]],
     account_types_by_organization: Mapping[UUID, str],
-) -> tuple[OrganizationMapping | None, list[MembershipMapping], list[MappingBlocker]]:
+) -> tuple[OrganizationMapping | None, list[MappingBlocker]]:
     """Classify a shared organization when its default and owner evidence agree."""
     account_kind, blocker = _shared_structure(
         organization, workspaces, principal_by_user, owner_ids_by_workspace, account_types_by_organization
     )
     if blocker is not None:
-        return None, [], [blocker]
-    memberships, blockers = _classify_shared_memberships(organization, workspaces, principal_by_user)
-    if blockers:
-        return None, [], blockers
-    return OrganizationMapping(organization.pk, account_kind, workspaces[0].pk), memberships, []
+        return None, [blocker]
+    return OrganizationMapping(organization.pk, account_kind, workspaces[0].pk), []
 
 
 def _shared_structure(
@@ -194,7 +207,7 @@ def _classify_legacy_organization(
     principal_by_user: Mapping[int, UUID],
     owner_ids_by_workspace: Mapping[int, set[int]],
     account_types_by_organization: Mapping[UUID, str],
-) -> tuple[IndividualMapping | None, OrganizationMapping | None, list[MembershipMapping], list[MappingBlocker]]:
+) -> tuple[IndividualMapping | None, OrganizationMapping | None, list[MappingBlocker]]:
     """Classify one unbound legacy organization as personal or shared."""
     workspaces = list(Workspace.objects.filter(organization=organization).order_by("pk"))
     personal = [workspace for workspace in workspaces if workspace.personal_for_user_id is not None]
@@ -202,11 +215,11 @@ def _classify_legacy_organization(
         individual, blockers = _classify_personal_organization(
             organization, workspaces, personal, principal_by_user, owner_ids_by_workspace
         )
-        return individual, None, [], blockers
-    shared, memberships, blockers = _classify_shared_organization(
+        return individual, None, blockers
+    shared, blockers = _classify_shared_organization(
         organization, workspaces, principal_by_user, owner_ids_by_workspace, account_types_by_organization
     )
-    return None, shared, memberships, blockers
+    return None, shared, blockers
 
 
 def plan_legacy_account_mapping(
@@ -231,7 +244,7 @@ def plan_legacy_account_mapping(
         return LegacyAccountMappingPlan((), (), (), tuple(blockers))
 
     for organization in Organization.objects.filter(account__isnull=True).order_by("pk"):
-        individual, shared, mapped_members, organization_blockers = _classify_legacy_organization(
+        individual, shared, organization_blockers = _classify_legacy_organization(
             organization, principal_by_user, owner_ids_by_workspace, account_types_by_organization
         )
         blockers.extend(organization_blockers)
@@ -239,6 +252,15 @@ def plan_legacy_account_mapping(
             individuals.append(individual)
         if shared is not None:
             organizations.append(shared)
-            memberships.extend(mapped_members)
+
+    # Membership facts have their own disposition even when an organization
+    # was bound to an account before this conversion. Personal collapse already
+    # disposes its exact owner/admin rows through the individual mapping.
+    personal_organizations = {item.legacy_organization_id for item in individuals}
+    for organization in Organization.objects.exclude(pk__in=personal_organizations).order_by("pk"):
+        workspaces = list(Workspace.objects.filter(organization=organization).order_by("pk"))
+        mapped_members, membership_blockers = _classify_shared_memberships(organization, workspaces, principal_by_user)
+        memberships.extend(mapped_members)
+        blockers.extend(membership_blockers)
 
     return LegacyAccountMappingPlan(tuple(individuals), tuple(organizations), tuple(memberships), tuple(blockers))

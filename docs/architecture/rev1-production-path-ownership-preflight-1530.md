@@ -5,7 +5,7 @@
 
 Status: pre-implementation guidance
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1530>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1530>
 
 Revalidated against `dev`: 2026-07-17
 

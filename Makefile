@@ -132,6 +132,7 @@ test-platform-e2e: ## Authenticated SPA E2E (Playwright) against the hermetic Dj
 	  $(PLATFORM_ENV) uv run python manage.py collectstatic --noinput && \
 	  $(PLATFORM_ENV) uv run python manage.py migrate --noinput && \
 	  $(PLATFORM_ENV) uv run python manage.py seed_e2e && \
+	  $(PLATFORM_ENV) uv run python manage.py seed_e2e_ctf && \
 	  cd frontend && npx playwright install chromium && \
 	  ( $(PLATFORM_ENV) npm run test:e2e; status=$$?; rm -f ../db.sqlite3; exit $$status )
 
@@ -145,6 +146,7 @@ test-platform-a11y: ## Browser accessibility (Playwright + axe) against the herm
 	  $(PLATFORM_ENV) uv run python manage.py collectstatic --noinput && \
 	  $(PLATFORM_ENV) uv run python manage.py migrate --noinput && \
 	  $(PLATFORM_ENV) uv run python manage.py seed_e2e && \
+	  $(PLATFORM_ENV) uv run python manage.py seed_e2e_ctf && \
 	  cd frontend && npx playwright install chromium && \
 	  ( $(PLATFORM_ENV) npm run test:e2e:a11y; status=$$?; rm -f ../db.sqlite3; exit $$status )
 

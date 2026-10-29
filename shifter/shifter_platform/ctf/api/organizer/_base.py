@@ -26,10 +26,27 @@ from ctf.api._base import _CtfApiError, ctf_actor_user
 # ``_delete_via_service`` uses this one to audit database-only nested deletes.
 from ctf.api.organizer._audit import _audit_admin_from_request
 from ctf.enums import EventCapability
+from shared.api.principals import authenticated_credential
 from shared.api_tokens import scopes
+from shared.credentials import CredentialContext
 
 # Staff-delegable capability selector: one noun, several, or None (owner-only).
 Capability = str | tuple[str, ...] | None
+
+_CAPABILITY_ACTIONS = {
+    EventCapability.CONFIG.value: "event.manage_config",
+    EventCapability.CHALLENGES.value: "event.manage_challenges",
+    EventCapability.PARTICIPANTS.value: "event.manage_participants",
+    EventCapability.TEAMS.value: "event.manage_teams",
+    EventCapability.RANGES.value: "event.manage_ranges",
+    EventCapability.SCORING.value: "event.manage_scoring",
+    EventCapability.NOTIFICATIONS.value: "event.manage_communications",
+    EventCapability.AWARDS.value: "event.manage_awards",
+    EventCapability.SUBMISSIONS.value: "event.manage_submissions",
+    EventCapability.CONTENT.value: "event.manage_content",
+    EventCapability.LIFECYCLE.value: "event.manage_lifecycle",
+    EventCapability.DELETE.value: "event.delete",
+}
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -78,6 +95,14 @@ def _actor(request: Request) -> User:
     return actor
 
 
+def _credential(request: Request) -> CredentialContext:
+    """Return the canonical human or service credential for service calls."""
+    try:
+        return authenticated_credential(request)
+    except ValueError:
+        raise AssertionError("CTF credential unavailable after permission check") from None
+
+
 def _raise_invalid_event() -> NoReturn:
     """Raise the shared 400 envelope for an invalid event request."""
     raise _CtfApiError(code="invalid", message=_INVALID_EVENT, status_code=status.HTTP_400_BAD_REQUEST)
@@ -108,7 +133,13 @@ def _raise_throttled(message: str) -> NoReturn:
     raise _CtfApiError(code="throttled", message=message, status_code=status.HTTP_429_TOO_MANY_REQUESTS)
 
 
-def _resolve_owned_event(request: Request, event_id: UUID, *, capability: Capability = None) -> CTFEvent:
+def _resolve_owned_event(
+    request: Request,
+    event_id: UUID,
+    *,
+    capability: Capability = None,
+    action: str | None = None,
+) -> CTFEvent:
     """Resolve an event and enforce ownership, or raise ``_CtfApiError``.
 
     Mirrors ``ctf.views.api._common._resolve_owned_event_json``: 404 when the
@@ -124,21 +155,16 @@ def _resolve_owned_event(request: Request, event_id: UUID, *, capability: Capabi
         event = get_event(event_id)
     except CTFNotFoundError:
         _raise_not_found(_EVENT_NOT_FOUND)
-    if not _actor_may_manage(request, event, capability):
+    if not _actor_may_manage(request, event, capability, action=action):
         _raise_forbidden()
     return event
 
 
-def _event_authority(request: Request, event: CTFEvent, capability: Capability) -> EventAuthoritySource | None:
-    """Resolve the closed authority source admitting the actor, or ``None`` (ADR-052).
+def _event_authority() -> EventAuthoritySource | None:
+    """Return the sole application-policy authority source."""
+    from ctf.services.authorization import EventAuthoritySource
 
-    Least authority: owner, then a delegated staff capability, then the
-    platform-admin override. Owner-only surfaces pass ``capability=None`` and are
-    admitted for the owner or a platform administrator, never delegated staff.
-    """
-    from ctf.services.authorization import resolve_event_authority
-
-    return resolve_event_authority(_actor(request), event, capability=capability)
+    return EventAuthoritySource.POLICY
 
 
 def _capture_event_authority(request: Request, event: CTFEvent, source: EventAuthoritySource | None) -> None:
@@ -152,17 +178,67 @@ def _capture_event_authority(request: Request, event: CTFEvent, source: EventAut
     request._ctf_admin_authority = (event, source)
 
 
-def _actor_may_manage(request: Request, event: CTFEvent, capability: Capability) -> bool:
-    """Owner, a delegated staff capability, or the platform-admin override.
+def _actor_may_manage(
+    request: Request,
+    event: CTFEvent,
+    capability: Capability,
+    *,
+    action: str | None = None,
+    retained_delete: bool = False,
+) -> bool:
+    """Require the shared principal decision and capture only presentation provenance."""
+    from ctf.exceptions import CTFError, CTFPermissionError
 
-    Captures the resolved authority on the request so a mutation on this request
-    can audit a platform-admin override.
-    """
-    source = _event_authority(request, event, capability)
-    if source is None:
+    actions = (action,) if action is not None else _actions_for_capability(capability)
+    try:
+        credential = authenticated_credential(request)
+        if retained_delete:
+            from ctf.services.unified_authorization import require_retained_event_delete
+
+            require_retained_event_delete(credential, event.pk)
+        elif not any(_event_action_allowed(credential, event.pk, item) for item in actions):
+            return False
+    except CTFPermissionError:
         return False
+    except CTFError as exc:
+        raise _CtfApiError(
+            code="dependency_unavailable",
+            message="Service unavailable",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        ) from exc
+    source = _event_authority()
     _capture_event_authority(request, event, source)
     return True
+
+
+def _event_action_allowed(credential: CredentialContext, event_id: UUID, action: str) -> bool:
+    """Evaluate one exact event action for the current native credential."""
+    from ctf.exceptions import CTFError, CTFPermissionError
+    from ctf.services.unified_authorization import require_event_action
+
+    try:
+        require_event_action(credential, event_id, action)
+    except CTFPermissionError:
+        return False
+    except CTFError as exc:
+        raise _CtfApiError(
+            code="dependency_unavailable",
+            message="Service unavailable",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        ) from exc
+    return True
+
+
+def _actions_for_capability(capability: Capability) -> tuple[str, ...]:
+    """Map a retained UI capability to its registered event actions."""
+    actions: tuple[str, ...] = ("event.manage_staff",)
+    if capability is not None:
+        values = (capability,) if isinstance(capability, str) else capability
+        try:
+            actions = tuple(_CAPABILITY_ACTIONS[str(value)] for value in values)
+        except KeyError:
+            actions = ()
+    return actions
 
 
 def _resolve_owned_challenge(request: Request, challenge_id: UUID) -> CTFChallenge:
@@ -267,7 +343,7 @@ def _delete_via_service(
 
     try:
         with transaction.atomic():
-            action_fn(target_id, actor_id=_actor(request).pk)
+            action_fn(target_id, actor_id=_credential(request))
             if operation is not None:
                 _audit_admin_from_request(request, operation, action=AuditAction.DELETE)
     except CTFPermissionError:

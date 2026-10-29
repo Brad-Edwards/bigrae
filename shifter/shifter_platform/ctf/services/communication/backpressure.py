@@ -65,8 +65,9 @@ def _setting(name: str) -> int:
 class AdmissionRequest:
     """The bounded facts admission control needs to accept or reject one intent."""
 
-    actor_user_id: int | None
-    workspace_id: int
+    actor_user_id: int | UUID | str | None
+    scope_kind: str
+    scope_id: int
     event_ids: frozenset[UUID]
     audience_size: int
     channel_count: int
@@ -143,15 +144,18 @@ def enforce_admission(request: AdmissionRequest) -> None:
     if request.audience_size > max_audience():
         _deny("global", "CTF_COMMUNICATION_AUDIENCE_TOO_LARGE", "Audience exceeds the per-intent fan-out limit")
 
-    enforce_operation_rate(request.actor_user_id, request.workspace_id)
+    enforce_operation_rate(request.actor_user_id, request.scope_kind, request.scope_id)
 
     # 3. Durable outstanding-work reservation. Serialized globally so the workspace,
     # global, and per-event counts are all consistent hard bounds, and every check
     # adds this intent's projected work before comparing to its cap.
     _serialize_admission()
-    if _outstanding({"intent__campaign__workspace_id": int(request.workspace_id)}) + projected > _setting(
-        "CTF_COMMUNICATION_MAX_OUTSTANDING_PER_WORKSPACE"
-    ):
+    scope_filter: dict[str, object] = {
+        f"intent__campaign__{request.scope_kind}_id": int(request.scope_id),
+    }
+    if request.scope_kind not in {"account", "workspace"}:
+        raise CTFCommunicationError("Communication scope unavailable", code="CTF_COMMUNICATION_ADMISSION_UNAVAILABLE")
+    if _outstanding(scope_filter) + projected > _setting("CTF_COMMUNICATION_MAX_OUTSTANDING_PER_WORKSPACE"):
         _deny(
             "workspace",
             "CTF_COMMUNICATION_BACKLOG_FULL",
@@ -172,22 +176,22 @@ def enforce_admission(request: AdmissionRequest) -> None:
             )
 
 
-def enforce_operation_rate(actor_user_id: int | None, workspace_id: int) -> None:
+def enforce_operation_rate(actor_user_id: int | UUID | str | None, scope_kind: str, scope_id: int) -> None:
     """Bound draft/revision operations using the shared admission rate budgets."""
     # 2. Fixed-window abuse limits (atomic, distributed).
     window = _setting("CTF_COMMUNICATION_RATE_WINDOW_SECONDS")
     if actor_user_id is not None:
         _consume(
             "actor",
-            f"actor:{int(actor_user_id)}",
+            f"actor:{actor_user_id}",
             _setting("CTF_COMMUNICATION_RATE_PER_ACTOR"),
             window,
             "CTF_COMMUNICATION_RATE_LIMITED",
             "Too many communications from this actor; retry later",
         )
     _consume(
-        "workspace",
-        f"workspace:{int(workspace_id)}",
+        scope_kind,
+        f"{scope_kind}:{int(scope_id)}",
         _setting("CTF_COMMUNICATION_RATE_PER_WORKSPACE"),
         window,
         "CTF_COMMUNICATION_RATE_LIMITED",

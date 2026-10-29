@@ -11,6 +11,7 @@ from shared.authorization import AuthorizationDecision, CredentialCeiling, Decis
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.models import AuditLog
+from tests._credential_helpers import persisted_credential
 from workspaces import services
 from workspaces.models import (
     QUOTA_MODE_ENFORCING,
@@ -37,12 +38,14 @@ class Provider:
 
 def test_service_application_admin_can_set_quota_without_django_user():
     principal = Principal.objects.create(kind="service", name="Administrator")
-    actor = CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"workspace.manage_quota"})),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"workspace.manage_quota"})),
+            frozenset(),
+        )
     )
     account = services.create_account(kind="team", name="Customer")
     workspace = Workspace.objects.get(organization__account_id=account.id, is_default=True)
@@ -67,12 +70,14 @@ def test_service_application_admin_can_set_quota_without_django_user():
 
 def test_denial_leaves_quota_unchanged():
     principal = Principal.objects.create(kind="service", name="Administrator")
-    actor = CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"workspace.manage_quota"})),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"workspace.manage_quota"})),
+            frozenset(),
+        )
     )
     account = services.create_account(kind="team", name="Customer")
     workspace = Workspace.objects.get(organization__account_id=account.id, is_default=True)
@@ -91,12 +96,14 @@ def test_denial_leaves_quota_unchanged():
 
 def test_archive_between_policy_check_and_quota_lock_rejects_change():
     principal = Principal.objects.create(kind="service", name="Administrator")
-    actor = CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"workspace.manage_quota"})),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"workspace.manage_quota"})),
+            frozenset(),
+        )
     )
     account = services.create_account(kind="team", name="Customer")
     workspace = Workspace.objects.get(organization__account_id=account.id, is_default=True)
@@ -120,12 +127,14 @@ def test_policy_quota_api_preserves_service_principal_attribution(monkeypatch):
     from workspaces.api.account_admin_views import AccountWorkspaceQuotaPolicyView
 
     principal = Principal.objects.create(kind="service", name="Administrator")
-    actor = CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"workspace.manage_quota"})),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"workspace.manage_quota"})),
+            frozenset(),
+        )
     )
     account = services.create_account(kind="team", name="Customer")
     workspace = Workspace.objects.get(organization__account_id=account.id, is_default=True)

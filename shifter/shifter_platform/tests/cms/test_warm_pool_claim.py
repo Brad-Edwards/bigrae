@@ -1,26 +1,21 @@
-"""Tests for the CMS warm-pool claim path (#28).
-
-The atomic claim + one-winner concurrency is proven at the Engine layer
-(``tests/engine/services/test_warm_pool_claim.py``). These tests pin the CMS
-claim path:
-
-- the *decision* gates that cold-fall-back without touching the ledger (disabled
-  policy, an unsupported backend, or no bucket serving the backend+scenario);
-- the hit path -- an atomic claim commits, the range is rehomed to the claimant,
-  activation is enqueued, and the claimed request_id is returned; and
-- the fail-closed rollbacks -- a genuine miss and an inconsistent ledger row
-  (no CMS range instance) both cold-fall-back and enqueue nothing.
-"""
+"""Credential-native CMS warm-pool claim tests."""
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
 
-from cms.services._warm_pool_claim import WarmClaimRequest, _resolve_claim_candidates, attempt_warm_claim
+from cms.services._warm_pool_claim import (
+    ISOLATION_ACCOUNT,
+    WarmClaimRequest,
+    _resolve_claim_candidates,
+    attempt_warm_claim,
+)
+from shared.authorization import CredentialCeiling, TargetRef
+from shared.credentials import CredentialContext
 from shared.enums import RangeSource
+from shared.identity_scope import PrincipalRef, ResourceScope
 from shared.range_instantiation_policy import InstantiationPurpose
 from shared.warm_pool.policy import WarmPoolOverride, load_policy_json
 
@@ -29,21 +24,31 @@ _ENABLED_GCE = load_policy_json(
     '{"enabled": true, "buckets": [{"id": "gce-example", "backend": "gce", "scenario": "example",'
     ' "capacity_partition": "default", "target": 1, "minimum": 0, "maximum": 2, "idle_ttl_seconds": 3600}]}'
 )
-
-
 _PACK_DIGEST = "sha256:" + "a" * 64
 
 
-def _request(backend: str, scenario: str, *, user=None) -> WarmClaimRequest:
+def _credential(*, target: TargetRef | None = None, action: str = "account.launch_range") -> CredentialContext:
+    return CredentialContext(
+        PrincipalRef(uuid4(), "service"),
+        "service",
+        uuid4(),
+        CredentialCeiling(frozenset({action}), target),
+        frozenset(),
+    )
+
+
+def _request(backend: str, scenario: str) -> WarmClaimRequest:
+    account_uuid = uuid4()
+    scope = ResourceScope("account", account_uuid)
     return WarmClaimRequest(
-        user=user,
+        credential=_credential(target=TargetRef("account", account_uuid)),
+        scope=scope,
         scenario=scenario,
         package_digest=_PACK_DIGEST,
         lock_digest="sha256:bbb",
         backend=backend,
         instantiation_purpose=InstantiationPurpose.LIVE_FIRE,
         range_source=RangeSource.MISSION_CONTROL,
-        workspace_id=1,
         egress_mode="status-quo",
         request_id=uuid4(),
     )
@@ -59,10 +64,10 @@ class TestDecisionGates:
     def test_unsupported_backend_cold_falls_back(self, monkeypatch):
         from django.conf import settings
 
-        # A bucket may target gdc, but gdc has no warm-activation adapter.
         policy = load_policy_json(
             '{"enabled": true, "buckets": [{"id": "gdc-x", "backend": "gdc", "scenario": "example",'
-            ' "capacity_partition": "default", "target": 1, "minimum": 0, "maximum": 2, "idle_ttl_seconds": 3600}]}'
+            ' "capacity_partition": "default", "target": 1, "minimum": 0, "maximum": 2, '
+            '"idle_ttl_seconds": 3600}]}'
         )
         monkeypatch.setattr(settings, "WARM_POOL_POLICY", policy, raising=False)
         assert attempt_warm_claim(_request("gdc", "example")) is None
@@ -71,8 +76,7 @@ class TestDecisionGates:
         from django.conf import settings
 
         monkeypatch.setattr(settings, "WARM_POOL_POLICY", _ENABLED_GCE, raising=False)
-        # Enabled + gce supported, but no bucket serves this scenario.
-        assert attempt_warm_claim(_request("gce", "some-other-scenario")) is None
+        assert attempt_warm_claim(_request("gce", "other")) is None
 
     def test_event_policy_workspace_never_claims_unpinned_generation(self, monkeypatch):
         from dataclasses import replace
@@ -81,8 +85,16 @@ class TestDecisionGates:
 
         monkeypatch.setattr(settings, "WARM_POOL_POLICY", _ENABLED_GCE, raising=False)
         request = replace(_request("gce", "example"), range_source=RangeSource.CTF, policy_workspace_id=2)
-
         assert attempt_warm_claim(request) is None
+
+    def test_only_account_scope_is_eligible(self, monkeypatch):
+        from dataclasses import replace
+
+        from django.conf import settings
+
+        monkeypatch.setattr(settings, "WARM_POOL_POLICY", _ENABLED_GCE, raising=False)
+        request = replace(_request("gce", "example"), scope=ResourceScope("installation"))
+        assert _resolve_claim_candidates(request, None) == []
 
     def test_narrowed_policy_excludes_an_unauthorized_candidate(self, monkeypatch):
         from django.conf import settings
@@ -96,260 +108,164 @@ class TestDecisionGates:
             "]}"
         )
         monkeypatch.setattr(settings, "WARM_POOL_POLICY", policy, raising=False)
-        monkeypatch.setattr("cms.services._warm_pool_claim.warm_isolation_class", lambda user, ws: "personal")
-
-        candidates = _resolve_claim_candidates(
-            _request("gce", "example", user=SimpleNamespace()),
-            WarmPoolOverride(bucket_ids=("authorized",)),
-        )
-
+        candidates = _resolve_claim_candidates(_request("gce", "example"), WarmPoolOverride(bucket_ids=("authorized",)))
         assert [bucket_id for bucket_id, _digest in candidates] == ["authorized"]
 
-
-@pytest.mark.django_db
-class TestClaimOrchestration:
-    """Exercise the claim path with the ledger/rehome/dispatch seams patched.
-
-    The atomic claim and rehome are proven directly elsewhere; here we pin how the
-    claim path composes them: a hit commits and enqueues activation, a miss and an
-    inconsistent ledger row both cold-fall-back and enqueue nothing.
-    """
-
-    @pytest.fixture(autouse=True)
-    def _isolate_seams(self, monkeypatch, django_user_model):
+    def test_digest_uses_account_compatibility_class(self, monkeypatch):
         from django.conf import settings
 
-        from cms.models import RaesPackageSource
-
-        RaesPackageSource.objects.create(
-            scenario_id="example",
-            contract_kind="raes",
-            contract_profile="shifter",
-            package_ref="example",
-            package_version="1",
-            package_digest=_PACK_DIGEST,
-            registered_by=django_user_model.objects.create_user(username="warm-pack-owner"),
-        )
-
         monkeypatch.setattr(settings, "WARM_POOL_POLICY", _ENABLED_GCE, raising=False)
-        # The isolation class is resolved through the workspaces seam elsewhere;
-        # pin it so the digest is stable without provisioning a personal workspace.
-        monkeypatch.setattr("cms.services._warm_pool_claim.warm_isolation_class", lambda user, ws: "personal")
-        monkeypatch.setattr(
-            "workspaces.services.authorize_bound_workspace", lambda *args: SimpleNamespace(organization_uuid=uuid4())
-        )
-        self.enqueued: list = []
-        self.outcomes: list = []
-        monkeypatch.setattr(
-            "engine.services.enqueue_range_activation",
-            lambda request_id: self.enqueued.append(request_id) or "intent-1",
-        )
-        monkeypatch.setattr(
-            "shared.warm_pool.metrics.emit_claim_outcome",
-            lambda **kwargs: self.outcomes.append(kwargs) or True,
-        )
-
-    def _patch_claim(self, monkeypatch, generation):
-        monkeypatch.setattr(
-            "engine.services.claim_ready_generation",
-            lambda **kwargs: generation,
-        )
-
-    def _unleased_system_range(self, user):
-        from cms.models import RangeInstance, Request
-        from shared.enums import ResourceStatus
-
-        request = Request.objects.create(workspace_id=1, request_id=uuid4(), request_type="raes-range", user=user)
-        return RangeInstance.objects.create(
-            workspace_id=1,
-            request=request,
-            scenario_id="example",
-            user_id=user.id,
-            range_source=RangeSource.MISSION_CONTROL.value,
-            status=ResourceStatus.PROVISIONING.value,
-        )
-
-    def test_hit_rehomes_enqueues_and_first_assigns_the_user_lease(self, monkeypatch):
-        from django.contrib.auth import get_user_model
-        from django.contrib.auth.models import Group
-
-        from cms.models import MissionControlGroupLeasePolicy
-
-        user = get_user_model().objects.create_user(username="warm-claimant@example.com")
-        group = Group.objects.create(name="Warm Claim Policy")
-        user.groups.add(group)
-        MissionControlGroupLeasePolicy.objects.create(
-            group=group,
-            initial_days=7,
-            extension_days=3,
-            maximum_days=90,
-            extensions_enabled=True,
-        )
-        system_row = self._unleased_system_range(user)
-        assert system_row.maximum_expires_at is None  # warm-prepared rows are unleased
-        claimed_request_id = uuid4()
-        generation = SimpleNamespace(request_id=claimed_request_id, uuid=uuid4(), bucket_id="gce-example")
-        self._patch_claim(monkeypatch, generation)
-        monkeypatch.setattr(
-            "cms.services._warm_pool_claim._system_range_instance_for",
-            lambda request_id: system_row,
-        )
-        rehomed: list = []
-        monkeypatch.setattr(
-            "cms.services._range_reassign.reassign_range_owner",
-            lambda pk, new_user, *, rehome=False: rehomed.append((pk, new_user, rehome)),
-        )
-
-        result = attempt_warm_claim(_request("gce", "example", user=user))
-
-        assert result == claimed_request_id
-        assert rehomed == [(system_row.pk, user, True)]
-        assert self.enqueued == [claimed_request_id]
-        assert self.outcomes[-1]["outcome"] == "hit"
-        # The warm hit now carries automatic-expiry bounds and the generation increment.
-        system_row.refresh_from_db()
-        assert system_row.extension_days == 3
-        assert system_row.lease_initial_days == 7
-        assert system_row.lease_maximum_days == 90
-        assert system_row.lease_policy_source == "group"
-        assert system_row.lease_policy_group_revisions == [{"group_id": group.pk, "revision": 1}]
-        assert (system_row.maximum_expires_at - system_row.expires_at).days == 90 - 7
-
-    def test_hit_does_not_reset_an_already_leased_generation(self, monkeypatch):
-        from datetime import timedelta
-
-        from django.contrib.auth import get_user_model
-        from django.utils import timezone
-
-        user = get_user_model().objects.create_user(username="warm-preleased@example.com")
-        system_row = self._unleased_system_range(user)
-        # Simulate a row that already carries a lease (e.g. a handover that is not an
-        # unleased warm row); rehoming must not reset its ceiling.
-        existing_expires = timezone.now() + timedelta(days=2)
-        existing_maximum = timezone.now() + timedelta(days=2)
-        system_row.expires_at = existing_expires
-        system_row.maximum_expires_at = existing_maximum
-        system_row.extension_days = 0
-        system_row.save(update_fields=["expires_at", "maximum_expires_at", "extension_days"])
-        generation = SimpleNamespace(request_id=uuid4(), uuid=uuid4(), bucket_id="gce-example")
-        self._patch_claim(monkeypatch, generation)
-        monkeypatch.setattr(
-            "cms.services._warm_pool_claim._system_range_instance_for",
-            lambda request_id: system_row,
-        )
-        monkeypatch.setattr(
-            "cms.services._range_reassign.reassign_range_owner",
-            lambda pk, new_user, *, rehome=False: None,
-        )
-
-        attempt_warm_claim(_request("gce", "example", user=user))
-
-        system_row.refresh_from_db()
-        assert system_row.expires_at == existing_expires
-        assert system_row.maximum_expires_at == existing_maximum
-        assert system_row.extension_days == 0
-
-    @pytest.mark.parametrize("enabled", [True, False])
-    def test_hit_grants_the_claimants_vpn_bounded_by_the_new_lease(self, monkeypatch, settings, enabled):
-        """The claim mints the claimant's OpenVPN authority before activation (#2030)."""
-        from django.contrib.auth import get_user_model
-
-        settings.RANGE_OPENVPN_ENABLED = enabled
-        settings.LOCAL_PROVISIONER = ""
-        user = get_user_model().objects.create_user(username=f"warm-vpn-{enabled}@example.com")
-        system_row = self._unleased_system_range(user)
-        generation = SimpleNamespace(request_id=uuid4(), uuid=uuid4(), bucket_id="gce-example")
-        self._patch_claim(monkeypatch, generation)
-        monkeypatch.setattr("cms.services._warm_pool_claim._system_range_instance_for", lambda request_id: system_row)
-        monkeypatch.setattr("cms.services._range_reassign.reassign_range_owner", lambda *args, **kwargs: None)
-        grants: list = []
-        monkeypatch.setattr(
-            "engine.services.grant_raes_remote_access",
-            lambda request_id, deadline: grants.append((request_id, deadline)) or deadline is not None,
-        )
-
-        attempt_warm_claim(_request("gce", "example", user=user))
-
-        system_row.refresh_from_db()
-        assert grants == [(generation.request_id, system_row.maximum_expires_at if enabled else None)]
-        assert self.enqueued == [generation.request_id]
-
-    def test_miss_cold_falls_back(self, monkeypatch):
-        self._patch_claim(monkeypatch, None)
-        result = attempt_warm_claim(_request("gce", "example", user=SimpleNamespace(id=1)))
-        assert result is None
-        assert self.enqueued == []
-        assert self.outcomes
-        assert self.outcomes[-1]["outcome"] == "fallback"
-
-    def test_inconsistent_ledger_row_rolls_back(self, monkeypatch):
-        generation = SimpleNamespace(request_id=uuid4(), uuid=uuid4(), bucket_id="gce-example")
-        self._patch_claim(monkeypatch, generation)
-        # A claimed generation with no CMS range instance is inconsistent: roll back.
-        monkeypatch.setattr(
-            "cms.services._warm_pool_claim._system_range_instance_for",
-            lambda request_id: None,
-        )
-        result = attempt_warm_claim(_request("gce", "example", user=SimpleNamespace(id=1)))
-        assert result is None
-        assert self.enqueued == []
-
-    @pytest.mark.parametrize("change", ["removed", "revised"])
-    def test_claim_is_refused_when_the_pack_was_removed_or_revised(self, monkeypatch, change):
-        from django.contrib.auth import get_user_model
-
-        from cms.exceptions import CMSError
-        from cms.models import RaesPackageSource
-
-        user = get_user_model().objects.create_user(username="warm-fenced@example.com")
-        system_row = self._unleased_system_range(user)
-        self._patch_claim(monkeypatch, SimpleNamespace(request_id=uuid4(), uuid=uuid4(), bucket_id="gce-example"))
-        monkeypatch.setattr("cms.services._warm_pool_claim._system_range_instance_for", lambda request_id: system_row)
-        rehomed: list = []
-        monkeypatch.setattr(
-            "cms.services._range_reassign.reassign_range_owner", lambda *args, **kwargs: rehomed.append(args)
-        )
-        if change == "removed":
-            RaesPackageSource.objects.filter(scenario_id="example").delete()
-        else:
-            RaesPackageSource.objects.filter(scenario_id="example").update(package_digest="sha256:" + "c" * 64)
-
-        with pytest.raises(CMSError):
-            attempt_warm_claim(_request("gce", "example", user=user))
-
-        assert rehomed == []
-        assert self.enqueued == []
+        candidates = _resolve_claim_candidates(_request("gce", "example"), None)
+        assert candidates[0][0] == "gce-example"
+        assert ISOLATION_ACCOUNT == "account"
 
 
 @pytest.mark.django_db
-class TestHelpers:
-    def test_warm_isolation_class_personal_vs_shared(self):
-        from django.contrib.auth import get_user_model
+@pytest.mark.parametrize("claimant_kind", ["human", "service"])
+def test_claim_commits_lease_custody_and_exactly_one_activation(
+    django_user_model, settings, live_session_credential, allow_all_policy, claimant_kind
+):
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
+    from tests.cms._warm_pool_fixtures import warm_claim_fixture
 
-        from cms.services._warm_pool_claim import ISOLATION_PERSONAL, ISOLATION_SHARED, warm_isolation_class
-        from workspaces.services import resolve_personal_workspace
+    claim, generation, instance, _source, workspace = warm_claim_fixture(
+        django_user_model, settings, live_session_credential, claimant_kind=claimant_kind
+    )
+    assert attempt_warm_claim(claim) == generation.request_id
+    instance.refresh_from_db()
+    generation.refresh_from_db()
+    assert generation.state == "claimed"
+    assert instance.workspace_id == workspace.pk
+    assert instance.owner_principal_uuid == claim.credential.principal.uuid
+    assert instance.expires_at is not None and instance.maximum_expires_at >= instance.expires_at
+    assert RangeAuthorityChange.objects.get().credential_uuid == claim.credential.credential_uuid
+    intent = ProvisionerLaunchIntent.objects.get()
+    assert intent.payload["operation"] == "activate"
+    assert intent.credential_uuid == claim.credential.credential_uuid
+    # A second attempt cannot claim the same generation or enqueue twice.
+    assert attempt_warm_claim(claim) is None
+    assert ProvisionerLaunchIntent.objects.count() == 1
 
-        user = get_user_model().objects.create_user(username="claimant@example.com")
-        personal = resolve_personal_workspace(user)
-        assert warm_isolation_class(user, personal.workspace_id) == ISOLATION_PERSONAL
-        assert warm_isolation_class(user, personal.workspace_id + 9999) == ISOLATION_SHARED
 
-    def test_system_range_instance_for_finds_and_misses(self):
-        from django.contrib.auth import get_user_model
+@pytest.mark.django_db
+def test_claim_source_fence_rolls_back_custody_and_lease(
+    django_user_model, settings, live_session_credential, allow_all_policy
+):
+    from cms.exceptions import CMSError
+    from cms.services._warm_pool_claim import _run_atomic_claim
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
+    from tests.cms._warm_pool_fixtures import warm_claim_fixture
 
-        from cms.models import RangeInstance, Request
-        from cms.services._warm_pool_claim import _system_range_instance_for
-        from shared.enums import RangeSource, ResourceStatus
+    claim, generation, instance, source, _ = warm_claim_fixture(django_user_model, settings, live_session_credential)
+    # The declaration still refers to the admitted revision, which has now changed.
+    source.package_digest = "sha256:" + "e" * 64
+    source.save(update_fields=["package_digest"])
+    with pytest.raises(CMSError):
+        _run_atomic_claim(claim, [(generation.bucket_id, generation.compatibility_digest)])
+    generation.refresh_from_db()
+    instance.refresh_from_db()
+    assert generation.state == "ready" and generation.claimed_by_request_id is None
+    assert instance.scope_kind == "installation" and instance.expires_at is None
+    assert not RangeAuthorityChange.objects.exists()
+    assert not ProvisionerLaunchIntent.objects.exists()
 
-        user = get_user_model().objects.create_user(username="sys@warm-pool.invalid")
-        request = Request.objects.create(workspace_id=1, request_id=uuid4(), request_type="raes-range", user=user)
-        ri = RangeInstance.objects.create(
-            workspace_id=1,
-            request=request,
-            scenario_id="example",
-            user_id=user.id,
-            range_source=RangeSource.MISSION_CONTROL.value,
-            status=ResourceStatus.PROVISIONING.value,
-        )
-        assert _system_range_instance_for(request.request_id).pk == ri.pk
-        assert _system_range_instance_for(uuid4()) is None
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("changed", ["publication", "enabled", "staff_only", "conformance", "lock"])
+def test_claim_rejects_source_eligibility_changed_after_admission(
+    django_user_model, settings, live_session_credential, allow_all_policy, monkeypatch, changed
+):
+    from cms.exceptions import CMSError
+    from cms.models import RaesPackageSource, ScenarioMetadata
+    from cms.services import _model_allocation
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
+    from tests.cms._warm_pool_fixtures import warm_claim_fixture
+    from workspaces.models import WorkspaceQuotaReservation
+
+    claim, generation, instance, source, _ = warm_claim_fixture(django_user_model, settings, live_session_credential)
+    original = _model_allocation.prepare_claim_model_sources
+
+    def prepare_then_change(*args, **kwargs):
+        prepared = original(*args, **kwargs)
+        if changed in {"enabled", "staff_only"}:
+            ScenarioMetadata.objects.update_or_create(
+                scenario_id=source.scenario_id, defaults={changed: changed != "enabled"}
+            )
+        else:
+            field, value = {
+                "publication": ("is_operator_published", False),
+                "conformance": ("conformance_status", "failed"),
+                "lock": ("lock_digest", "sha256:" + "f" * 64),
+            }[changed]
+            RaesPackageSource.objects.filter(pk=source.pk).update(**{field: value})
+        return prepared
+
+    monkeypatch.setattr(_model_allocation, "prepare_claim_model_sources", prepare_then_change)
+    with pytest.raises(CMSError):
+        attempt_warm_claim(claim)
+    instance.refresh_from_db()
+    generation.refresh_from_db()
+    assert generation.state == "ready" and generation.claimed_by_request_id is None
+    assert instance.scope_kind == "installation" and instance.expires_at is None
+    assert not RangeAuthorityChange.objects.exists()
+    assert not ProvisionerLaunchIntent.objects.exists()
+    assert not WorkspaceQuotaReservation.objects.exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(("before", "after"), [("status-quo", "none"), ("none", "status-quo")])
+def test_claim_rechecks_network_policy_under_locked_ancestry(
+    django_user_model, settings, live_session_credential, allow_all_policy, monkeypatch, before, after
+):
+    from dataclasses import replace
+
+    from cms.services import _model_allocation
+    from engine.models import ProvisionerLaunchIntent, RangeAuthorityChange
+    from tests.cms._warm_pool_fixtures import warm_claim_fixture
+    from workspaces.models import Workspace
+
+    claim, generation, instance, _source, workspace = warm_claim_fixture(
+        django_user_model, settings, live_session_credential
+    )
+    Workspace.objects.filter(pk=workspace.pk).update(egress_policy=before)
+    claim = replace(claim, egress_mode=before)
+    candidates = _resolve_claim_candidates(claim, None)
+    generation.compatibility_digest = candidates[0][1]
+    generation.save(update_fields=["compatibility_digest"])
+    prepare = _model_allocation.prepare_claim_model_sources
+    checked = []
+
+    def change_after_admission(*args, **kwargs):
+        prepared = prepare(*args, **kwargs)
+        Workspace.objects.filter(pk=workspace.pk).update(egress_policy=after)
+        checked.append(True)
+        return prepared
+
+    monkeypatch.setattr(_model_allocation, "prepare_claim_model_sources", change_after_admission)
+    assert attempt_warm_claim(claim) is None
+    assert checked
+    instance.refresh_from_db()
+    generation.refresh_from_db()
+    assert generation.state == "ready" and generation.claimed_by_request_id is None
+    assert instance.scope_kind == "installation" and instance.expires_at is None
+    assert not RangeAuthorityChange.objects.exists()
+    assert not ProvisionerLaunchIntent.objects.exists()
+    workspace.refresh_from_db()
+    assert workspace.egress_policy == after
+
+
+@pytest.mark.django_db
+def test_system_range_lookup_accepts_only_the_correlated_request():
+    from cms.models import RangeInstance, Request
+    from cms.services._warm_pool_claim import _system_range_instance_for
+
+    request = Request.objects.create(request_id=uuid4(), request_type="range", scope_kind="installation")
+    instance = RangeInstance.objects.create(
+        request=request,
+        scenario_id="example",
+        range_source=RangeSource.MISSION_CONTROL.value,
+        status="provisioning",
+        scope_kind="installation",
+    )
+    assert _system_range_instance_for(request.request_id).pk == instance.pk
+    assert _system_range_instance_for(uuid4()) is None

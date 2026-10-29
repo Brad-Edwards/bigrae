@@ -1,5 +1,7 @@
 """Tests for CTF -> CMS bridge scenario selection (launchability filtering)."""
 
+from uuid import uuid4
+
 import pytest
 from django.contrib.auth import get_user_model
 
@@ -41,30 +43,29 @@ class TestCmsListScenariosLaunchability:
         assert "example-pending" not in ids
 
 
-class TestCmsRangeControlRequiresOwningUser:
-    """cms_stop_range/cms_start_range require the range's owning user at the
-    CTF/CMS boundary before forwarding to CMS (bridges.py:189, 199)."""
+class TestCmsEventRangeControl:
+    """CTF forwards the exact event and credential to CMS lifecycle admission."""
 
     def test_stop_range_forwards_to_pause(self, user, monkeypatch):
         calls: list = []
-        monkeypatch.setattr("cms.services.pause_range", lambda u, rid: calls.append((u, rid)))
+        event_uuid = uuid4()
+        monkeypatch.setattr(
+            "cms.services.run_event_range_lifecycle",
+            lambda credential, event, rid, op: calls.append((credential, event, rid, op)),
+        )
 
-        bridges.cms_stop_range(user, 42)
+        bridges.cms_stop_range(user, event_uuid, 42)
 
-        assert calls == [(user, 42)]
+        assert calls == [(user, event_uuid, 42, "pause")]
 
     def test_start_range_forwards_to_resume(self, user, monkeypatch):
         calls: list = []
-        monkeypatch.setattr("cms.services.resume_range", lambda u, rid: calls.append((u, rid)))
+        event_uuid = uuid4()
+        monkeypatch.setattr(
+            "cms.services.run_event_range_lifecycle",
+            lambda credential, event, rid, op: calls.append((credential, event, rid, op)),
+        )
 
-        bridges.cms_start_range(user, 7)
+        bridges.cms_start_range(user, event_uuid, 7)
 
-        assert calls == [(user, 7)]
-
-    def test_stop_range_requires_a_user(self):
-        with pytest.raises(AssertionError):
-            bridges.cms_stop_range(None, 42)
-
-    def test_start_range_requires_a_user(self):
-        with pytest.raises(AssertionError):
-            bridges.cms_start_range(None, 7)
+        assert calls == [(user, event_uuid, 7, "resume")]

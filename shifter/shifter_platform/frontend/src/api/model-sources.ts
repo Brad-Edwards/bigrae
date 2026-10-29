@@ -16,7 +16,6 @@ export function useModelSources(organization: string, available = false) {
       sourceBase(organization) + (available ? "available/" : ""), { signal }),
   });
 }
-
 // Secret-bearing writes deliberately bypass mutation caches. The form owns
 // transient input and clears it after every attempted submission.
 export function saveModelSource(organization: string, body: SourceWrite, source?: ModelSource) {
@@ -50,17 +49,11 @@ export function useModelRanges(organization: string, page: number) {
 }
 export function useRangeModelSources(request: string) {
   return useQuery({ queryKey: rangeSourceKey(request), enabled: Boolean(request),
-    queryFn: ({ signal }) => apiFetch<RangeModelSources>(`/cms/ranges/${request}/model-sources/`, { signal }),
+    queryFn: ({ signal }) => apiFetch<RangeModelSources>(`/cms/ranges/${request}/model-access/`, { signal }),
     refetchInterval: (query) => query.state.data?.runtime.state === "refresh_pending" ? 5000 : false });
 }
 export function saveRangeModelSources(request: string, expectedRevision: number, selection: ModelSourceSelection) {
-  return apiFetch<RangeModelSources>(`/cms/ranges/${request}/model-sources/`, {
+  return apiFetch<RangeModelSources>(`/cms/ranges/${request}/model-access/`, {
     method: "PUT", body: { expected_revision: expectedRevision, selection },
   });
-}
-
-export function useModelSourceUsers(organization: string, search: string, page: number) {
-  return useQuery({ queryKey: ["model-source-users", organization, search, page], enabled: Boolean(organization),
-    queryFn: ({ signal }) => apiFetch<components["schemas"]["ModelSourceUserPage"]>(`/cms/organizations/${organization}/model-source-users/`,
-      { signal, query: { search, page } }) });
 }

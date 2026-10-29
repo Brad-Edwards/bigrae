@@ -4,7 +4,7 @@
 
 
 Status: binding implementation guidance for issue
-[#1981](https://github.com/Brad-Edwards/shifter/issues/1981)
+[#1981](https://github.com/Brad-Edwards/bigrae/issues/1981)
 
 This security change is a dependency-resolution change, not a new application
 cryptography design. The repository does not call `pkcs7_decrypt_*`, but it

@@ -40,6 +40,9 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "api_v1_mission_control_range_launch": OperationPolicy(
         scope_actions("launch_range"), "scope", "launch_parent", selector="validated_parent"
     ),
+    "api_v1_mission_control_launch_workspaces_list": OperationPolicy(
+        ("workspace.launch_range",), "workspace", "authorized_workspace_collection"
+    ),
     "api_v1_mission_control_range_pause": OperationPolicy(_MANAGE, "range", "current_range"),
     "api_v1_mission_control_range_resume": OperationPolicy(_MANAGE, "range", "current_range"),
     "mission_control_range_vpn_profile_create": OperationPolicy(_ACCESS, "range", "current_range"),

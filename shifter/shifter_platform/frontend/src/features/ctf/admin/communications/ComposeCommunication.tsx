@@ -1,5 +1,5 @@
 /**
- * Compose, preview, and send one communication to events in one workspace (#2052).
+ * Compose, preview, and send one communication to events with the same parent (#2052).
  *
  * The draft locks its targets, channel, acknowledgement, and timing when it is
  * saved, because the server pins them on the campaign. Content edits append an
@@ -13,6 +13,7 @@ import {
   type Campaign,
   type CommunicationPreview,
   type CommunicationTargets,
+  type CommunicationParent,
   useCancelCtfCommunication,
   useCommunicationPreview,
   useCreateCommunicationDraft,
@@ -79,7 +80,11 @@ function PreviewPanel({ preview }: Readonly<{ preview: ReturnType<typeof useComm
       <div className="rounded-md border p-4">
         <p className="text-sm text-muted-foreground">Revision {data.revision.revision_number}</p>
         <h3 className="text-base font-semibold">{data.revision.subject}</h3>
-        <MarkdownContent text={data.revision.body} profile="ctf-communication-markdown/v1" />
+        <MarkdownContent
+          text={data.revision.body}
+          profile="ctf-communication-markdown/v1"
+          allowedLinkHosts={data.allowed_link_hosts}
+        />
       </div>
       <Table>
         <TableHeader>
@@ -159,7 +164,7 @@ function EventPicker({
     <fieldset disabled={disabled} className="space-y-2">
       <legend className="text-sm font-medium">Events</legend>
       {events.length === 0 ? (
-        <p className="text-sm text-muted-foreground">You cannot send communications to any event in this workspace.</p>
+        <p className="text-sm text-muted-foreground">You cannot send communications to any event in this selection.</p>
       ) : null}
       {events.map((event) => (
         <div key={event.id} className="flex items-center gap-2">
@@ -285,10 +290,10 @@ function ScheduleFields({
 }
 
 export function ComposeCommunication({
-  workspaceId,
+  parent,
   events,
   moreEvents,
-}: Readonly<{ workspaceId: string; events: TargetEvent[]; moreEvents?: ReactNode }>) {
+}: Readonly<{ parent: CommunicationParent; events: TargetEvent[]; moreEvents?: ReactNode }>) {
   const navigate = useNavigate();
   const [selected, setSelected] = useState<string[]>([]);
   const [title, setTitle] = useState("");
@@ -343,7 +348,7 @@ export function ComposeCommunication({
     }
     create.mutate(
       {
-        workspaceId,
+        parent,
         eventIds: selected,
         title: title.trim(),
         ...content,

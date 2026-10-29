@@ -144,10 +144,10 @@ class TestEventApi:
             )
         assert resp.status_code == 200
 
-    def test_scenarios_get(self, authenticated_organizer_client: Client):
-        with patch("ctf.bridges.cms_list_scenarios", return_value=[("basic", "Basic")]):
-            resp = _json(authenticated_organizer_client, "get", "api_scenarios")
+    def test_scenarios_get(self, authenticated_organizer_client: Client, allow_all_policy):
+        resp = authenticated_organizer_client.get(reverse("v1:ctf:api_scenarios"), {"scope_kind": "installation"})
         assert resp.status_code == 200
+        assert resp.json() == {"scenarios": []}
 
 
 class TestParticipantScopedApi:
@@ -294,10 +294,15 @@ class TestParticipantManagementApi:
             "api_participant_detail",
             kwargs={"participant_id": ctf_participant.id},
         )
-        # Deleting an existing participant must succeed (200).
-        assert resp.status_code == 200
+        assert resp.status_code == 204
 
-    def test_resend_invite(self, authenticated_organizer_client: Client, ctf_event: CTFEvent, recorded_email):
+    def test_resend_invite(
+        self,
+        authenticated_organizer_client: Client,
+        ctf_event: CTFEvent,
+        organizer_credential,
+        recorded_email,
+    ):
         """Resend runs the real credential-delivery service end-to-end; only the
         external SMTP boundary is mocked (ADR-019-R1). A participant with a real
         isolated account and a delivery email receives fresh login info, so the
@@ -307,7 +312,12 @@ class TestParticipantManagementApi:
 
         from ctf.services.participant import add_participant
 
-        participant = add_participant(event_id=ctf_event.id, email="resend@test.com", name="Resend Target")
+        participant = add_participant(
+            event_id=ctf_event.id,
+            email="resend@test.com",
+            name="Resend Target",
+            actor=organizer_credential,
+        )
         message_cls, delivered, messages = recorded_email
         with (
             override_settings(CTF_FROM_EMAIL="ctf@test.com", SITE_URL="https://example.com"),
@@ -429,7 +439,7 @@ class TestNotificationApi:
             "api_event_email_template",
             kwargs={"event_id": ctf_event.id, "notification_type": ntype},
         )
-        assert delete.status_code == 200
+        assert delete.status_code == 204
         assert not CTFEmailTemplate.objects.filter(event=ctf_event, notification_type=ntype).exists()
 
     def test_email_template_put_rejects_template_tags(
@@ -529,18 +539,24 @@ class TestRangeApi:
     def test_participant_range_action(
         self, authenticated_organizer_client: Client, ctf_participant: CTFParticipant, route, service_fn
     ):
-        with patch(f"ctf.services.range.{service_fn}", return_value={"status": "ok"}):
+        with patch(f"ctf.services.range.{service_fn}", return_value={"status": "ok"}) as action:
             resp = _json(authenticated_organizer_client, "post", route, kwargs={"participant_id": ctf_participant.id})
         assert resp.status_code == 200
+        from shared.credentials import CredentialContext
+
+        credential = action.call_args.kwargs["actor"]
+        assert isinstance(credential, CredentialContext)
+        assert credential.principal.uuid == ctf_participant.event.created_by.identity_principal.uuid
 
         # The range service acts as the participant; this row names the organizer (#2617).
         from shared.models import AuditLog
 
         row = AuditLog.objects.get(context="ctf_organizer_participant_range_action")
         assert row.actor_id == ctf_participant.event.created_by_id
+        assert row.actor_principal_uuid == credential.principal.uuid
         assert row.new_state["participant_id"] == str(ctf_participant.id)
         assert row.new_state["operation"] == f"range.participant.{service_fn.split('_', 1)[0]}"
-        assert row.new_state["authority_source"] == "owner"
+        assert row.new_state["authority_source"] == "policy"
 
     def test_participant_range_action_not_found(self, authenticated_organizer_client: Client):
         resp = _json(
@@ -551,7 +567,13 @@ class TestRangeApi:
         )
         assert resp.status_code == 404
 
-    def test_send_invitations(self, authenticated_organizer_client: Client, ctf_event: CTFEvent, recorded_email):
+    def test_send_invitations(
+        self,
+        authenticated_organizer_client: Client,
+        ctf_event: CTFEvent,
+        organizer_credential,
+        recorded_email,
+    ):
         """Real ``send_login_info`` runs end-to-end; only the external SMTP
         boundary is mocked (ADR-019-R1). One participant with a delivery email
         means the endpoint sends one invitation and returns 200.
@@ -560,7 +582,12 @@ class TestRangeApi:
 
         from ctf.services.participant import add_participant
 
-        add_participant(event_id=ctf_event.id, email="invitee@test.com", name="Invitee")
+        add_participant(
+            event_id=ctf_event.id,
+            email="invitee@test.com",
+            name="Invitee",
+            actor=organizer_credential,
+        )
         message_cls, delivered, messages = recorded_email
         with (
             override_settings(CTF_FROM_EMAIL="ctf@test.com", SITE_URL="https://example.com"),

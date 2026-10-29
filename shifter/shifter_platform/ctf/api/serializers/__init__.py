@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from ctf.api.serializers.organizer import (
     CleanupControlRequestSerializer,
+    CtfScenarioListQuerySerializer,
     CtfScenarioListResponseSerializer,
     CtfScenarioRefSerializer,
     EventContentRefreshRequestSerializer,
@@ -167,6 +168,7 @@ __all__ = [
     "ChallengeSummarySerializer",
     "ChallengeWriteSerializer",
     "CleanupControlRequestSerializer",
+    "CtfScenarioListQuerySerializer",
     "CtfScenarioListResponseSerializer",
     "CtfScenarioRefSerializer",
     "DeleteSuccessSerializer",

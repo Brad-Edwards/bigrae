@@ -53,11 +53,11 @@ export const SURFACES: readonly A11ySurface[] = [
     remediation: "src/features/mission-control/RangeDashboardPage.tsx",
   },
   {
-    id: "workspace-list",
-    route: "/administer/organization/workspaces",
+    id: "account-administration",
+    route: "/administer/accounts",
     actor: "staff",
-    ready: "Workspaces",
-    remediation: "src/features/administer/organization/WorkspaceListPage.tsx",
+    ready: "Customer accounts",
+    remediation: "src/features/administer/accounts/AccountAdministrationPage.tsx",
   },
   {
     id: "audit",
@@ -65,6 +65,13 @@ export const SURFACES: readonly A11ySurface[] = [
     actor: "staff",
     ready: "Audit",
     remediation: "src/features/administer/AuditPage.tsx",
+  },
+  {
+    id: "ctf-participant-inbox",
+    route: "/ctf/inbox",
+    actor: "inbox",
+    ready: "Inbox",
+    remediation: "src/features/ctf/inbox/InboxPage.tsx",
   },
   {
     id: "ctf-admin-dashboard",
@@ -97,15 +104,12 @@ export const SURFACES: readonly A11ySurface[] = [
     remediation: "src/app/RootLayout.tsx",
   },
   {
-    // Error-state surface: a well-formed but unknown workspace UUID renders the
-    // destructive "Workspace not found" alert. Covers the destructive Alert
-    // variant's contrast deterministically without seeding.
-    id: "workspace-not-found",
-    route: "/administer/organization/workspaces/00000000-0000-0000-0000-000000000000",
-    actor: "staff",
-    ready: "Workspace not found",
-    readyKind: "alert",
-    remediation: "src/features/administer/organization/WorkspaceScopeLayout.tsx",
+    // Individual accounts use the same native page without subdivisions.
+    id: "personal-account-administration",
+    route: "/administer/accounts",
+    actor: "standard",
+    ready: "Personal account",
+    remediation: "src/features/administer/accounts/AccountAdministrationPage.tsx",
   },
   {
     // Not-found state for an unknown client route under a host-served prefix.

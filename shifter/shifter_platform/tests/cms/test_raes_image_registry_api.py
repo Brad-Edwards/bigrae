@@ -16,6 +16,9 @@ from engine.services import RaesImageMappingOptions, upsert_raes_image_mapping
 from shared.api_tokens import scopes
 from shared.api_tokens.models import ApiToken
 from shared.auth import THREAT_RESEARCH_GROUP
+from tests.cms._content_api_fixtures import content_policy
+
+__all__ = ["content_policy"]
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
 
@@ -58,27 +61,29 @@ def api_client() -> APIClient:
 
 
 @pytest.fixture
-def staff_user(django_user_model):
-    return django_user_model.objects.create_user(
-        username="raes-img-staff@example.com",
-        email="raes-img-staff@example.com",
-        is_staff=True,
+def staff_user(django_user_model, content_policy):
+    return content_policy(
+        django_user_model.objects.create_user(
+            username="raes-img-staff@example.com",
+            email="raes-img-staff@example.com",
+            is_staff=True,
+        )
     )
 
 
 @pytest.fixture
-def threat_research_user(django_user_model):
+def threat_research_user(django_user_model, content_policy):
     user = django_user_model.objects.create_user(
         username="raes-img-threat@example.com",
         email="raes-img-threat@example.com",
     )
     group, _ = Group.objects.get_or_create(name=THREAT_RESEARCH_GROUP)
     user.groups.add(group)
-    return user
+    return content_policy(user)
 
 
 @pytest.fixture
-def non_authoring_user(django_user_model):
+def non_authoring_user(django_user_model, content_policy):
     return django_user_model.objects.create_user(
         username="raes-img-viewer@example.com",
         email="raes-img-viewer@example.com",
@@ -86,6 +91,11 @@ def non_authoring_user(django_user_model):
 
 
 def _token(user, *granted: str) -> str:
+    replacements = {
+        scopes.CMS_AUTHORING_READ: scopes.AUTHORIZATION_ACTION_SCOPES["installation.read_content"],
+        scopes.CMS_AUTHORING_WRITE: scopes.AUTHORIZATION_ACTION_SCOPES["installation.prepare_content"],
+    }
+    granted = tuple(replacements.get(value, value) for value in granted)
     _, raw = ApiToken.create_token(name="raes-img", created_by=user, scopes=list(granted))
     return raw
 
@@ -275,8 +285,13 @@ class TestRegister:
 
 
 class TestList:
-    def test_lists_rows_with_allowlisted_fields(self, api_client, threat_research_user):
-        upsert_raes_image_mapping(provider="gce", source_name="alpine", image_ref="img-any")
+    def test_lists_rows_with_allowlisted_fields(self, api_client, threat_research_user, live_session_credential):
+        upsert_raes_image_mapping(
+            provider="gce",
+            source_name="alpine",
+            image_ref="img-any",
+            credential=live_session_credential(threat_research_user),
+        )
         api_client.force_authenticate(user=threat_research_user)
         response = api_client.get(LIST_CREATE_URL)
         assert response.status_code == 200
@@ -284,20 +299,22 @@ class TestList:
         assert len(results) == 1
         assert set(results[0]) == _VIEW_FIELDS
 
-    def test_include_disabled_false_filters_disabled(self, api_client, threat_research_user):
-        upsert_raes_image_mapping(provider="gce", source_name="kali", image_ref="img")
+    def test_include_disabled_false_filters_disabled(self, api_client, threat_research_user, live_session_credential):
+        credential = live_session_credential(threat_research_user)
+        upsert_raes_image_mapping(provider="gce", source_name="kali", image_ref="img", credential=credential)
         upsert_raes_image_mapping(
             provider="gce",
             source_name="ubuntu",
             image_ref="img",
             options=RaesImageMappingOptions(enabled=False),
+            credential=credential,
         )
         api_client.force_authenticate(user=threat_research_user)
         response = api_client.get(LIST_CREATE_URL, {"include_disabled": "false"})
         assert [r["source_name"] for r in response.json()] == ["kali"]
 
-    def test_read_token_can_list(self, api_client, staff_user):
-        raw = _token(staff_user, scopes.CMS_AUTHORING_READ)
+    def test_preparation_token_can_list(self, api_client, staff_user):
+        raw = _token(staff_user, scopes.AUTHORIZATION_ACTION_SCOPES["installation.prepare_content"])
         response = _bearer(api_client, raw).get(LIST_CREATE_URL)
         assert response.status_code == 200
 
@@ -316,8 +333,15 @@ class TestList:
 
 
 class TestDisable:
-    def test_disable_sets_enabled_false_preserving_image_ref(self, api_client, threat_research_user):
-        upsert_raes_image_mapping(provider="gce", source_name="kali", image_ref="img-keep")
+    def test_disable_sets_enabled_false_preserving_image_ref(
+        self, api_client, threat_research_user, live_session_credential
+    ):
+        upsert_raes_image_mapping(
+            provider="gce",
+            source_name="kali",
+            image_ref="img-keep",
+            credential=live_session_credential(threat_research_user),
+        )
         api_client.force_authenticate(user=threat_research_user)
         response = api_client.post(DISABLE_URL, {"provider": "gce", "source_name": "kali"}, format="json")
         assert response.status_code == 200
@@ -406,7 +430,8 @@ def test_registry_changes_are_audited_with_actor_and_previous_image(api_client, 
 
     rows = list(AuditLog.objects.filter(entity_type=AuditEntityType.CONFIG).order_by("sequence"))
     assert [row.action for row in rows] == [AuditAction.CREATE, AuditAction.UPDATE, AuditAction.UPDATE]
-    assert {row.actor_id for row in rows} == {threat_research_user.pk}
+    assert {row.actor_id for row in rows} == {None}
+    assert {row.actor_principal_uuid for row in rows} == {threat_research_user.identity_principal.uuid}
     assert rows[0].previous_state is None
     assert rows[0].new_state["image_ref"] == "img-a"
     assert rows[1].previous_state["image_ref"] == "img-a"
@@ -414,3 +439,27 @@ def test_registry_changes_are_audited_with_actor_and_previous_image(api_client, 
     assert rows[2].previous_state["enabled"] is True
     assert rows[2].new_state["enabled"] is False
     assert rows[0].entity_ref == "raes-image-mapping:gce:kali@*"
+
+
+@pytest.mark.parametrize("operation", ["replace", "disable"])
+def test_registry_change_rolls_back_when_audit_fails(api_client, threat_research_user, monkeypatch, operation):
+    """The owning audit and boot-image change commit together for both HTTP writes."""
+    api_client.force_authenticate(user=threat_research_user)
+    payload = {"provider": "gce", "source_name": "synthetic-image", "image_ref": "img-before"}
+    assert api_client.post(LIST_CREATE_URL, payload, format="json").status_code == 200
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("Synthetic audit outage")
+
+    monkeypatch.setattr("engine.services._principal_image_registry.audit_log", fail_audit)
+    url = LIST_CREATE_URL if operation == "replace" else DISABLE_URL
+    data = (
+        {**payload, "image_ref": "img-after"}
+        if operation == "replace"
+        else {"provider": "gce", "source_name": "synthetic-image"}
+    )
+    with pytest.raises(RuntimeError, match="Synthetic audit outage"):
+        api_client.post(url, data, format="json")
+    row = RaesImageMapping.objects.get(source_name="synthetic-image")
+    assert row.image_ref == "img-before"
+    assert row.enabled is True

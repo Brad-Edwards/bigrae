@@ -28,7 +28,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from ctf.services.authorization import is_ctf_platform_admin
+from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
+from shared.api.principals import authenticated_credential
 from shared.api_tokens.authentication import ApiTokenAuthentication
 from shared.api_tokens.models import ApiToken
 from shared.auth import (
@@ -37,8 +39,9 @@ from shared.auth import (
     is_ctf_participant,
     is_ctf_participant_only,
 )
+from shared.authorization import configured_authorization_provider
 from shared.credentials import CredentialContext
-from workspaces.services import list_administrable_organizations
+from workspaces.services import AccountScopeError, admin_principal_context
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -77,6 +80,10 @@ class BootstrapPermissionsSerializer(serializers.Serializer):
     can_delete_users = serializers.BooleanField()
     can_manage_adapters = serializers.BooleanField(required=False)
     can_manage_model_sources = serializers.BooleanField(required=False)
+    can_administer_accounts = serializers.BooleanField()
+    can_administer_platform = serializers.BooleanField()
+    can_read_audit = serializers.BooleanField()
+    can_manage_lease_policy = serializers.BooleanField()
 
 
 class BootstrapModesSerializer(serializers.Serializer):
@@ -158,9 +165,41 @@ def _modes_for_user(user: User | None) -> dict[str, object]:
     }
 
 
-def _can_manage_organization_integrations(user: User | None) -> bool:
-    """Expose integration administration only to active organization administrators."""
-    return bool(user is not None and user.is_active and (user.is_superuser or list_administrable_organizations(user)))
+def _policy_permissions(request: Request) -> dict[str, bool]:
+    """Return action-derived presentation hints from the mandatory policy path."""
+    actor = authenticated_credential(request)
+    if actor.kind == "temporary":
+        return {
+            "can_administer_accounts": False,
+            "can_administer_platform": False,
+            "can_read_audit": False,
+            "can_manage_lease_policy": False,
+            "can_manage_adapters": False,
+            "can_manage_model_sources": False,
+        }
+    context = admin_principal_context(
+        actor,
+        configured_authorization_provider(),
+        offset=0,
+        limit=1,
+    )
+    actions = frozenset(context.installation_actions)
+    organization_actions = frozenset(context.organization_actions)
+    return {
+        "can_administer_accounts": bool(
+            context.individual_account is not None
+            or context.accounts.count
+            or context.has_descendant_scopes
+            or "installation.manage_accounts" in actions
+        ),
+        "can_administer_platform": bool(actions),
+        "can_read_audit": "installation.read_audit" in actions,
+        "can_manage_lease_policy": "installation.manage_lease_policy" in actions,
+        "can_manage_adapters": "installation.manage_adapters" in actions
+        or "organization.manage_adapters" in organization_actions,
+        "can_manage_model_sources": "installation.manage_model_sources" in actions
+        or "organization.manage_model_sources" in organization_actions,
+    }
 
 
 class BootstrapView(APIView):
@@ -169,11 +208,22 @@ class BootstrapView(APIView):
     authentication_classes = [ApiTokenAuthentication, SessionAuthentication]
     permission_classes = [IsAuthenticatedSessionOrApiToken]
 
+    def handle_exception(self, exc: Exception) -> Response:
+        """Keep provider and principal failures behind one bounded envelope."""
+        if isinstance(exc, AccountScopeError):
+            return api_error_response(
+                code="authorization_unavailable",
+                message="Authorization unavailable",
+                status_code=503,
+                request=self.request,
+            )
+        return super().handle_exception(exc)
+
     @extend_schema(responses=BootstrapSerializer, operation_id="api_v1_bootstrap_retrieve")
     def get(self, request: Request) -> Response:
         auth = getattr(request, "auth", None)
         principal: dict[str, object]
-        if isinstance(auth, CredentialContext):
+        if isinstance(auth, CredentialContext) and auth.kind != "session":
             principal = {
                 "id": None,
                 "username": str(auth.principal.uuid),
@@ -191,7 +241,7 @@ class BootstrapView(APIView):
             session_user = request.user
             principal, can_threat = _principal_from_session(session_user)
 
-        can_manage_integrations = _can_manage_organization_integrations(session_user)
+        policy_permissions = _policy_permissions(request)
         payload = {
             "principal": principal,
             "permissions": {
@@ -204,8 +254,7 @@ class BootstrapView(APIView):
                 "can_view_users": bool(session_user is not None and session_user.has_perm("auth.view_user")),
                 "can_change_users": bool(session_user is not None and session_user.has_perm("auth.change_user")),
                 "can_delete_users": bool(session_user is not None and session_user.has_perm("auth.delete_user")),
-                "can_manage_adapters": can_manage_integrations,
-                "can_manage_model_sources": can_manage_integrations,
+                **policy_permissions,
             },
             "modes": _modes_for_user(session_user),
         }

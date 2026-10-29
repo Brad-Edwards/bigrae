@@ -1,8 +1,8 @@
-"""Tenant source administration with immutable credentials and explicit use grants."""
+"""Tenant model sources under native organization authority and immutable credentials."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
@@ -18,12 +18,14 @@ if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
     from engine.models import ModelSource, ModelSourceRevision
+    from shared.credentials import CredentialContext
 
 
 REVISION_CONFLICT = "source.revision_conflict"
 
 
 SOURCE_UNAVAILABLE = "source.unavailable"
+_ORGANIZATION_ACCESS_DENIED = "Organization access denied"
 
 
 @dataclass(frozen=True)
@@ -39,17 +41,51 @@ class ModelSourceView:
     has_credential: bool
 
 
-def _authorize(actor: User, organization_uuid: UUID) -> None:
-    """Lock and recheck current tenant administration authority."""
-    from django.contrib.auth.models import User
+def _principal_user(actor: CredentialContext) -> User | None:
+    """Return optional legacy human attribution without using it as authority."""
+    if actor.principal.kind != "human":
+        return None
+    from django.contrib.auth import get_user_model
 
-    from workspaces.services import OrganizationAuthorizationError, get_organization_profile
+    from management.services import PrincipalConflictError, human_principal_user_id
 
-    with transaction.atomic():
-        current = User.objects.select_for_update().filter(pk=actor.pk, is_active=True).first()
-        if current is None:
-            raise OrganizationAuthorizationError("Organization access denied")
-        get_organization_profile(current, organization_uuid, lock=True)
+    try:
+        user_id = human_principal_user_id(actor.principal)
+    except PrincipalConflictError:
+        return None
+    return get_user_model().objects.filter(pk=user_id, is_active=True).first()
+
+
+def _authorize(actor: CredentialContext, organization_uuid: UUID) -> CredentialContext:
+    """Require the exact model-source action on SQL-resolved organization ancestry."""
+    from shared.authorization import AuthorizationRequest, TargetRef
+    from shared.authorization.policy import require_authorization
+    from shared.credentials import CredentialContext, resolve_current_credential
+    from workspaces.services import OrganizationAuthorizationError, hierarchy_target_scope
+
+    try:
+        if not isinstance(actor, CredentialContext):
+            raise ValueError
+        current = resolve_current_credential(actor)
+        target = TargetRef("organization", organization_uuid)
+        scope = hierarchy_target_scope("organization", organization_uuid)
+        require_authorization(
+            AuthorizationRequest(
+                current.principal,
+                "organization.manage_model_sources",
+                target,
+                scope,
+                current.ceiling,
+            )
+        )
+        return current
+    except Exception:
+        raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
+
+
+def authorize_model_source_organization(actor: CredentialContext, organization_uuid: UUID) -> None:
+    """Public admission seam for organization-level source administration."""
+    _authorize(actor, organization_uuid)
 
 
 def _configuration(value: object, *, enabled: bool = True) -> ModelSourceConfiguration:
@@ -88,7 +124,7 @@ def _credential(config: ModelSourceConfiguration, value: object) -> str | None:
     return json.dumps(value, separators=(",", ":"))
 
 
-def _audit(actor: User, source: ModelSource, action: str) -> None:
+def _audit(actor: CredentialContext, source: ModelSource, action: str) -> None:
     """Record source metadata changes without credential material."""
     audit_log(
         AuditEvent(
@@ -96,8 +132,9 @@ def _audit(actor: User, source: ModelSource, action: str) -> None:
             entity_id=0,
             entity_ref=str(source.id),
             action=action,
-            actor_type=AuditActorType.USER,
-            actor_id=actor.pk,
+            actor_type=AuditActorType.PRINCIPAL,
+            actor_id=None,
+            actor_principal_uuid=actor.principal.uuid,
             new_state={"model_source_revision": source.revision, "enabled": source.enabled},
         ),
         strict=True,
@@ -118,30 +155,27 @@ def _view(source: ModelSource, revision: ModelSourceRevision) -> ModelSourceView
 
 
 def _store_credential(
-    actor: User, source: ModelSource, revision: ModelSourceRevision, payload: str | None
+    actor: CredentialContext, source: ModelSource, revision: ModelSourceRevision, payload: str | None
 ) -> ModelSourceView:
     """Cloud I/O occurs after the pending revision commits, outside row locks."""
     from engine.models import ModelSource, ModelSourceRevision
     from workspaces.services import OrganizationAuthorizationError
 
-    if payload is not None:
-        from shared.cloud import get_secrets_store
-        from shared.cloud.exceptions import CloudSecretsError
-
-        if revision.credential_version is None:
-            raise ContractError("source.credential_unavailable")
-        try:
-            reference = get_secrets_store().create_owned_secret(source.id, revision.credential_version, payload)
-        except CloudSecretsError:
-            ModelSourceRevision.objects.filter(pk=revision.pk, state="pending").update(state="failed")
-            raise ContractError("source.credential_unavailable") from None
-        revision.credential_reference = reference
+    _persist_source_secret(source, revision, payload)
+    current_actor: CredentialContext | None = None
+    failure: OrganizationAuthorizationError | ContractError | None = None
+    try:
+        current_actor = _authorize(actor, source.organization_uuid)
+    except OrganizationAuthorizationError as exc:
+        failure = exc
     with transaction.atomic():
-        failure: OrganizationAuthorizationError | ContractError | None = None
-        try:
-            _authorize(actor, source.organization_uuid)
-        except OrganizationAuthorizationError as exc:
-            failure = exc
+        from shared.credentials import resolve_local_credential
+
+        if current_actor is not None:
+            try:
+                resolve_local_credential(current_actor)
+            except Exception:
+                failure = OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED)
         current = ModelSource.objects.select_for_update().get(pk=source.pk)
         try:
             if current.revision != revision.revision:
@@ -168,38 +202,66 @@ def _store_credential(
     return _view(current, revision)
 
 
+def _persist_source_secret(source: ModelSource, revision: ModelSourceRevision, payload: str | None) -> None:
+    """Write an owned secret outside SQL and preserve a failed publication for recovery."""
+    from engine.models import ModelSourceRevision
+    from shared.cloud import get_secrets_store
+    from shared.cloud.exceptions import CloudSecretsError
+
+    if payload is None:
+        return
+    if revision.credential_version is None:
+        raise ContractError("source.credential_unavailable")
+    try:
+        reference = get_secrets_store().create_owned_secret(source.id, revision.credential_version, payload)
+    except CloudSecretsError:
+        ModelSourceRevision.objects.filter(pk=revision.pk, state="pending").update(state="failed")
+        raise ContractError("source.credential_unavailable") from None
+    revision.credential_reference = reference
+
+
 def create_model_source(
-    actor: User, organization_uuid: UUID, configuration: object, *, credential: object = None
+    actor: CredentialContext, organization_uuid: UUID, configuration: object, *, credential: object = None
 ) -> ModelSourceView:
     """Reserve tenant registry space, then publish a validated initial revision."""
     from engine.models import ModelSource, ModelSourceRevision
 
-    _authorize(actor, organization_uuid)
+    current_actor = _authorize(actor, organization_uuid)
     config = _configuration(configuration)
     payload = _credential(config, credential)
     if config.authentication == "stored-credential" and payload is None:
         raise ContractError("source.credential_required")
     with transaction.atomic():
         from engine.models import ModelSourceRegistry
+        from shared.credentials import resolve_local_credential
 
         ModelSourceRegistry.objects.get_or_create(organization_uuid=organization_uuid)
         ModelSourceRegistry.objects.select_for_update().get(organization_uuid=organization_uuid)
-        _authorize(actor, organization_uuid)
+        try:
+            resolve_local_credential(current_actor)
+        except Exception:
+            from workspaces.services import OrganizationAuthorizationError
+
+            raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
         if ModelSource.objects.filter(organization_uuid=organization_uuid).count() >= 128:
             raise ContractError("source.limit_reached")
-        source = ModelSource.objects.create(organization_uuid=organization_uuid, created_by=actor)
+        source = ModelSource.objects.create(
+            organization_uuid=organization_uuid,
+            created_by=_principal_user(current_actor),
+            creator_principal_uuid=current_actor.principal.uuid,
+        )
         revision = ModelSourceRevision.objects.create(
             source=source,
             revision=1,
             configuration=config.model_dump(mode="json"),
             credential_version=uuid4() if payload else None,
         )
-        _audit(actor, source, "create")
-    return _store_credential(actor, source, revision, payload)
+        _audit(current_actor, source, "create")
+    return _store_credential(current_actor, source, revision, payload)
 
 
 def update_model_source(
-    actor: User,
+    actor: CredentialContext,
     organization_uuid: UUID,
     source_id: UUID,
     *,
@@ -211,11 +273,18 @@ def update_model_source(
     """Fence old grants and publish a new immutable revision through explicit CAS."""
     from engine.models import ModelSource, ModelSourceRevision
 
-    _authorize(actor, organization_uuid)
+    current_actor = _authorize(actor, organization_uuid)
     config = _configuration(configuration, enabled=enabled)
     payload = _credential(config, credential)
     with transaction.atomic():
-        _authorize(actor, organization_uuid)
+        from shared.credentials import resolve_local_credential
+
+        try:
+            resolve_local_credential(current_actor)
+        except Exception:
+            from workspaces.services import OrganizationAuthorizationError
+
+            raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
         source = (
             ModelSource.objects.select_for_update().filter(pk=source_id, organization_uuid=organization_uuid).first()
         )
@@ -242,8 +311,8 @@ def update_model_source(
             credential_version=uuid4() if payload else prior.credential_version,
             credential_reference="" if payload else prior.credential_reference,
         )
-        _audit(actor, source, "update")
-    return _store_credential(actor, source, revision, payload)
+        _audit(current_actor, source, "update")
+    return _store_credential(current_actor, source, revision, payload)
 
 
 def _invalidate_source_fences(source: ModelSource) -> None:
@@ -264,7 +333,7 @@ def _invalidate_source_fences(source: ModelSource) -> None:
         fence.save(update_fields=["authority_revision", "state", "updated_at"])
 
 
-def list_model_sources(actor: User, organization_uuid: UUID) -> tuple[ModelSourceView, ...]:
+def list_model_sources(actor: CredentialContext, organization_uuid: UUID) -> tuple[ModelSourceView, ...]:
     """List source metadata after checking tenant administration authority."""
     _authorize(actor, organization_uuid)
     return _list_sources(organization_uuid)
@@ -285,30 +354,20 @@ def _list_sources(organization_uuid: UUID) -> tuple[ModelSourceView, ...]:
 
 
 def project_authorized_model_sources(scope: ModelSourceUseScope) -> tuple[ModelSourceView, ...]:
-    """Read candidates after CMS has resolved current tenant membership."""
+    """Read candidates after exact policy admission on SQL-resolved ancestry."""
+    _authorize(scope.credential, scope.organization_uuid)
     return tuple(
-        replace(source, configuration={**source.configuration, "allowed_user_ids": []})
+        source
         for source in _list_sources(scope.organization_uuid)
         if source.state == "ready"
         and source.enabled
         and ModelSourceConfiguration.model_validate(source.configuration).price_valid_until > timezone.now()
-        and (
-            source.configuration["allow_organization_members"]
-            or scope.actor_id in source.configuration["allowed_user_ids"]
-        )
     )
 
 
-def _assert_source_use(
-    scope: ModelSourceUseScope, source: ModelSource, revision: ModelSourceRevision, config: ModelSourceConfiguration
-) -> None:
-    """Require enabled, ready, unexpired policy with an explicit source-use grant."""
-    if (
-        not source.enabled
-        or revision.state != "ready"
-        or config.price_valid_until <= timezone.now()
-        or not (config.allow_organization_members or scope.actor_id in config.allowed_user_ids)
-    ):
+def _assert_source_ready(source: ModelSource, revision: ModelSourceRevision, config: ModelSourceConfiguration) -> None:
+    """Require an enabled current source revision with unexpired pricing."""
+    if not source.enabled or revision.state != "ready" or config.price_valid_until <= timezone.now():
         raise ContractError("source.use_denied")
 
 
@@ -326,6 +385,7 @@ def compile_authorized_model_sources(
     if not selection.aliases:
         return catalog, ()
     ids = sorted({choice.source_id for alias in selection.aliases for choice in alias.sources})
+    _authorize(scope.credential, scope.organization_uuid)
     with transaction.atomic():
         rows = list(
             ModelSource.objects.select_for_update()
@@ -338,7 +398,7 @@ def compile_authorized_model_sources(
         for row in rows:
             revision = ModelSourceRevision.objects.get(source=row, revision=row.revision)
             config = ModelSourceConfiguration.model_validate(revision.configuration)
-            _assert_source_use(scope, row, revision, config)
+            _assert_source_ready(row, revision, config)
             source_ref = OwnedReference(owner="engine", reference=f"model-source:{row.id}")
             fence, _ = SharingAuthorityFence.objects.get_or_create(
                 deployment_id=catalog.deployment_id,
@@ -354,7 +414,7 @@ def compile_authorized_model_sources(
         return compiled, tuple(fences)
 
 
-def retire_unused_model_source_credentials(actor: User, organization_uuid: UUID, source_id: UUID) -> int:
+def retire_unused_model_source_credentials(actor: CredentialContext, organization_uuid: UUID, source_id: UUID) -> int:
     """Retire only obsolete owned versions with no live or unresolved allocation.
 
     Publication fences prevent new use of these versions. A grace period covers
@@ -370,8 +430,16 @@ def retire_unused_model_source_credentials(actor: User, organization_uuid: UUID,
     from shared.cloud import get_secrets_store
     from shared.cloud.exceptions import CloudSecretsError
 
+    current_actor = _authorize(actor, organization_uuid)
     with transaction.atomic():
-        _authorize(actor, organization_uuid)
+        from shared.credentials import resolve_local_credential
+
+        try:
+            resolve_local_credential(current_actor)
+        except Exception:
+            from workspaces.services import OrganizationAuthorizationError
+
+            raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
         source = (
             ModelSource.objects.select_for_update().filter(pk=source_id, organization_uuid=organization_uuid).first()
         )
@@ -397,7 +465,7 @@ def retire_unused_model_source_credentials(actor: User, organization_uuid: UUID,
         )
         candidates.update(state="retired")
         if versions:
-            _audit(actor, source, "update")
+            _audit(current_actor, source, "update")
     retired = 0
     for version in versions:
         if version is None:

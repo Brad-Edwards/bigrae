@@ -81,6 +81,14 @@ securityContext:
 volumeMounts:
   - name: tmp
     mountPath: /tmp
+  {{- if and .Values.openfga.enabled (ne .Values.openfga.storeId "") (ne .Values.openfga.modelId "") }}
+  - name: openfga-token
+    mountPath: /run/secrets/openfga
+    readOnly: true
+  - name: openfga-ca
+    mountPath: /run/secrets/openfga-ca
+    readOnly: true
+  {{- end }}
 {{- end }}
 
 {{- define "shifter.tmpVolume" -}}
@@ -88,10 +96,24 @@ volumes:
   - name: tmp
     emptyDir:
       sizeLimit: {{ .Values.tmpVolume.sizeLimit | quote }}
+  {{- if and .Values.openfga.enabled (ne .Values.openfga.storeId "") (ne .Values.openfga.modelId "") }}
+  - name: openfga-token
+    secret:
+      secretName: {{ .Values.openfga.runtimeSecretName }}
+      items:
+        - key: runtime-preshared-key
+          path: token
+  - name: openfga-ca
+    configMap:
+      name: {{ .Values.openfga.caConfigMapName }}
+      items:
+        - key: ca.crt
+          path: ca.crt
+  {{- end }}
 {{- end }}
 
 {{- define "shifter.runtimeConfigChecksum" -}}
-{{ toJson (dict "runtimeEnv" .Values.runtimeEnv "jobsNamespace" .Values.namespaces.jobs "provisionerServiceAccount" .Values.serviceAccounts.provisioner.name) | sha256sum }}
+{{ toJson (dict "runtimeEnv" .Values.runtimeEnv "openfga" (dict "enabled" .Values.openfga.enabled "hostname" .Values.openfga.hostname "storeId" .Values.openfga.storeId "modelId" .Values.openfga.modelId) "jobsNamespace" .Values.namespaces.jobs "provisionerServiceAccount" .Values.serviceAccounts.provisioner.name) | sha256sum }}
 {{- end }}
 
 {{- define "shifter.portalImage" -}}
@@ -166,6 +188,18 @@ initContainers:
   value: {{ required "Native database login is missing for this workload" (get .root.Values.cloudSqlProxy.databaseUsers .role) | quote }}
 - name: DB_SECRET_ID
   value: ""
+{{- end }}
+{{- if and .root.Values.openfga.enabled (ne .root.Values.openfga.storeId "") (ne .root.Values.openfga.modelId "") }}
+- name: OPENFGA_API_URL
+  value: {{ printf "https://%s" .root.Values.openfga.hostname | quote }}
+- name: OPENFGA_STORE_ID
+  value: {{ .root.Values.openfga.storeId | quote }}
+- name: OPENFGA_MODEL_ID
+  value: {{ .root.Values.openfga.modelId | quote }}
+- name: OPENFGA_API_TOKEN_FILE
+  value: /run/secrets/openfga/token
+- name: OPENFGA_CA_CERT_PATH
+  value: /run/secrets/openfga-ca/ca.crt
 {{- end }}
 {{- end }}
 

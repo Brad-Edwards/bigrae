@@ -10,6 +10,7 @@ carries a campaign, recipient, body, or secret.
 
 from __future__ import annotations
 
+import ipaddress
 import re
 
 from django.core.exceptions import ImproperlyConfigured
@@ -66,6 +67,17 @@ def _parse_retention_days(raw: str) -> int:
     return value
 
 
+def _is_local_or_ip_host(host: str) -> bool:
+    """Return True for hosts the communication content policy never admits."""
+    if host == "localhost":
+        return True
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
+
+
 def _parse_allowed_link_hosts(raw: str) -> frozenset[str]:
     """Parse a comma-separated, normalized host allowlist (fail-loud).
 
@@ -76,7 +88,7 @@ def _parse_allowed_link_hosts(raw: str) -> frozenset[str]:
         normalized = entry.strip().lower()
         if not normalized:
             continue
-        if not _HOSTNAME_RE.match(normalized):
+        if not _HOSTNAME_RE.match(normalized) or _is_local_or_ip_host(normalized):
             raise ImproperlyConfigured(
                 f"SHIFTER_CTF_COMMUNICATION_ALLOWED_LINK_HOSTS contains an invalid host: {entry.strip()!r}"
             )

@@ -23,7 +23,7 @@ Participants need to know how to connect to their range VMs and what credentials
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/` (Range service: assembles Guacamole URL with credentials for participant access)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (Range service tests - provisioning, status, cleanup, destroy)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#569` (CTF-904: Range Connection Info)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#569` (CTF-904: Range Connection Info)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/provision.py` (Range service - provisioning (delegates to CMS/Engine))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/status.py` (Range service - status reads (delegates to CMS/Engine))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/lifecycle.py` (Range service - lifecycle stop/start/restart/destroy + cleanup (delegates to CMS/Engine))

@@ -24,4 +24,4 @@ For training-focused events, guided progression is valuable, organizers can desi
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/challenge.py` (CTFChallenge.next_challenge)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/forms/` (Challenge form - next_challenge field with event-scoped queryset)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_models.py` (TestCTFChallengeModel - next_challenge validation tests)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#568` (CTF-121: Next Challenge Navigation)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#568` (CTF-121: Next Challenge Navigation)

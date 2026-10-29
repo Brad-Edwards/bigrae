@@ -2,7 +2,7 @@
 
 Date: 2026-07-03
 
-Issue: [#1299](https://github.com/Brad-Edwards/shifter/issues/1299) (SPA
+Issue: [#1299](https://github.com/Brad-Edwards/bigrae/issues/1299) (SPA
 cutover: design system foundation)
 
 Status: Design artifact for review
@@ -25,9 +25,9 @@ from today's static CSS to the new system.
 It is a **contract**, not an implementation of product screens. It is
 **stack-neutral**: it does not choose the SPA framework or router. That decision
 belongs to the SPA architecture issue
-([#1300](https://github.com/Brad-Edwards/shifter/issues/1300)); this foundation
+([#1300](https://github.com/Brad-Edwards/bigrae/issues/1300)); this foundation
 is written so it stays valid whatever #1300 selects. Component code in a chosen
-framework, and the per-surface migrations, are later issues (for example the
+framework, and the per-surface migrations, are later issues (for example,
 the first SPA workspace, #1301 / #1302).
 
 ### Why start over

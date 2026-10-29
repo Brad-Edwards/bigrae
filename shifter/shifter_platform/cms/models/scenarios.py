@@ -262,7 +262,10 @@ class ScenarioModelNeeds(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="+",
+        null=True,
+        blank=True,
     )
+    updated_by_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

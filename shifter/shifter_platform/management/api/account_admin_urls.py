@@ -18,6 +18,6 @@ urlpatterns = [
     ),
     path("administer/credentials/personal/<uuid:credential_uuid>/revoke/", AdminPersonalCredentialRevokeView.as_view()),
     path("credentials/", include("management.api.credential_urls")),
-    path("audit/", PolicyAuditLogViewSet.as_view({"get": "list"})),
-    path("audit/<int:pk>/", PolicyAuditLogViewSet.as_view({"get": "retrieve"})),
+    path("audit/", PolicyAuditLogViewSet.as_view({"get": "list"}), name="auditlog-list"),
+    path("audit/<int:pk>/", PolicyAuditLogViewSet.as_view({"get": "retrieve"}), name="auditlog-detail"),
 ]

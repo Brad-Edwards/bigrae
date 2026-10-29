@@ -25,7 +25,10 @@ from cms.scenario_editor._metadata import update_metadata
 from cms.scenarios.pack_validation import pack_digest
 from cms.services import PackRegistrationRequest, register_pack
 from engine.services import RaesImageMappingOptions, upsert_raes_image_mapping
+from tests.cms._content_api_fixtures import content_policy
 from tests.cms.conftest import IMAGELESS_PACK_SDL
+
+__all__ = ["content_policy"]
 
 pytestmark = pytest.mark.django_db
 
@@ -33,10 +36,17 @@ _GCE = "gce"
 
 
 @pytest.fixture
-def staff_user(django_user_model):
-    return django_user_model.objects.create_user(
-        username="gate-staff@example.com", email="gate-staff@example.com", is_staff=True
+def staff_user(django_user_model, content_policy):
+    return content_policy(
+        django_user_model.objects.create_user(
+            username="gate-staff@example.com", email="gate-staff@example.com", is_staff=True
+        )
     )
+
+
+@pytest.fixture
+def metadata_credential(staff_user, live_session_credential):
+    return live_session_credential(staff_user)
 
 
 @pytest.fixture(autouse=True)
@@ -45,11 +55,14 @@ def _gcp_target(monkeypatch):
 
 
 @pytest.fixture
-def raes_pack(staff_user, make_pack, tmp_path, monkeypatch):
+def raes_pack(metadata_credential, make_pack, tmp_path, monkeypatch):
+    from shared.identity_scope import ResourceScope
+
     root = make_pack(tmp_path / "packs" / "imageless", name="imageless", sdl=IMAGELESS_PACK_SDL)
     monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", str(tmp_path))
     register_pack(
-        user=staff_user,
+        user=metadata_credential,
+        scope=ResourceScope("installation"),
         request=PackRegistrationRequest(
             scenario_id="imageless",
             source_kind="repo",
@@ -64,78 +77,79 @@ def raes_pack(staff_user, make_pack, tmp_path, monkeypatch):
     return root
 
 
-def _supply_base_image() -> None:
+def _supply_base_image(credential) -> None:
     upsert_raes_image_mapping(
         provider=_GCE,
         source_name="linux",
         image_ref="projects/p/global/images/base-linux",
         options=RaesImageMappingOptions(source_version=""),
+        credential=credential,
     )
 
 
 class TestPublicationBlocked:
     """enabled=true is refused while the backend cannot realize the pack."""
 
-    def test_enabling_a_non_realizable_pack_is_refused(self, staff_user, raes_pack):
+    def test_enabling_a_non_realizable_pack_is_refused(self, metadata_credential, raes_pack):
         # No image mapping registered: the pack has a proven supply gap.
         with pytest.raises(ScenarioEditorError):
-            update_metadata(staff_user, "imageless", enabled=True)
+            update_metadata(metadata_credential, "imageless", enabled=True)
 
-    def test_refused_publication_does_not_persist_enabled(self, staff_user, raes_pack):
+    def test_refused_publication_does_not_persist_enabled(self, metadata_credential, raes_pack):
         with pytest.raises(ScenarioEditorError):
-            update_metadata(staff_user, "imageless", enabled=True)
+            update_metadata(metadata_credential, "imageless", enabled=True)
 
         metadata = ScenarioMetadata.objects.filter(scenario_id="imageless").first()
         assert metadata is None or metadata.enabled is False
 
-    def test_gap_reason_reaches_the_author(self, staff_user, raes_pack):
+    def test_gap_reason_reaches_the_author(self, metadata_credential, raes_pack):
         with pytest.raises(ScenarioEditorError) as excinfo:
-            update_metadata(staff_user, "imageless", enabled=True)
+            update_metadata(metadata_credential, "imageless", enabled=True)
 
         assert "realiz" in str(excinfo.value).lower()
 
-    def test_absent_assessment_is_refused(self, staff_user, raes_pack, monkeypatch):
+    def test_absent_assessment_is_refused(self, metadata_credential, raes_pack, monkeypatch):
         # Existence verification and assessment are separate lookups, so a
         # catalog entry that disappears or resolves inconsistently between them
         # must fail closed. "No assessment" is not "nothing to assess".
-        monkeypatch.setattr("cms.scenario_editor._metadata.get_scenario_realizability", lambda _id: None)
+        monkeypatch.setattr("cms.scenario_editor._metadata.get_scenario_realizability", lambda _id, **kwargs: None)
 
         with pytest.raises(ScenarioEditorError):
-            update_metadata(staff_user, "imageless", enabled=True)
+            update_metadata(metadata_credential, "imageless", enabled=True)
 
-    def test_absent_assessment_does_not_persist_enabled(self, staff_user, raes_pack, monkeypatch):
-        monkeypatch.setattr("cms.scenario_editor._metadata.get_scenario_realizability", lambda _id: None)
+    def test_absent_assessment_does_not_persist_enabled(self, metadata_credential, raes_pack, monkeypatch):
+        monkeypatch.setattr("cms.scenario_editor._metadata.get_scenario_realizability", lambda _id, **kwargs: None)
 
         with pytest.raises(ScenarioEditorError):
-            update_metadata(staff_user, "imageless", enabled=True)
+            update_metadata(metadata_credential, "imageless", enabled=True)
 
         metadata = ScenarioMetadata.objects.filter(scenario_id="imageless").first()
         assert metadata is None or metadata.enabled is False
 
-    def test_indeterminate_is_also_refused(self, staff_user, raes_pack, monkeypatch):
+    def test_indeterminate_is_also_refused(self, metadata_credential, raes_pack, monkeypatch):
         # Cannot assess is not permission to publish.
-        _supply_base_image()
+        _supply_base_image(metadata_credential)
         monkeypatch.setattr(settings, "RAES_PACKAGE_ROOT", "/nonexistent-root")
 
         with pytest.raises(ScenarioEditorError):
-            update_metadata(staff_user, "imageless", enabled=True)
+            update_metadata(metadata_credential, "imageless", enabled=True)
 
 
 class TestPublicationAllowed:
     """The gate blocks publication only -- not saving, disabling, or legacy work."""
 
-    def test_realizable_pack_can_be_enabled(self, staff_user, raes_pack):
-        _supply_base_image()
+    def test_realizable_pack_can_be_enabled(self, metadata_credential, raes_pack):
+        _supply_base_image(metadata_credential)
 
-        metadata = update_metadata(staff_user, "imageless", enabled=True)
+        metadata = update_metadata(metadata_credential, "imageless", enabled=True)
 
         assert metadata.enabled is True
 
-    def test_disabling_a_non_realizable_pack_is_allowed(self, staff_user, raes_pack):
+    def test_disabling_a_non_realizable_pack_is_allowed(self, metadata_credential, raes_pack):
         # Staff must always be able to withdraw a pack, gap or no gap.
-        metadata = update_metadata(staff_user, "imageless", enabled=False)
+        metadata = update_metadata(metadata_credential, "imageless", enabled=False)
         assert metadata.enabled is False
 
-    def test_staff_only_toggle_without_enabling_is_allowed(self, staff_user, raes_pack):
-        metadata = update_metadata(staff_user, "imageless", staff_only=True)
+    def test_staff_only_toggle_without_enabling_is_allowed(self, metadata_credential, raes_pack):
+        metadata = update_metadata(metadata_credential, "imageless", staff_only=True)
         assert metadata.staff_only is True

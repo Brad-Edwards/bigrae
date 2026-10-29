@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: `CTF-1006` - Scheduler Auto-Start
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/539>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/539>
 
 This note is intentionally not an implementation plan. It records the
 repository-wide boundaries for maintaining the existing CTF scheduler auto-start

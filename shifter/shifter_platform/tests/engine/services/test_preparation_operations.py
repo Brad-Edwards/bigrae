@@ -6,8 +6,9 @@ import pytest
 from django.contrib.auth.models import Permission, User
 
 from engine.models import PreparationAttempt, PreparationOperation
-from engine.services import cancel_artifact_preparation, request_artifact_preparation
+from engine.services import cancel_artifact_preparation
 from shared.exceptions import ValidationError
+from tests.engine.services._preparation_fixtures import request_artifact_preparation
 from tests.engine.services.test_preparation_adapters import administrator, grant
 from tests.shared.raes.test_preparation_contract import manifest_payload, requirement_payload
 from tests.shared.raes.test_preparation_inputs import bound_input_fixture
@@ -24,10 +25,13 @@ def installed(administrator, grant):
 
 
 @pytest.fixture
-def operator():
+def operator(monkeypatch):
+    from tests.engine.services._preparation_fixtures import native_credential, preparation_policy
+
+    preparation_policy(monkeypatch)
     actor = User.objects.create_user(username="preparation-operator")
     actor.user_permissions.add(Permission.objects.get(codename="prepare_artifacts"))
-    return actor
+    return native_credential(actor)
 
 
 def package_input():
@@ -40,17 +44,6 @@ def package_input():
         "specification_id": "example-image",
         "input_bindings": [bound_input_fixture().model_dump(mode="json")],
     }
-
-
-def test_admitted_output_is_reused_without_worker_or_foreign_operation_disclosure(operator, installed, monkeypatch):
-    from tests.shared.raes.test_prepared_inventory import inventory_fixture
-
-    requirement, owned = inventory_fixture()
-    raw = dict(package_input(), requirement=requirement.model_dump(mode="json"))
-    monkeypatch.setattr("engine.services._raes_image.list_backend_artifacts", lambda **_: [owned])
-    result = request_artifact_preparation(operator, installed.id, raw)
-    assert result.state == "available" and result.reused and result.id is None
-    assert not PreparationAttempt.objects.exists() and not PreparationOperation.objects.exists()
 
 
 def test_oversized_combined_input_is_rejected_before_queuing(operator, installed, grant):

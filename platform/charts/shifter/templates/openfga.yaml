@@ -407,7 +407,12 @@ metadata:
     {{- include "shifter.partOfLabels" . | nindent 4 }}
     app.kubernetes.io/component: {{ $server.component }}
 spec:
+  {{- if eq $server.component "openfga-admin" }}
+  maxUnavailable: 1
+  {{- else }}
   minAvailable: 1
+  {{- end }}
+  unhealthyPodEvictionPolicy: AlwaysAllow
   selector:
     matchLabels:
       app.kubernetes.io/part-of: shifter

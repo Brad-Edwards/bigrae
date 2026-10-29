@@ -6,11 +6,10 @@ tenancy, backend, and capacity gate and the reauthorized workspace lock, and
 backend cold-falls-back with the inputs already validated for that launch -- no
 divergent revalidation (preflight #28).
 
-On a hit the claim is atomic (``engine.services.claim_ready_generation``), the
-system-owned generation's ownership and workspace scope are transferred to the
-claimant through the audited ``reassign_range_owner(..., rehome=True)`` facade
-(the same handover the CTF spare path uses -- shared low-level mechanism, not the
-CTF recovery policy), and only then is the durable ``activate`` operation enqueued.
+On a hit the claim is atomic (``engine.services.claim_ready_generation``), and the
+installation-owned generation's principal and explicit account scope are moved
+together through the native warm-claim command. Only then is the durable
+``activate`` operation enqueued.
 The provisioner's activation rotates/scrubs every pre-claim credential and access
 surface and creates the claimant's fresh access; nothing user-specific is reused.
 
@@ -24,16 +23,13 @@ eligibility is the ownership-neutral RAES realization identity (registered
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
-from datetime import datetime
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.contrib.auth.models import User
 from django.db import transaction
 
 from shared.enums import RangeSource
-from shared.range_instantiation_policy import InstantiationPurpose, backend_supports_warm_activation
+from shared.range_instantiation_policy import backend_supports_warm_activation
 from shared.warm_pool.compatibility import CompatibilityKey, compatibility_digest
 from shared.warm_pool.policy import (
     WarmPoolBucketPolicy,
@@ -42,77 +38,24 @@ from shared.warm_pool.policy import (
     resolve_effective_policy,
 )
 
+from ._warm_claim_custody import _commit_cms_warm_claim as _commit_cms_warm_claim
+from ._warm_claim_custody import _WarmClaimRollback
+from ._warm_claim_types import WarmClaimRequest as WarmClaimRequest
+from ._warm_claim_types import _ClaimOutcome, _WarmGeneration
+
 if TYPE_CHECKING:
     from cms.models import RangeInstance
+    from cms.services._model_allocation import PreparedClaimModelSources
     from cms.services._range_lease import RangeLease
-    from shared.model_access.reservation import ModelLaunchScope
+    from engine.services import PreparedWarmRangeClaim
+    from workspaces.services import WorkspaceQuotaAuditContext
 
 logger = logging.getLogger(__name__)
 
 
-class _WarmGeneration(Protocol):
-    """Narrow structural view received from the Engine claim service."""
-
-    request_id: UUID
-
-
-# Reconciler assumptions the warm-prepare side stamps its generations with; the
-# launch side must derive the same values for a claim to match. Warm v1 serves
-# personal-workspace Mission Control live-fire launches; any other launch computes
-# a different digest and safely cold-falls-back.
-ISOLATION_PERSONAL = "personal"
-ISOLATION_SHARED = "shared"
-
-
-def warm_isolation_class(user: User, workspace_id: int) -> str:
-    """Classify the launch workspace for the compatibility digest: personal vs shared.
-
-    Goes through the workspaces service seam (ADR-001): the launch workspace is
-    personal iff it is the user's own personal workspace. Warm v1 prepares
-    generations for the personal-workspace class, so a shared/org-workspace launch
-    computes a different digest and cold-falls-back.
-    """
-    from workspaces.services import resolve_personal_workspace
-
-    personal = resolve_personal_workspace(user)
-    return ISOLATION_PERSONAL if personal.workspace_id == workspace_id else ISOLATION_SHARED
-
-
-@dataclass(frozen=True)
-class WarmClaimRequest:
-    """Immutable launch inputs for one warm-pool claim attempt (#28).
-
-    Groups the realization identity and launch context so the claim path derives
-    the same compatibility digest the warm reconciler stamped, resolved
-    independently on each side.
-    """
-
-    user: User
-    scenario: str
-    package_digest: str
-    lock_digest: str
-    backend: str
-    instantiation_purpose: InstantiationPurpose
-    range_source: RangeSource
-    workspace_id: int
-    egress_mode: str
-    request_id: UUID
-    #: Trusted event deadline for a CTF-owned generation. Mission Control policy is
-    #: resolved only after a warm generation is claimed inside this transaction.
-    enforced_deadline: datetime | None = None
-    model_launch_scope: ModelLaunchScope | None = None
-    model_sources: dict | None = None
-    policy_workspace_id: int | None = None
-
-
-@dataclass(frozen=True)
-class _ClaimOutcome:
-    """The result of a committed atomic claim, carried to the post-commit steps."""
-
-    request_id: UUID
-    bucket_id: str
-    generation_uuid: UUID
-    activation_enqueued: bool = False
+# Warm preparation is customer-neutral. A claim supplies an exact account scope,
+# including an optional organization/workspace ancestry, during the atomic move.
+ISOLATION_ACCOUNT = "account"
 
 
 def _eligible_buckets(policy: WarmPoolRuntimePolicy, *, backend: str, scenario: str) -> list[WarmPoolBucketPolicy]:
@@ -142,10 +85,8 @@ def _resolve_claim_candidates(request: WarmClaimRequest, override: WarmPoolOverr
         # generation can never be safely handed over, so never claim -- cold path.
         return []
     eligible = _eligible_buckets(policy, backend=request.backend, scenario=request.scenario)
-    if not eligible:
+    if not eligible or request.scope.kind != "account":
         return []
-
-    isolation = warm_isolation_class(request.user, request.workspace_id)
     # The digest is the launch's independently-resolved realization identity (same
     # for every eligible bucket of this scenario/backend). Authorization to a
     # specific bucket is the *separate* eligibility filter: candidates pair each
@@ -158,7 +99,7 @@ def _resolve_claim_candidates(request: WarmClaimRequest, override: WarmPoolOverr
             backend=request.backend,
             instantiation_purpose=request.instantiation_purpose.value,
             range_source=request.range_source.value,
-            workspace_isolation_class=isolation,
+            workspace_isolation_class=ISOLATION_ACCOUNT,
             egress_mode=request.egress_mode,
             scenario=request.scenario,
             package_digest=request.package_digest,
@@ -169,92 +110,116 @@ def _resolve_claim_candidates(request: WarmClaimRequest, override: WarmPoolOverr
 
 
 def _run_atomic_claim(request: WarmClaimRequest, candidates: list[tuple[str, str]]) -> _ClaimOutcome | None:
-    """Claim + rehome one ready generation in a single transaction.
+    """Claim + move one ready generation in a single transaction.
 
     Returns the committed outcome, or ``None`` on a genuine miss or a rollback of an
     inconsistent ledger row (both cold-fall-back). The claim and ownership transfer
     share one transaction so a transfer failure returns the generation to READY.
     """
-    from cms.services import AuditEvent, audit_log
-    from cms.services._pack_fence import fence_pack_reference
-    from cms.services._range_reassign import reassign_range_owner
-    from engine.services import claim_ready_generation
-    from shared.audit.vocabulary import AuditAction, AuditActorType, AuditEntityType
+    from engine.services import (
+        claim_ready_generation,
+        prepare_warm_range_claim,
+    )
+    from shared.audit import principal_actor_fields
     from shared.warm_pool.metrics import CLAIM_FALLBACK, emit_claim_outcome
+    from workspaces.services import (
+        WorkspaceQuotaAuditContext,
+        WorkspaceQuotaRejected,
+        record_workspace_quota_rejection,
+        resolve_range_scope_binding,
+    )
 
+    source_binding, source_metadata = _prepare_claim_source(request)
+    prepared = prepare_warm_range_claim(request.credential, request.scope)
+    quota_audit = WorkspaceQuotaAuditContext(**principal_actor_fields(prepared.credential.principal))
+
+    prospective = _prepare_candidate_sources(request, candidates, prepared)
+    if prospective is None:
+        return None
+    candidate, claim_sources = prospective
     try:
         with transaction.atomic():
+            resolve_range_scope_binding(request.scope, member=prepared.credential.principal, for_update=True)
+            from ._range_workspace import resolve_effective_egress_mode_locked
+
+            workspace_id = prepared.scope_ids[3]
+            egress = resolve_effective_egress_mode_locked(workspace_id) if workspace_id is not None else "none"
+            if egress != request.egress_mode:
+                # The ready generation's digest pins its original network mode.
+                # Cold reservation re-resolves the changed policy under this lock.
+                raise _WarmClaimRollback
             generation = claim_ready_generation(
                 candidates=candidates,
                 backend=request.backend,
                 range_source=request.range_source.value,
                 claimant_request_id=request.request_id,
+                expected_request_id=candidate.request_id,
             )
             if generation is None:
                 # Warm is enabled for this class but no compatible ready generation
                 # in an authorized bucket was available: a genuine miss -> cold path.
                 emit_claim_outcome(bucket_id="", backend=request.backend, outcome=CLAIM_FALLBACK)
-                return None
-            range_instance = _system_range_instance_for(generation.request_id)
-            if range_instance is None:
-                # A claimed generation with no CMS range instance is an inconsistent
-                # ledger row; abort the claim (rolls back) and cold-fall-back rather
-                # than hand over a half-modeled range.
-                logger.error("warm claim: generation %s has no CMS range instance; rolling back", generation.uuid)
-                raise _WarmClaimRollback
-            # Admission fence (ADR-034-R13): the claimed generation's pack revision
-            # must still be registered when ownership transfers.
-            fence_pack_reference(request.scenario, expected_digest=request.package_digest)
-            reassign_range_owner(range_instance.pk, request.user, rehome=True)
-            from cms.services._range_lease import build_range_lease, build_resolved_mission_control_range_lease
-
-            lease = (
-                build_resolved_mission_control_range_lease(request.user, for_update=True)
-                if request.range_source is RangeSource.MISSION_CONTROL
-                else build_range_lease(request.range_source, enforced_deadline=request.enforced_deadline)
-            )
-            _assign_initial_user_lease(range_instance, lease)
-            _grant_claim_remote_access(request, generation, lease)
-            activation_enqueued = _admit_claim_models(request, generation, range_instance)
-            audit_log(
-                AuditEvent(
-                    entity_type=AuditEntityType.RANGE.value,
-                    entity_id=range_instance.pk,
-                    action=AuditAction.WARM_CLAIM.value,
-                    actor_type=AuditActorType.USER.value,
-                    actor_id=request.user.id,
-                    new_state={
-                        "bucket": generation.bucket_id,
-                        "generation": str(generation.uuid),
-                        "claimed_request_id": str(generation.request_id),
-                        "range_source": request.range_source.value,
-                    },
-                    request_id=str(generation.request_id),
+                outcome = None
+            else:
+                outcome = _commit_claimed_generation(
+                    request, generation, prepared, quota_audit, (source_binding, source_metadata), claim_sources
                 )
-            )
-            outcome = _ClaimOutcome(
-                request_id=generation.request_id,
-                bucket_id=generation.bucket_id,
-                generation_uuid=generation.uuid,
-                activation_enqueued=activation_enqueued,
-            )
+    except WorkspaceQuotaRejected as rejected:
+        record_workspace_quota_rejection(
+            rejected.workspace_id,
+            rejected.verdict,
+            quota_audit,
+            correlation_key=str(request.request_id),
+        )
+        from cms.exceptions import WorkspaceLaunchQuotaExceeded
+        from cms.services._range_launch_common import _LAUNCH_QUOTA_MESSAGE
+
+        raise WorkspaceLaunchQuotaExceeded(_LAUNCH_QUOTA_MESSAGE) from None
     except _WarmClaimRollback:
         return None
     return outcome
 
 
+def _prepare_claim_source(request: WarmClaimRequest) -> tuple[dict[str, object], tuple[bool, bool]]:
+    """Revalidate current source eligibility before provider reads and retain its exact facts."""
+    from cms.exceptions import CMSError
+    from cms.models import RaesPackageSource
+    from cms.services._scoped_range_launch import (
+        revalidate_scoped_launch,
+        source_launch_binding,
+        source_launch_metadata,
+    )
+
+    source = RaesPackageSource.objects.filter(scenario_id=request.scenario).first()
+    if source is None:
+        raise CMSError("Range source unavailable")
+    binding = source_launch_binding(source)
+    metadata = source_launch_metadata(request.scenario)
+    if (
+        source.package_digest != request.package_digest
+        or source.lock_digest != request.lock_digest
+        or (request.source_binding is not None and dict(request.source_binding) != binding)
+        or (request.source_metadata is not None and request.source_metadata != metadata)
+        or not metadata[0]
+    ):
+        raise CMSError("Range source changed")
+    revalidate_scoped_launch(request.credential, request.scope, source)
+    return binding, metadata
+
+
 def _can_claim_base_range(request: WarmClaimRequest) -> bool:
-    """Require workspace authority and cold admission for any adapter binding."""
+    """Require current parent authority and cold admission for any adapter binding."""
     # Warm compatibility currently describes the base realization only. A pack
     # with any plugin selection (including disabled/retired) must go through cold
     # admission; otherwise a ready base image could silently skip its adapter.
+    from cms.services._content_authority import require_content_scope
     from engine.services import has_runtime_plugin_binding
-    from workspaces.services import WorkspaceOperation, authorize_bound_workspace
 
-    authorization = authorize_bound_workspace(request.user, request.workspace_id, WorkspaceOperation.LAUNCH_RANGE)
-    if authorization.organization_uuid is None:
+    current = require_content_scope(request.credential, request.scope, "launch_range")
+    if current.principal != request.credential.principal:
         return False
-    return not has_runtime_plugin_binding(authorization.organization_uuid, request.scenario)
+    organization_uuid = request.scope.organization_uuid
+    return organization_uuid is None or not has_runtime_plugin_binding(organization_uuid, request.scenario)
 
 
 def attempt_warm_claim(request: WarmClaimRequest, override: WarmPoolOverride | None = None) -> UUID | None:
@@ -264,7 +229,6 @@ def attempt_warm_claim(request: WarmClaimRequest, override: WarmPoolOverride | N
     binds its result to that realized generation), or ``None`` to cold-fall-back.
     Never raises for a miss; a miss is a normal branch.
     """
-    from engine.services import enqueue_range_activation
     from shared.warm_pool.metrics import CLAIM_HIT, emit_claim_outcome
 
     # Existing warm generations are not bound to an event's policy workspace.
@@ -279,14 +243,12 @@ def attempt_warm_claim(request: WarmClaimRequest, override: WarmPoolOverride | N
     outcome = _run_atomic_claim(request, candidates)
     if outcome is None:
         return None
-    if not outcome.activation_enqueued:
-        enqueue_range_activation(outcome.request_id)
     emit_claim_outcome(bucket_id=outcome.bucket_id, backend=request.backend, outcome=CLAIM_HIT)
     logger.info(
-        "warm claim: hit bucket=%s generation=%s user_id=%s",
+        "warm claim: hit bucket=%s generation=%s principal=%s",
         outcome.bucket_id,
         outcome.generation_uuid,
-        request.user.id,
+        request.credential.principal.uuid,
     )
     return outcome.request_id
 
@@ -308,10 +270,11 @@ def _admit_claim_models(
     request: WarmClaimRequest,
     generation: _WarmGeneration,
     instance: RangeInstance,
+    claim_sources: PreparedClaimModelSources | None,
 ) -> bool:
     """Commit model grant/allocation and activation with the claim, or roll it all back."""
     from cms.services._model_allocation import needs_model_preparation, prepare_model_access_for_dispatch
-    from engine.services import enqueue_range_activation, resolve_model_access_range_views
+    from engine.services import resolve_model_access_range_views
 
     if not needs_model_preparation(generation.request_id):
         return False
@@ -322,20 +285,26 @@ def _admit_claim_models(
     instance.model_sources = request.model_sources or {}
     instance.save(update_fields=["model_launch_scope", "model_sources"])
     (view,) = resolve_model_access_range_views(request_uuids=(generation.request_id,))
-    prepare_model_access_for_dispatch(generation.request_id, range_id=view.range_uuid, renew=True)
-    enqueue_range_activation(generation.request_id)
+    prepare_model_access_for_dispatch(
+        generation.request_id,
+        range_id=view.range_uuid,
+        renew=True,
+        credential=request.credential,
+        _claim_sources=claim_sources,
+    )
     return True
-
-
-class _WarmClaimRollback(Exception):
-    """Internal sentinel to roll back an inconsistent claim to cold fallback."""
 
 
 def _system_range_instance_for(request_id: UUID) -> RangeInstance | None:
     """Return the system-owned CMS RangeInstance correlated to ``request_id``."""
     from cms.models import RangeInstance
 
-    return RangeInstance.objects.filter(request__request_id=request_id).select_related("request").first()
+    return (
+        RangeInstance.objects.select_for_update()
+        .filter(request__request_id=request_id)
+        .select_related("request")
+        .first()
+    )
 
 
 def _assign_initial_user_lease(range_instance: RangeInstance, lease: RangeLease) -> None:
@@ -374,3 +343,136 @@ def _assign_initial_user_lease(range_instance: RangeInstance, lease: RangeLease)
             "updated_at",
         ]
     )
+
+
+def _finish_claim(
+    request: WarmClaimRequest,
+    generation: _WarmGeneration,
+    range_instance: RangeInstance,
+    prepared: PreparedWarmRangeClaim,
+    claim_sources: PreparedClaimModelSources | None,
+) -> _ClaimOutcome:
+    """Commit native custody, lease, access, model allocation and queue in the claim transaction."""
+    from cms.services import AuditEvent, audit_log
+    from engine.services import commit_warm_range_claim, enqueue_admitted_warm_activation
+    from management.services import human_principal_user_id
+    from shared.audit import principal_actor_fields
+    from shared.audit.vocabulary import AuditAction, AuditEntityType
+
+    user_id = (
+        human_principal_user_id(prepared.credential.principal)
+        if prepared.credential.principal.kind == "human"
+        else None
+    )
+    _commit_cms_warm_claim(range_instance, prepared, user_id)
+    commit_warm_range_claim(
+        prepared,
+        request_id=generation.request_id,
+        claimant_request_id=request.request_id,
+        cms_range_uuid=range_instance.uuid,
+        user_id=user_id,
+    )
+    from cms.services._range_lease import build_range_lease, build_resolved_mission_control_range_lease
+
+    lease = (
+        build_resolved_mission_control_range_lease(prepared.credential.principal, for_update=True)
+        if request.range_source is RangeSource.MISSION_CONTROL
+        else build_range_lease(request.range_source, enforced_deadline=request.enforced_deadline)
+    )
+    _assign_initial_user_lease(range_instance, lease)
+    _grant_claim_remote_access(request, generation, lease)
+    _admit_claim_models(request, generation, range_instance, claim_sources)
+    enqueue_admitted_warm_activation(prepared, request_id=generation.request_id, claimant_request_id=request.request_id)
+    audit_log(
+        AuditEvent(
+            entity_type=AuditEntityType.RANGE.value,
+            entity_id=range_instance.pk,
+            entity_ref=str(range_instance.uuid),
+            action=AuditAction.WARM_CLAIM.value,
+            **principal_actor_fields(prepared.credential.principal),
+            new_state={
+                "bucket": generation.bucket_id,
+                "generation": str(generation.uuid),
+                "claimed_request_id": str(generation.request_id),
+                "range_source": request.range_source.value,
+            },
+            request_id=str(generation.request_id),
+        )
+    )
+    return _ClaimOutcome(
+        request_id=generation.request_id,
+        bucket_id=generation.bucket_id,
+        generation_uuid=generation.uuid,
+    )
+
+
+def _prepare_candidate_sources(
+    request: WarmClaimRequest, candidates: list[tuple[str, str]], prepared: PreparedWarmRangeClaim
+) -> tuple[_WarmGeneration, PreparedClaimModelSources | None] | None:
+    """Resolve model policy for the exact prospective warm generation before SQL locks."""
+    from copy import copy
+
+    from cms.models import RangeInstance
+    from engine.services import preview_ready_generation
+
+    from ._model_allocation import prepare_claim_model_sources
+
+    candidate = preview_ready_generation(
+        candidates=candidates, backend=request.backend, range_source=request.range_source.value
+    )
+    if candidate is None:
+        return None
+    prospective = (
+        RangeInstance.objects.select_related("request").filter(request__request_id=candidate.request_id).first()
+    )
+    if prospective is None:
+        return None
+    prospective = copy(prospective)
+    prospective.owner_principal_uuid = prepared.credential.principal.uuid
+    prospective.scope_kind, prospective.account_id, prospective.organization_id, prospective.workspace_id = (
+        prepared.scope_ids
+    )
+    prospective.model_launch_scope = (
+        request.model_launch_scope.model_dump(mode="json") if request.model_launch_scope else None
+    )
+    prospective.model_sources = request.model_sources or {}
+    return candidate, prepare_claim_model_sources(prospective, prepared.credential)
+
+
+def _commit_claimed_generation(
+    request: WarmClaimRequest,
+    generation: _WarmGeneration,
+    prepared: PreparedWarmRangeClaim,
+    quota_audit: WorkspaceQuotaAuditContext,
+    source_snapshot: tuple[dict[str, object], tuple[bool, bool]],
+    claim_sources: PreparedClaimModelSources | None,
+) -> _ClaimOutcome:
+    """Fence source and CMS custody under the accepted ledger claim before atomic effects."""
+    from cms.services._pack_fence import fence_pack_reference
+    from workspaces.services import reserve_workspace_concurrent_range
+
+    source_binding, source_metadata = source_snapshot
+    workspace_id = prepared.scope_ids[3]
+    range_instance = _system_range_instance_for(generation.request_id)
+    if range_instance is None:
+        # A claimed generation with no CMS range instance is an inconsistent
+        # ledger row; abort the claim (rolls back) and cold-fall-back rather
+        # than hand over a half-modeled range.
+        logger.error("warm claim: generation %s has no CMS range instance; rolling back", generation.uuid)
+        raise _WarmClaimRollback
+    if workspace_id is not None:
+        reserve_workspace_concurrent_range(workspace_id, generation.request_id, quota_audit)
+    # Admission fence (ADR-034-R13): the claimed generation's pack revision
+    # must still be registered when ownership transfers.
+    source = fence_pack_reference(request.scenario, expected_digest=request.package_digest)
+    from cms.services._scoped_range_launch import source_launch_binding, source_launch_metadata
+
+    if (
+        source is None
+        or source_launch_binding(source) != source_binding
+        or source_launch_metadata(request.scenario) != source_metadata
+    ):
+        from cms.exceptions import CMSError
+
+        raise CMSError("Range source changed")
+    return _finish_claim(request, generation, range_instance, prepared, claim_sources)

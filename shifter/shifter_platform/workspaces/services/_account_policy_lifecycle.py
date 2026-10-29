@@ -15,7 +15,7 @@ from shared.principal_port import PrincipalResolutionError, principal_identity_f
 from workspaces.models import Workspace
 
 from ._account import AccountScopeError, hierarchy_target_scope
-from ._account_policy_admin import _require_action
+from ._account_policy_admin import _fence_actor, _require_action
 from ._lifecycle import (
     WorkspaceAuditContext,
     WorkspaceProjection,
@@ -81,9 +81,10 @@ def admin_rename_workspace(
     """Rename one active workspace after exact policy and locked state checks."""
     cleaned = _validate_name(name)
     scope = _scope_for_lifecycle(workspace_uuid, restore=False)
-    _require_action(actor, provider, "workspace.update", TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(actor, provider, "workspace.update", TargetRef("workspace", workspace_uuid), scope)
     with transaction.atomic():
         workspace = _locked_workspace(workspace_uuid, scope)
+        _fence_actor(actor)
         if workspace.archived_at is not None:
             raise AccountScopeError(_DENIED)
         return _rename_workspace_locked(workspace, cleaned, _audit(actor, audit), None)
@@ -98,9 +99,10 @@ def admin_archive_workspace(
 ) -> WorkspaceProjection:
     """Archive one active non-default workspace after exact policy checks."""
     scope = _scope_for_lifecycle(workspace_uuid, restore=False)
-    _require_action(actor, provider, "workspace.archive", TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(actor, provider, "workspace.archive", TargetRef("workspace", workspace_uuid), scope)
     with transaction.atomic():
         workspace = _locked_workspace(workspace_uuid, scope)
+        _fence_actor(actor)
         if workspace.archived_at is not None:
             raise AccountScopeError(_DENIED)
         return _archive_workspace_locked(workspace, _audit(actor, audit), None)
@@ -115,9 +117,10 @@ def admin_restore_workspace(
 ) -> WorkspaceProjection:
     """Restore one archived workspace under its exact persisted ancestry."""
     scope = _scope_for_lifecycle(workspace_uuid, restore=True)
-    _require_action(actor, provider, "workspace.restore", TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(actor, provider, "workspace.restore", TargetRef("workspace", workspace_uuid), scope)
     with transaction.atomic():
         workspace = _locked_workspace(workspace_uuid, scope)
+        _fence_actor(actor)
         return _restore_workspace_locked(workspace, _audit(actor, audit), None)
 
 
@@ -139,7 +142,7 @@ def policy_transfer_workspace_ownership(
     if source_user_id == new_owner_user_id:
         raise _error("same_user", "The replacement account must differ from the departing account")
     scope = _scope_for_lifecycle(workspace_uuid, restore=False)
-    _require_action(actor, provider, "workspace.transfer", TargetRef("workspace", workspace_uuid), scope)
+    actor = _require_action(actor, provider, "workspace.transfer", TargetRef("workspace", workspace_uuid), scope)
     users = get_user_model().objects.in_bulk((source_user_id, new_owner_user_id))
     if len(users) != 2:
         raise AccountScopeError(_DENIED)

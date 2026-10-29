@@ -39,6 +39,20 @@ provider-secret reads for policy keys.
 
 ## Owner and publication order
 
+Before upgrading a retained database, use the old release to drain legacy spare
+ranges and settle their retained rows. Migration `ctf.0071` refuses to remove
+`owner_user` while any legacy spare row remains, including consumed or
+soft-deleted rows. It preserves those rows on refusal. A new database has no
+legacy spare rows and can proceed.
+Migration `ctf.0076` also blocks unfinished legacy event staff or ownership
+transitions. Finish them on the previous release before upgrading. The new
+release requires exact versioned effect plans and cannot reconstruct an
+unfinished legacy declaration safely. Confirmed history is preserved.
+Unsupported legacy workspace administrator roles also block cutover. They need
+a reviewed policy disposition; the new direct administrator role would add
+owner-transfer permission. Cutover inventories memberships in already-bound
+organizations as well as organizations that still need conversion.
+
 The deployment database owner runs application migrations, then
 `manage.py reconcile_gcp_database_duties`, before policy datastore migrations.
 The owner must actually own the application schema and have authority over the
@@ -67,6 +81,78 @@ mounted-file changes alone do not reload an established client.
 
 ## Live acceptance evidence
 
+The shared `deploy.py gcp-deploy` command owns this sequence; CI invokes the
+same command. Helm is the sole renderer. For the first cutover, supply both
+`--identity-cutover-facts` and `--identity-bootstrap-facts` as owner-only local
+file paths. Their values do not belong in the deployment bundle or command line.
+Provider account creation alone grants no native application permission.
+
+For the fresh-install personal-token path, explicitly set
+`"bootstrap_personal_token_eligibility": true` in the private cutover facts
+before planning. Its default is false; administrator status alone does not grant
+this eligibility. The reviewed plan digest binds this one-time choice. Bootstrap
+reads back and audits the separate eligibility grant, and activation verifies it.
+After activation, sign in and issue the credential through the ordinary service.
+This does not change the normal prohibition on self-grants or the requirement
+that a grantor hold each delegated action.
+
+Catalog initialization follows verified activation and application readiness.
+Supply `--catalog-credential-file` with a current native bearer proof in an
+owner-only file. It is separate from the identity facts and deployment bundle.
+The catalog Job uses explicit installation scope and checks content registration,
+conformance and publication authority. It does not create or grant a deployment
+actor. Workload IAM alone cannot authorize these application operations.
+
+Without this proof, the command reports catalog setup incomplete while leaving
+the activated application available. Complete DNS and certificate setup, sign in
+as the explicitly granted administrator, issue an ordinary native credential,
+then rerun the same deployment command with its private file. A service proof
+works only for an already bound and admitted service principal. Pre-cutover
+personal proofs cannot be reused because activation revokes them. Credential
+expiry or revocation during setup leaves native pending or unpublished content
+for an exact retry; it does not weaken the runtime gate.
+
+The identity status probe installs namespace, service-account, configuration,
+secret and DNS, metadata-server, Google API and native SQL network prerequisites.
+The complete set is required on a fresh namespace before proxy authentication
+and SQL connection establishment. The probe does not stop application
+workloads. When the probe requires cutover, maintenance validates all workload
+inventories before effects. It removes autoscalers, suspends scheduled work,
+stops application workloads and waits for their pods to become terminal or
+absent. Only then does it apply the stopped release and run migration. Policy
+services remain available. When model access is disabled, broker retirement
+precedes restoration of broader default egress policy.
+An incomplete probe, database failure, or unknown status aborts deployment
+before workload changes. An absent legacy cutover table is a known
+pre-cutover state. An activated result must also pass the runtime binding check.
+The command must not restart policy workloads to turn an inconclusive probe
+into a successful one. If a credential rotation makes the incumbent runtime
+unverifiable, the probe stops before any workload restart. Restore a verifiable
+policy binding before retrying the deployment.
+
+For interrupted application publication, restore the policy service first.
+Run `python manage.py reconcile_hierarchy_publications --limit 100` to resume
+pending account, organization and workspace edges. For a pending event, run
+`python manage.py resume_ctf_event_initialization <event-uuid>`. A trusted operator
+may add `--credential-reference '<current-reference-json>'` when the original
+credential has expired. Supply only the non-secret reference schema; the command
+resolves and checks the current proof and permissions. Add `--abort` to remove
+an unusable pending declaration under current parent authority. Aborting refuses
+any event with participant or spare allocation. Default event recovery
+revalidates the original credential and pinned content. Explicit recovery checks
+the supplied current credential and permissions instead of replaying a revoked
+proof. Changed content remains blocked. Neither command substitutes a new owner
+or grants administrator authority.
+
+The event's **Event staff** card shows an interrupted staff or ownership change.
+Use **Retry pending change** to resume its exact recorded declaration, or
+**Check status** to refresh its confirmation state. Recovery permits an admitted
+current administrator to finish a retained plan after recipient deactivation;
+new grants still require an active recipient. If the source administrator revoke already took effect, recovery
+reads back that exact admitted change without another provider write. Permanent
+event deletion queues native cleanup before removing event records. If cleanup
+cannot be queued, the records remain available for retry.
+
 Use synthetic fixtures and retain deployment-specific evidence privately.
 Check all of the following before activation:
 
@@ -93,3 +179,12 @@ Check all of the following before activation:
 The runtime client remains a trusted relationship writer. SQL administration
 isolation does not provide per-user HTTP authorization or contain a compromised
 authorized tuple writer.
+
+### Voluntary pod disruption
+
+The runtime OpenFGA budget retains at least one healthy replica. The separate
+single-replica administration service permits one unavailable pod during node
+maintenance. Policy writes can fail closed during that brief restart; runtime
+checks use their separate service. Both budgets allow eviction of unhealthy
+pods so a failed pod cannot block node drain. This follows the
+[Kubernetes disruption-budget semantics](https://kubernetes.io/docs/tasks/run-application/configure-pdb/).

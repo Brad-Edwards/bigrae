@@ -129,8 +129,6 @@ def _revalidate_preparation_source(
 
 
 def _require_preparation_actor(user: User | CredentialContext) -> None:
-    """Retain the incumbent local permission until coordinated principal activation."""
-    if not isinstance(user, CredentialContext) and not (
-        user and user.is_active and user.has_perm("engine.prepare_artifacts")
-    ):
-        raise ValidationError("Artifact preparation access is not permitted")
+    """Deferred work must retain an actual proof, never a Django permission."""
+    if not isinstance(user, CredentialContext):
+        raise ValidationError("Preparation requires a live native credential")

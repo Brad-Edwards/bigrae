@@ -25,7 +25,7 @@ Supporting GCP as a first-class deployment target enables Shifter to run in orga
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/management/commands/run_worker.py` (SQS worker - polls AWS SQS directly via boto3, no message queue abstraction)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/engine/ecs/__init__.py` (ECS task launcher - uses AWS ECS Fargate for provisioner execution)
 - IMPLEMENTS → CONFIG `platform/terraform/` (Terraform modules - 100% AWS provider (ECS, RDS, Cognito, SES, SNS, SQS, S3), no GCP modules)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#671` (PLAT-002: GCP Platform Deployment)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#671` (PLAT-002: GCP Platform Deployment)
 - DOCUMENTS → ADR `ADR-007` (GCP control-plane deployments are Helm-packaged and bootstrap-managed)
 - DOCUMENTS → ADR `ADR-008` (GCP bootstrap fails closed and uses private operator access)
 - DOCUMENTS → POLICY `docs/adr/index.yaml` (ADR registry - GCP Helm cutover and secure bootstrap decisions)

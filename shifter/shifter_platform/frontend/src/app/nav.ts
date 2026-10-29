@@ -42,7 +42,10 @@ export type PermissionPolicy =
   | "ctf_participant"
   | "adapter_admin"
   | "model_source_admin"
-  | "staff";
+  | "account_admin"
+  | "platform_admin"
+  | "audit_admin"
+  | "lease_admin";
 
 export type NavIconKey =
   | "home"
@@ -52,6 +55,7 @@ export type NavIconKey =
   | "trophy"
   | "users"
   | "help-circle"
+  | "inbox"
   | "boxes"
   | "bot"
   | "shield"
@@ -176,6 +180,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { surface: "Range", routeName: "ctf:range", purpose: "Access range status and participant resources.", routePath: "/ctf/range/", iconKey: "server", activeContext: "range" },
       { surface: "Scoreboard", routeName: "ctf:scoreboard", purpose: "Compare event scoring and rank.", routePath: "/ctf/scoreboard/", iconKey: "trophy" },
       { surface: "Team", routeName: "ctf:team", purpose: "Inspect team membership and status.", routePath: "/ctf/team/", iconKey: "users" },
+      { surface: "Inbox", routeName: "ctf:participant_inbox", purpose: "Read and acknowledge event messages.", routePath: "/ctf/inbox/", iconKey: "inbox", activeContext: "event" },
       { surface: "Help", routeName: "ctf:help", purpose: "Get CTF-specific help.", routePath: "/ctf/help/", iconKey: "help-circle" },
     ],
   ),
@@ -229,27 +234,28 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   makeGroup(
     "Administer",
     "operator",
-    { audience: "organizer", permissionPolicy: "staff", ownerApp: "management" },
+    { audience: "organizer", permissionPolicy: "platform_admin", ownerApp: "management" },
     [
       {
-        surface: "Users",
+        surface: "Platform",
         routeName: "administer:users",
-        purpose: "Manage users and access.",
+        purpose: "Manage identities, policy, credentials, audit, and platform settings.",
         routePath: "/administer",
         iconKey: "user-cog",
         external: false,
       },
       // Organization/workspace admin console (#1938, PLAT-231). First-class entry the per-capability org/workspace admin
-      // slices (PLAT-232–240) hang off; staff-gated like the rest of the group.
+      // slices (PLAT-232–240) hang off; visibility follows live policy decisions.
       {
-        surface: "Organization",
+        surface: "Accounts",
         routeName: "administer:organization",
         purpose: "Administer organizations and workspaces.",
-        routePath: "/administer/organization",
+        routePath: "/administer/accounts",
+        permissionPolicy: "account_admin",
         iconKey: "boxes",
         external: false,
       },
-      // Administrator audit / activity history (#1947, PLAT-240). Deployment-global, staff-only read over shared.audit; a
+      // Administrator audit / activity history (#1947, PLAT-240). Deployment-global policy read over shared.audit; a
       // top-level surface (not workspace-scoped) since the store carries no
       // per-row tenant scope. The /api/v1/audit/ endpoint remains the authority.
       {
@@ -257,6 +263,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         routeName: "administer:audit",
         purpose: "Search and filter administrative activity history.",
         routePath: "/administer/audit",
+        permissionPolicy: "audit_admin",
         iconKey: "scroll-text",
         external: false,
       },
@@ -273,6 +280,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         routeName: "administer:settings",
         purpose: "Read-only platform configuration.",
         routePath: "/administer/settings",
+        permissionPolicy: "lease_admin",
         iconKey: "settings",
         external: false,
       },
@@ -296,7 +304,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         routePath: "/administer/model-access",
         permissionPolicy: "model_source_admin", iconKey: "boxes", external: false,
       },
-      // Django admin escape hatch: always available, linked as a full-page legacy
+      // Policy-aware Django admin escape hatch, linked as a full-page legacy
       // handoff and never wrapped or described as a SPA-native workflow.
       {
         surface: "Django Admin",
@@ -325,8 +333,14 @@ export function permissionAllows(policy: PermissionPolicy, bootstrap: Bootstrap)
       return bootstrap.permissions.can_administer_ctf;
     case "ctf_participant":
       return bootstrap.permissions.is_ctf_participant;
-    case "staff":
-      return bootstrap.principal.is_staff;
+    case "account_admin":
+      return bootstrap.permissions.can_administer_accounts;
+    case "platform_admin":
+      return bootstrap.permissions.can_administer_platform;
+    case "audit_admin":
+      return bootstrap.permissions.can_read_audit;
+    case "lease_admin":
+      return bootstrap.permissions.can_manage_lease_policy;
     case "adapter_admin":
       return bootstrap.permissions.can_manage_adapters === true;
     case "model_source_admin":

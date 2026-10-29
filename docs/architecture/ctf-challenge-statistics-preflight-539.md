@@ -9,7 +9,7 @@ Date: 2026-06-28
 
 Requirement: `CTF-407` - Challenge Statistics
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/539>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/539>
 
 This note is intentionally not an implementation plan. Issue #539 is a coverage
 and Ground Control `TESTS` traceability remediation issue, but CTF-407 also has

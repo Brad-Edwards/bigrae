@@ -20,12 +20,15 @@ from django.utils import timezone
 from ctf.enums import EventCapability
 from ctf.exceptions import CTFNotFoundError, CTFStateError, CTFValidationError
 from ctf.models import CTFChallenge, CTFChallengePrerequisite, CTFEvent
+from ctf.services.authorization import admit_event_actions
 from ctf.services.authorization import assert_event_capability as _assert_event_capability
 from shared.log_sanitize import safe_log_value
 
 from ._challenge_release import _sync_release_task
 from ._flag_crud import _reject_non_flag_live_edits
 from ._resolve import _resolve_next_challenge, _resolve_tags, _resolve_topics
+
+_EVENT_MANAGE_CHALLENGES = "event.manage_challenges"
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +65,7 @@ def _apply_challenge_m2m(
     tag_names: list[str] | None,
     topic_names: list[str] | None,
     flags_list: list[dict[str, Any]] | None,
-    actor_id: int,
+    actor_id: object,
 ) -> None:
     """Apply tags, topics, and per-challenge flag records after a challenge
     has been created/updated. Caller is responsible for the surrounding
@@ -125,7 +128,7 @@ def create_challenge(
     event_id: UUID,
     challenge_data: dict[str, Any],
     *,
-    actor_id: int,
+    actor_id: object,
     source_id: str = "",
 ) -> CTFChallenge:
     """Create a new challenge.
@@ -162,6 +165,7 @@ def create_challenge(
             details={"event_id": str(event_id)},
         ) from None
 
+    actor_id = admit_event_actions(actor_id, event, _EVENT_MANAGE_CHALLENGES)
     _assert_event_capability(actor_id, event, EventCapability.CHALLENGES)
 
     if not event.is_content_modifiable:
@@ -244,7 +248,7 @@ def _apply_optional_challenge_associations(
     flags_list: list[dict[str, Any]] | None,
     tag_names: list[str] | None,
     topic_names: list[str] | None,
-    actor_id: int,
+    actor_id: object,
 ) -> None:
     """Apply optional flag/tag/topic updates inside the existing transaction."""
     if flags_list is not None:
@@ -259,7 +263,7 @@ def _apply_optional_challenge_associations(
         challenge.topics.set(_resolve_topics(topic_names))
 
 
-def update_challenge(challenge_id: UUID, challenge_data: dict[str, Any], *, actor_id: int) -> CTFChallenge:
+def update_challenge(challenge_id: UUID, challenge_data: dict[str, Any], *, actor_id: object) -> CTFChallenge:
     """Update an existing challenge.
 
     Args:
@@ -288,6 +292,7 @@ def update_challenge(challenge_id: UUID, challenge_data: dict[str, Any], *, acto
             details={"challenge_id": str(challenge_id)},
         ) from None
 
+    actor_id = admit_event_actions(actor_id, challenge.event, _EVENT_MANAGE_CHALLENGES)
     _assert_event_capability(actor_id, challenge.event, EventCapability.CHALLENGES)
 
     _reject_non_flag_live_edits(challenge, challenge_data)
@@ -335,7 +340,7 @@ def update_challenge(challenge_id: UUID, challenge_data: dict[str, Any], *, acto
     return challenge
 
 
-def delete_challenge(challenge_id: UUID, *, actor_id: int) -> None:
+def delete_challenge(challenge_id: UUID, *, actor_id: object) -> None:
     """Soft-delete a challenge.
 
     Args:
@@ -358,6 +363,7 @@ def delete_challenge(challenge_id: UUID, *, actor_id: int) -> None:
             details={"challenge_id": str(challenge_id)},
         ) from None
 
+    actor_id = admit_event_actions(actor_id, challenge.event, _EVENT_MANAGE_CHALLENGES)
     _assert_event_capability(actor_id, challenge.event, EventCapability.CHALLENGES)
 
     if not challenge.event.is_content_modifiable:

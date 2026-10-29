@@ -11,6 +11,7 @@ full rationale.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -96,7 +97,7 @@ def end_event(event_id: UUID) -> CTFEvent:
     return event
 
 
-def schedule_event(event: CTFEvent) -> bool:
+def schedule_event(event: CTFEvent, *, actor: object) -> bool:
     """Open registration for a draft event (transition to registration).
 
     Args:
@@ -119,7 +120,7 @@ def schedule_event(event: CTFEvent) -> bool:
 
     from ctf.services import event as _e
 
-    _e._schedule_event_tasks(event)
+    _e._schedule_event_tasks(event, actor)
 
     logger.info("Opened registration for CTF event %s", event.id)
     return True
@@ -166,7 +167,7 @@ def activate_event(event: CTFEvent) -> bool:
     return True
 
 
-def complete_event(event: CTFEvent) -> bool:
+def complete_event(event: CTFEvent, *, actor: object | None = None) -> bool:
     """End an active event (transition to ended).
 
     Range teardown is enforced independently by each range's server-owned
@@ -203,9 +204,17 @@ def complete_event(event: CTFEvent) -> bool:
     from ctf.services.event.scheduling import has_pending_cleanup_task
 
     if event.auto_cleanup and not has_pending_cleanup_task(event.pk):
-        from ctf.services.range import cleanup_event_ranges
+        if actor is None:
+            # A scheduler-triggered end has no interactive credential. Teardown
+            # is therefore limited to the server-owned leases that are already
+            # due; it must not manufacture organizer authority.
+            from cms.services import expire_due_ranges
 
-        result = cleanup_event_ranges(event.pk)
+            result = expire_due_ranges()
+        else:
+            from ctf.services.range import cleanup_event_ranges
+
+            result = cleanup_event_ranges(event.pk, actor=actor)
         logger.info("Auto-cleanup on event end %s: %s", event.id, result)
 
     # CTF-801: final-results email to participants; best-effort so a mail
@@ -221,7 +230,7 @@ def complete_event(event: CTFEvent) -> bool:
     return True
 
 
-def cancel_event(event: CTFEvent) -> bool:
+def cancel_event(event: CTFEvent, *, actor: object) -> bool:
     """Cancel a CTF event.
 
     Cancellation is valid from draft, registration, active, or paused states.
@@ -276,7 +285,7 @@ def cancel_event(event: CTFEvent) -> bool:
     # Always destroy ranges on cancel — orphaned VMs waste money
     from ctf.services.range import cleanup_event_ranges
 
-    result = cleanup_event_ranges(event.pk)
+    result = cleanup_event_ranges(event.pk, actor=actor)
     logger.info("Range cleanup on event cancel %s: %s", event.id, result)
 
     logger.info("Cancelled CTF event %s", event.id)
@@ -413,7 +422,7 @@ def _transition_event(event: CTFEvent, target: EventStatus) -> None:
 # system actor; the organizer endpoint routes through
 # ``apply_event_lifecycle_transition`` so the event policy is asserted at the
 # service boundary too (#1922 review).
-_INTERACTIVE_LIFECYCLE_ACTIONS = {
+_INTERACTIVE_LIFECYCLE_ACTIONS: dict[str, Callable[..., bool]] = {
     "open_registration": open_registration,
     "activate": activate_event,
     "pause": pause_event,
@@ -423,7 +432,7 @@ _INTERACTIVE_LIFECYCLE_ACTIONS = {
 }
 
 
-def apply_event_lifecycle_transition(event: CTFEvent, action: str, *, actor_id: int | None = None) -> bool:
+def apply_event_lifecycle_transition(event: CTFEvent, action: str, *, actor_id: object | None = None) -> bool:
     """Apply one interactive lifecycle transition, asserting the ``lifecycle`` capability.
 
     Args:
@@ -449,4 +458,8 @@ def apply_event_lifecycle_transition(event: CTFEvent, action: str, *, actor_id: 
     transition = _INTERACTIVE_LIFECYCLE_ACTIONS.get(action)
     if transition is None:
         raise CTFValidationError("Unknown lifecycle action", details={"action": action})
+    if action in {"open_registration", "end", "cancel"}:
+        if actor_id is None:
+            raise CTFValidationError("Lifecycle authority unavailable")
+        return transition(event, actor=actor_id)
     return transition(event)

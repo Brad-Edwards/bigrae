@@ -13,7 +13,7 @@ boundaries, see the
 Historical design: 2026-09-06, requirement **PLAT-202**;
 baseline `6fd946352ec22c8bf373a04b52f738f9f6c6a9f4` on `dev`.
 The source issue remains the canonical work tracker:
-[#681](https://github.com/Brad-Edwards/shifter/issues/681).
+[#681](https://github.com/Brad-Edwards/bigrae/issues/681).
 
 The historical design gives each admitted range generation a revocable,
 budgeted capability to a deployment-owned broker. Provider credentials stay

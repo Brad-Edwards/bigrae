@@ -72,21 +72,19 @@ def _audit_admin_mutation(
     one transaction; a non-rollbackable caller records ``outcome="intent"`` before
     its first side effect and a correlated outcome afterward.
     """
-    from ctf.api.organizer._base import _actor
-    from ctf.services.audit import audit_platform_admin_event_action
-    from ctf.services.authorization import EventAuthoritySource
+    from ctf.services.audit import EventMutationOutcome, audit_platform_admin_event_action
+    from shared.api.principals import authenticated_credential
+    from shared.audit import AuditAction
 
-    if source is not EventAuthoritySource.PLATFORM_ADMIN:
-        return
-    kwargs: dict[str, Any] = {} if action is None else {"action": action}
     audit_platform_admin_event_action(
         request=request,
         event=event,
         operation=operation,
-        effective_actor_id=_actor(request).pk,
-        changed_fields=changed_fields,
-        outcome=outcome,
-        **kwargs,
+        effective_actor_id=authenticated_credential(request),
+        authority_source="policy" if source is None else source.value,
+        result=EventMutationOutcome(
+            action=action or AuditAction.UPDATE, changed_fields=tuple(changed_fields or ()), outcome=outcome
+        ),
     )
 
 

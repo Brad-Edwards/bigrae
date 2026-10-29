@@ -25,7 +25,7 @@ from ctf.api.organizer._base import (
     _EVENT_WRITE,
     _INVALID_PARTICIPANT_REQUEST,
     _PARTICIPANT_NOT_FOUND,
-    _actor,
+    _credential,
     _pagination_window,
     _participant_detail_payload,
     _raise_bad_request,
@@ -113,7 +113,7 @@ class ParticipantListView(APIView):
             try:
                 # Non-rollbackable invite (may trigger provisioning): intent then outcome.
                 with admin_external_audit(request, "participant.add", action=AuditAction.CREATE):
-                    participant = add_participant(event_id, email, name, username=username)
+                    participant = add_participant(event_id, email, name, username=username, actor=_credential(request))
             except CTFValidationError:
                 _raise_bad_request(_INVALID_PARTICIPANT_REQUEST)
             return Response(
@@ -145,10 +145,10 @@ class ParticipantImportView(APIView):
         serializer = ParticipantImportSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         with admin_external_audit(request, "participant.import", action=AuditAction.CREATE):
-            return self._import(event_id, serializer.validated_data["participants"])
+            return self._import(event_id, serializer.validated_data["participants"], actor=_credential(request))
 
     @staticmethod
-    def _import(event_id: UUID, participants_data: list[object]) -> Response:
+    def _import(event_id: UUID, participants_data: list[object], *, actor: object) -> Response:
         """Invite each row, mirroring the legacy per-item validation and error shapes."""
         from ctf.exceptions import CTFValidationError
         from ctf.services import add_participant
@@ -169,7 +169,7 @@ class ParticipantImportView(APIView):
                 continue
             username = p_data.get("username") or None
             try:
-                participant = add_participant(event_id, email, name, username=username)
+                participant = add_participant(event_id, email, name, username=username, actor=actor)
                 imported.append(
                     {
                         "id": str(participant.id),
@@ -215,7 +215,7 @@ class ParticipantDetailView(APIView):
                     delete_participant(participant_id)
             except CTFNotFoundError:
                 _raise_not_found(_PARTICIPANT_NOT_FOUND)
-            return Response({"deleted": True, "id": str(participant_id)})
+            return Response(status=204)
         except _CtfApiError as exc:
             return exc.to_response(request)
 
@@ -254,7 +254,7 @@ class ParticipantPasswordView(APIView):
         try:
             _resolve_owned_participant(request, participant_id, capability="participants")
             try:
-                allowed = _check_credential_delivery_rate_limit(_actor(request).pk)
+                allowed = _check_credential_delivery_rate_limit(_credential(request).principal.uuid)
             except Exception as exc:
                 raise _CtfApiError(
                     code="service_unavailable",
@@ -270,7 +270,7 @@ class ParticipantPasswordView(APIView):
                 with admin_external_audit(request, "participant.password_reset"):
                     issuance = reset_participant_password(
                         participant_id,
-                        actor=_actor(request),
+                        actor=_credential(request),
                         kind=serializer.validated_data["kind"],
                         password=serializer.validated_data.get("password"),
                         request_audit=RequestAudit(

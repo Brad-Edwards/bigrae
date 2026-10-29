@@ -23,6 +23,6 @@ Event lifecycle state controls what actions are available at each phase, you can
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (EventStatus enum - defines event lifecycle states)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (Event service - state transition functions (schedule, activate, complete, cancel))
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#518` (CTF-701: Event Lifecycle)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#518` (CTF-701: Event Lifecycle)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/event.py` (CTFEvent model - event entity with status field)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_event_lifecycle.py` (Event lifecycle transition tests - all 10 valid transitions + invalid transition rejection)

@@ -1,0 +1,4370 @@
+{
+  "current_operation_count": 317,
+  "historical_baseline": {
+    "commit": "8aee758331286293cdc837d94eb95fafa5674ae0",
+    "operation_count": 220
+  },
+  "http": [
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "api_v1_workspace_invitations_list",
+      "path": "/api/v1/account-workspaces/{workspace_uuid}/invitations/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_invitations_issue",
+      "path": "/api/v1/account-workspaces/{workspace_uuid}/invitations/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_invitations_resend",
+      "path": "/api/v1/account-workspaces/{workspace_uuid}/invitations/{invitation_uuid}/resend/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_invitations_revoke",
+      "path": "/api/v1/account-workspaces/{workspace_uuid}/invitations/{invitation_uuid}/revoke/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "api_v1_workspace_membership_self",
+      "path": "/api/v1/account-workspaces/{workspace_uuid}/membership/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_memberships_leave",
+      "path": "/api/v1/account-workspaces/{workspace_uuid}/memberships/leave/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_transfer_ownership",
+      "path": "/api/v1/account-workspaces/{workspace_uuid}/ownership/transfer/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "prepared_accounts_list",
+      "path": "/api/v1/accounts/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_create",
+      "path": "/api/v1/accounts/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_context_retrieve",
+      "path": "/api/v1/accounts/context/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_current_retrieve",
+      "path": "/api/v1/accounts/current/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_retrieve",
+      "path": "/api/v1/accounts/{account_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "PATCH",
+      "operation_id": "accounts_partial_update",
+      "path": "/api/v1/accounts/{account_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_memberships_retrieve",
+      "path": "/api/v1/accounts/{account_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_memberships_create",
+      "path": "/api/v1/accounts/{account_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "DELETE",
+      "operation_id": "accounts_memberships_destroy",
+      "path": "/api/v1/accounts/{account_uuid}/memberships/{principal_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "prepared_organizations_list",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_organizations_retrieve",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "PATCH",
+      "operation_id": "accounts_organizations_partial_update",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "prepared_workspaces_list",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/workspaces/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_workspaces_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/workspaces/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_organizations_workspaces_retrieve",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{organization_uuid}/workspaces/{workspace_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_authorization_direct_assignments_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/direct-assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_organizations_authorization_groups_list",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/groups/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_authorization_groups_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/groups/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_authorization_groups_memberships_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/groups/{group_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_organizations_authorization_operations_retrieve",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_authorization_operations_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_organizations_authorization_policies_list",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/policies/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_authorization_policies_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/policies/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_authorization_policies_actions_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/policies/{policy_uuid}/actions/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_authorization_policies_assignments_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/policies/{policy_uuid}/assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_organizations_authorization_predefined_assignments_create",
+      "path": "/api/v1/accounts/{account_uuid}/organizations/{target_uuid}/authorization/predefined-assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_authorization_direct_assignments_create",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/direct-assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_authorization_groups_list",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/groups/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_authorization_groups_create",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/groups/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_authorization_groups_memberships_create",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/groups/{group_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_authorization_operations_retrieve",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_authorization_operations_create",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "accounts_authorization_policies_list",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/policies/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_authorization_policies_create",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/policies/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_authorization_policies_actions_create",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/policies/{policy_uuid}/actions/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_authorization_policies_assignments_create",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/policies/{policy_uuid}/assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "accounts_authorization_predefined_assignments_create",
+      "path": "/api/v1/accounts/{target_uuid}/authorization/predefined-assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_authorization_direct_assignments_create",
+      "path": "/api/v1/administer/authorization/direct-assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "administer_authorization_groups_list",
+      "path": "/api/v1/administer/authorization/groups/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_authorization_groups_create",
+      "path": "/api/v1/administer/authorization/groups/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_authorization_groups_memberships_create",
+      "path": "/api/v1/administer/authorization/groups/{group_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "administer_authorization_operations_retrieve",
+      "path": "/api/v1/administer/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_authorization_operations_create",
+      "path": "/api/v1/administer/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "administer_authorization_policies_list",
+      "path": "/api/v1/administer/authorization/policies/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_authorization_policies_create",
+      "path": "/api/v1/administer/authorization/policies/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_authorization_policies_actions_create",
+      "path": "/api/v1/administer/authorization/policies/{policy_uuid}/actions/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_authorization_policies_assignments_create",
+      "path": "/api/v1/administer/authorization/policies/{policy_uuid}/assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_authorization_predefined_assignments_create",
+      "path": "/api/v1/administer/authorization/predefined-assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "administer_credentials_personal_revoke_create",
+      "path": "/api/v1/administer/credentials/personal/{credential_uuid}/revoke/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_administer_mission_control_lease_policy_retrieve",
+      "path": "/api/v1/administer/mission-control/lease-policy/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "PUT",
+      "operation_id": "api_v1_administer_mission_control_lease_policy_group_replace",
+      "path": "/api/v1/administer/mission-control/lease-policy/groups/{group_id}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_administer_mission_control_lease_policy_group_reset",
+      "path": "/api/v1/administer/mission-control/lease-policy/groups/{group_id}/reset/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "PUT",
+      "operation_id": "api_v1_administer_mission_control_lease_policy_tenant_replace",
+      "path": "/api/v1/administer/mission-control/lease-policy/tenant/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_administer_mission_control_lease_policy_tenant_reset",
+      "path": "/api/v1/administer/mission-control/lease-policy/tenant/reset/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "prepared_integration_organizations_list",
+      "path": "/api/v1/administer/organizations/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "api_v1_administer_principals_event_creation_grants",
+      "path": "/api/v1/administer/principals/{principal_uuid}/event-creation-grants/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "administer_principals_personal_credentials_retrieve",
+      "path": "/api/v1/administer/principals/{principal_uuid}/personal-credentials/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "administer_scopes_retrieve",
+      "path": "/api/v1/administer/scopes/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_administer_users_list",
+      "path": "/api/v1/administer/users/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_administer_users_retrieve",
+      "path": "/api/v1/administer/users/{id}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "PATCH",
+      "operation_id": "api_v1_administer_users_update",
+      "path": "/api/v1/administer/users/{id}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_administer_users_soft_delete",
+      "path": "/api/v1/administer/users/{id}/delete/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_administer_users_grant_organizer",
+      "path": "/api/v1/administer/users/{id}/grant-organizer/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_administer_users_lifecycle",
+      "path": "/api/v1/administer/users/{id}/lifecycle/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_administer_users_reset_password",
+      "path": "/api/v1/administer/users/{id}/reset-password/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_administer_users_set_active",
+      "path": "/api/v1/administer/users/{id}/set-active/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_administer_users_transfer_ownership",
+      "path": "/api/v1/administer/users/{id}/transfer-ownership/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "audit_list",
+      "path": "/api/v1/audit/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "audit_retrieve",
+      "path": "/api/v1/audit/{id}/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_bootstrap_retrieve",
+      "path": "/api/v1/bootstrap/"
+    },
+    {
+      "authority": {
+        "decision": "installation.prepare_content|account.prepare_content|organization.prepare_content|workspace.prepare_content",
+        "scope": "sql:preparation_parent;selector=validated_parent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_artifact_preparation_create",
+      "path": "/api/v1/cms/artifact-preparation/"
+    },
+    {
+      "authority": {
+        "decision": "installation.prepare_content|account.prepare_content|organization.prepare_content|workspace.prepare_content",
+        "scope": "sql:preparation_operation",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_artifact_preparation_retrieve",
+      "path": "/api/v1/cms/artifact-preparation/{operation_id}/"
+    },
+    {
+      "authority": {
+        "decision": "installation.prepare_content|account.prepare_content|organization.prepare_content|workspace.prepare_content",
+        "scope": "sql:preparation_operation",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_artifact_preparation_cancel_create",
+      "path": "/api/v1/cms/artifact-preparation/{operation_id}/cancel/"
+    },
+    {
+      "authority": {
+        "decision": "installation.prepare_content|account.prepare_content|organization.prepare_content|workspace.prepare_content",
+        "scope": "sql:preparation_operation",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_artifact_preparation_retry_create",
+      "path": "/api/v1/cms/artifact-preparation/{operation_id}/retry/"
+    },
+    {
+      "authority": {
+        "decision": "installation.read_content|account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:catalog_collection;selector=private_scope_or_explicit_publication",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_catalog_list",
+      "path": "/api/v1/cms/catalog/"
+    },
+    {
+      "authority": {
+        "decision": "installation.manage_content|account.manage_content|organization.manage_content|workspace.manage_content",
+        "scope": "sql:content_parent;selector=validated_parent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_catalog_packs_create",
+      "path": "/api/v1/cms/catalog/packs/"
+    },
+    {
+      "authority": {
+        "decision": "installation.read_content|account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:catalog_entry;selector=persisted_source_scope",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_catalog_retrieve",
+      "path": "/api/v1/cms/catalog/{scenario_id}/"
+    },
+    {
+      "authority": {
+        "decision": "installation.read_content|account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:content_scope_collection;selector=policy_filtered_ancestry",
+        "target": "scope"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "cms_content_scopes_retrieve",
+      "path": "/api/v1/cms/content-scopes/"
+    },
+    {
+      "authority": {
+        "decision": "installation.read_content|account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:content_parent;selector=validated_parent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_model_source_options_retrieve",
+      "path": "/api/v1/cms/model-source-options/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_model_sources",
+        "scope": "sql:organization_range_collection",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_organizations_model_ranges_retrieve",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/model-ranges/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "cms_organizations_model_source_users_retrieve",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/model-source-users/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_model_sources",
+        "scope": "sql:organization_source_collection",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_organizations_model_sources_retrieve",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/model-sources/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_model_sources",
+        "scope": "sql:organization",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_organizations_model_sources_create",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/model-sources/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_model_sources",
+        "scope": "sql:organization_source_collection",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_organizations_model_sources_available_retrieve",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/model-sources/available/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_model_sources",
+        "scope": "sql:model_source",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "PUT",
+      "operation_id": "cms_organizations_model_sources_update",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/model-sources/{source_id}/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_model_sources",
+        "scope": "sql:model_source",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_organizations_model_sources_retire_credentials_create",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/model-sources/{source_id}/retire-credentials/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_content",
+        "scope": "sql:organization",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_organizations_packs_create",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/packs/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_content",
+        "scope": "sql:organization_pack;selector=persisted_source_scope",
+        "target": "organization"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "cms_organizations_packs_removal_create",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/packs/{pack_id}/removal/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_adapters",
+        "scope": "sql:organization_plugin_collection",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_organizations_plugin_packs_list",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/plugin-packs/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_adapters",
+        "scope": "sql:plugin_pack",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_organizations_plugin_packs_retrieve",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/plugin-packs/{pack_id}/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_adapters",
+        "scope": "sql:plugin_pack",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_organizations_plugin_packs_create",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/plugin-packs/{pack_id}/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_adapters",
+        "scope": "sql:organization_plugin_collection",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_organizations_plugins_retrieve",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/plugins/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_adapters",
+        "scope": "sql:organization",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_organizations_plugins_create",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/plugins/"
+    },
+    {
+      "authority": {
+        "decision": "organization.manage_adapters",
+        "scope": "sql:plugin_installation",
+        "target": "organization"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_organizations_plugins_actions_create",
+      "path": "/api/v1/cms/organizations/{organization_uuid}/plugins/{plugin_id}/actions/"
+    },
+    {
+      "authority": {
+        "decision": "installation.manage_adapters",
+        "scope": "sql:adapter_grants",
+        "target": "installation"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_preparation_adapter_grants_list",
+      "path": "/api/v1/cms/preparation-adapter-grants/"
+    },
+    {
+      "authority": {
+        "decision": "installation.manage_adapters",
+        "scope": "sql:adapter_catalog",
+        "target": "installation"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_preparation_adapters_list",
+      "path": "/api/v1/cms/preparation-adapters/"
+    },
+    {
+      "authority": {
+        "decision": "installation.manage_adapters",
+        "scope": "sql:adapter_catalog",
+        "target": "installation"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_preparation_adapters_create",
+      "path": "/api/v1/cms/preparation-adapters/"
+    },
+    {
+      "authority": {
+        "decision": "installation.manage_adapters",
+        "scope": "sql:adapter",
+        "target": "installation"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_preparation_adapters_state_create",
+      "path": "/api/v1/cms/preparation-adapters/{adapter_id}/state/"
+    },
+    {
+      "authority": {
+        "decision": "installation.prepare_content",
+        "scope": "sql:image_catalog",
+        "target": "installation"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_raes_image_mappings_list",
+      "path": "/api/v1/cms/raes-image-mappings/"
+    },
+    {
+      "authority": {
+        "decision": "installation.prepare_content",
+        "scope": "sql:image_catalog",
+        "target": "installation"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_raes_image_mappings_create",
+      "path": "/api/v1/cms/raes-image-mappings/"
+    },
+    {
+      "authority": {
+        "decision": "installation.prepare_content",
+        "scope": "sql:image_mapping",
+        "target": "installation"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "cms_raes_image_mappings_disable_create",
+      "path": "/api/v1/cms/raes-image-mappings/disable/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "cms_ranges_model_access_retrieve",
+      "path": "/api/v1/cms/ranges/{request_id}/model-access/"
+    },
+    {
+      "authority": {
+        "decision": "range.manage",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "added",
+      "method": "PUT",
+      "operation_id": "cms_ranges_model_access_update",
+      "path": "/api/v1/cms/ranges/{request_id}/model-access/"
+    },
+    {
+      "authority": {
+        "decision": "range.manage",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "cms_ranges_model_access_revoke_create",
+      "path": "/api/v1/cms/ranges/{request_id}/model-access/revoke/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "cms_ranges_model_sources_retrieve",
+      "path": "/api/v1/cms/ranges/{request_id}/model-sources/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "PUT",
+      "operation_id": "cms_ranges_model_sources_update",
+      "path": "/api/v1/cms/ranges/{request_id}/model-sources/"
+    },
+    {
+      "authority": {
+        "decision": "account.manage_range_scope|organization.manage_range_scope|workspace.manage_range_scope",
+        "scope": "sql:range_source_and_destination;selector=both_scopes",
+        "target": "scope"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "api_v1_cms_range_workspace_rebind",
+      "path": "/api/v1/cms/ranges/{request_id}/scope/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_cms_range_workspace_rebind",
+      "path": "/api/v1/cms/ranges/{request_id}/workspace/"
+    },
+    {
+      "authority": {
+        "decision": "installation.read_content|account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:catalog_entry;selector=persisted_source_scope",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_scenarios_retrieve",
+      "path": "/api/v1/cms/scenarios/{scenario_id}/"
+    },
+    {
+      "authority": {
+        "decision": "installation.manage_content|account.manage_content|organization.manage_content|workspace.manage_content",
+        "scope": "sql:catalog_entry;selector=persisted_source_scope",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "PATCH",
+      "operation_id": "cms_scenarios_metadata_partial_update",
+      "path": "/api/v1/cms/scenarios/{scenario_id}/metadata/"
+    },
+    {
+      "authority": {
+        "decision": "installation.read_content|account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:catalog_entry;selector=persisted_source_scope",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "cms_scenarios_realizability_retrieve",
+      "path": "/api/v1/cms/scenarios/{scenario_id}/realizability/"
+    },
+    {
+      "authority": {
+        "decision": "workspace.manage_range_scope",
+        "scope": "sql:workspace_range_collection",
+        "target": "workspace"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_cms_workspace_range_scope_list",
+      "path": "/api/v1/cms/workspaces/{workspace_uuid}/range-scoping/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "credentials_personal_retrieve",
+      "path": "/api/v1/credentials/personal/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "credentials_personal_create",
+      "path": "/api/v1/credentials/personal/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "credentials_personal_revoke_create",
+      "path": "/api/v1/credentials/personal/{credential_uuid}/revoke/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "credentials_personal_rotate_create",
+      "path": "/api/v1/credentials/personal/{credential_uuid}/rotate/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "credentials_services_retrieve",
+      "path": "/api/v1/credentials/services/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "credentials_services_create",
+      "path": "/api/v1/credentials/services/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "credentials_services_principals_create",
+      "path": "/api/v1/credentials/services/principals/{principal_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "credentials_services_disable_create",
+      "path": "/api/v1/credentials/services/{credential_uuid}/disable/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_awards",
+        "scope": "sql:award",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_awards_delete_create",
+      "path": "/api/v1/ctf/awards/{award_id}/delete/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "DELETE",
+      "operation_id": "ctf_challenges_destroy",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_challenges_retrieve",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "PUT",
+      "operation_id": "ctf_challenges_update",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_challenges_files_retrieve",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/files/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_challenges_files_create",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/files/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_challenges_flags_add_create",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/flags/add/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_challenges_hint_create",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/hint/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_challenges_hints_retrieve",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/hints/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_challenges_hints_create",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/hints/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_challenges_prerequisites_retrieve",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/prerequisites/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_challenges_prerequisites_create",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/prerequisites/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_challenges_rate_create",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/rate/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_challenges_submit_create",
+      "path": "/api/v1/ctf/challenges/{challenge_id}/submit/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign_collection",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_communications_list",
+      "path": "/api/v1/ctf/communications/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign_collection",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_communications_create",
+      "path": "/api/v1/ctf/communications/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign_collection",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_target_options_list",
+      "path": "/api/v1/ctf/communications/target-options/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign_collection",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_targets_list",
+      "path": "/api/v1/ctf/communications/targets/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_communications_retrieve",
+      "path": "/api/v1/ctf/communications/{campaign_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_activity_retrieve",
+      "path": "/api/v1/ctf/communications/{campaign_id}/activity/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_communications_cancel_create",
+      "path": "/api/v1/ctf/communications/{campaign_id}/cancel/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_delivery_retrieve",
+      "path": "/api/v1/ctf/communications/{campaign_id}/delivery/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_preview_retrieve",
+      "path": "/api/v1/ctf/communications/{campaign_id}/preview/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications|event.manage_participants",
+        "scope": "sql:campaign;selector=campaign_recipient_details",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_communications_recipients_list",
+      "path": "/api/v1/ctf/communications/{campaign_id}/recipients/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_communications_release_create",
+      "path": "/api/v1/ctf/communications/{campaign_id}/release/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:campaign",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_communications_revisions_create",
+      "path": "/api/v1/ctf/communications/{campaign_id}/revisions/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges|event.participate",
+        "scope": "sql:content_image;selector=content_image_audience",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_content_images_retrieve",
+      "path": "/api/v1/ctf/content-images/{image_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.read",
+        "scope": "sql:event_discovery",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_list",
+      "path": "/api/v1/ctf/events/"
+    },
+    {
+      "authority": {
+        "decision": "account.create_event|organization.create_event|workspace.create_event",
+        "scope": "sql:parent;selector=validated_parent_placement",
+        "target": "parent"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_create",
+      "path": "/api/v1/ctf/events/"
+    },
+    {
+      "authority": {
+        "decision": "event.delete",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "DELETE",
+      "operation_id": "ctf_events_destroy",
+      "path": "/api/v1/ctf/events/{event_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.read",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_config",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "PUT",
+      "operation_id": "ctf_events_update",
+      "path": "/api/v1/ctf/events/{event_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_scoring",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_analytics_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/analytics/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_challenges_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/challenges/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_challenges_create",
+      "path": "/api/v1/ctf/events/{event_id}/challenges/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_challenges_export_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/challenges/export/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_challenges_import_pack_create",
+      "path": "/api/v1/ctf/events/{event_id}/challenges/import-pack/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_lifecycle",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_cleanup_create",
+      "path": "/api/v1/ctf/events/{event_id}/cleanup/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_events_content_images_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/content-images/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_content",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_content_refresh_create",
+      "path": "/api/v1/ctf/events/{event_id}/content/refresh/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "DELETE",
+      "operation_id": "ctf_events_email_templates_destroy",
+      "path": "/api/v1/ctf/events/{event_id}/email-templates/{notification_type}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_email_templates_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/email-templates/{notification_type}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "PUT",
+      "operation_id": "ctf_events_email_templates_update",
+      "path": "/api/v1/ctf/events/{event_id}/email-templates/{notification_type}/"
+    },
+    {
+      "authority": {
+        "decision": "event.delete",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_force_delete_create",
+      "path": "/api/v1/ctf/events/{event_id}/force-delete/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_lifecycle",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_lifecycle_create",
+      "path": "/api/v1/ctf/events/{event_id}/lifecycle/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_config",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_events_model_access_assessment_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/model-access/assessment/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_notifications_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/notifications/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_scoring",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_organizer_scoreboard",
+      "path": "/api/v1/ctf/events/{event_id}/organizer-scoreboard/"
+    },
+    {
+      "authority": {
+        "decision": "event.transfer_ownership",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "ctf_events_ownership_transfer_create",
+      "path": "/api/v1/ctf/events/{event_id}/ownership/transfer/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_content",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_pages_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/pages/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_content",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_pages_create",
+      "path": "/api/v1/ctf/events/{event_id}/pages/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_participants_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/participants/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_participants_create",
+      "path": "/api/v1/ctf/events/{event_id}/participants/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_participants_import_create",
+      "path": "/api/v1/ctf/events/{event_id}/participants/import/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "ctf_events_principal_participants_create",
+      "path": "/api/v1/ctf/events/{event_id}/principal-participants/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_ranges_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/ranges/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_ranges_provision_create",
+      "path": "/api/v1/ctf/events/{event_id}/ranges/provision/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_registration_requests_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/registration-requests/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_scoring",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_results_export_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/results/export/"
+    },
+    {
+      "authority": {
+        "decision": "event.read|event.participate",
+        "scope": "sql:event;selector=publication_or_current_policy_or_participation;exemption=scoreboard_publication",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_scoreboard_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/scoreboard/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_spares_create",
+      "path": "/api/v1/ctf/events/{event_id}/spares/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_staff",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_events_staff_members_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/staff-members/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_staff",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "ctf_events_staff_members_create",
+      "path": "/api/v1/ctf/events/{event_id}/staff-members/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_staff",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "DELETE",
+      "operation_id": "ctf_events_staff_members_destroy",
+      "path": "/api/v1/ctf/events/{event_id}/staff-members/{principal_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "ctf_events_staff_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/staff/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "ctf_events_staff_create",
+      "path": "/api/v1/ctf/events/{event_id}/staff/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "DELETE",
+      "operation_id": "ctf_events_staff_destroy",
+      "path": "/api/v1/ctf/events/{event_id}/staff/{user_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_lifecycle",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_tasks_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/tasks/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_lifecycle",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_tasks_run_create",
+      "path": "/api/v1/ctf/events/{event_id}/tasks/{task_id}/run/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "ctf_events_transfer_ownership_create",
+      "path": "/api/v1/ctf/events/{event_id}/transfer-ownership/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_events_webhooks_retrieve",
+      "path": "/api/v1/ctf/events/{event_id}/webhooks/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_events_webhooks_create",
+      "path": "/api/v1/ctf/events/{event_id}/webhooks/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:file",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_files_delete_create",
+      "path": "/api/v1/ctf/files/{file_id}/delete/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges|event.participate",
+        "scope": "sql:file;selector=file_audience",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_files_download_retrieve",
+      "path": "/api/v1/ctf/files/{file_id}/download/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:flag",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_flags_remove_create",
+      "path": "/api/v1/ctf/flags/{flag_id}/remove/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:hint",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_hints_delete_create",
+      "path": "/api/v1/ctf/hints/{hint_id}/delete/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_announcements_retrieve",
+      "path": "/api/v1/ctf/me/announcements/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_briefing_retrieve",
+      "path": "/api/v1/ctf/me/briefing/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_challenges_list",
+      "path": "/api/v1/ctf/me/challenges/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:challenge",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_challenges_retrieve",
+      "path": "/api/v1/ctf/me/challenges/{challenge_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_me_content_images_retrieve",
+      "path": "/api/v1/ctf/me/content-images/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_event_retrieve",
+      "path": "/api/v1/ctf/me/event/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_communication_inbox_list",
+      "path": "/api/v1/ctf/me/events/{event_id}/communications/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_events_communications_retrieve",
+      "path": "/api/v1/ctf/me/events/{event_id}/communications/{snapshot_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_events_communications_acknowledge_create",
+      "path": "/api/v1/ctf/me/events/{event_id}/communications/{snapshot_id}/acknowledge/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "ctf_me_events_communications_dismiss_create",
+      "path": "/api/v1/ctf/me/events/{event_id}/communications/{snapshot_id}/dismiss/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_events_communications_read_create",
+      "path": "/api/v1/ctf/me/events/{event_id}/communications/{snapshot_id}/read/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_me_events_participant_retrieve",
+      "path": "/api/v1/ctf/me/events/{event_id}/participant/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_me_model_access_retrieve",
+      "path": "/api/v1/ctf/me/model-access/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_pages_retrieve",
+      "path": "/api/v1/ctf/me/pages/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_profile_retrieve",
+      "path": "/api/v1/ctf/me/profile/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "PATCH",
+      "operation_id": "ctf_me_profile_partial_update",
+      "path": "/api/v1/ctf/me/profile/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_me_team_retrieve",
+      "path": "/api/v1/ctf/me/team/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_team_create_create",
+      "path": "/api/v1/ctf/me/team/create/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_team_disband_create",
+      "path": "/api/v1/ctf/me/team/disband/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_team_join_create",
+      "path": "/api/v1/ctf/me/team/join/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_team_leave_create",
+      "path": "/api/v1/ctf/me/team/leave/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_team_regenerate_code_create",
+      "path": "/api/v1/ctf/me/team/regenerate-code/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_team_remove_member_create",
+      "path": "/api/v1/ctf/me/team/remove-member/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_team_rename_create",
+      "path": "/api/v1/ctf/me/team/rename/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_team_transfer_captaincy_create",
+      "path": "/api/v1/ctf/me/team/transfer-captaincy/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_me_username_create",
+      "path": "/api/v1/ctf/me/username/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_content",
+        "scope": "sql:page",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "DELETE",
+      "operation_id": "ctf_pages_destroy",
+      "path": "/api/v1/ctf/pages/{page_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_content",
+        "scope": "sql:page",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "PUT",
+      "operation_id": "ctf_pages_update",
+      "path": "/api/v1/ctf/pages/{page_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "DELETE",
+      "operation_id": "ctf_participants_destroy",
+      "path": "/api/v1/ctf/participants/{participant_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_participants_retrieve",
+      "path": "/api/v1/ctf/participants/{participant_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_awards",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_participants_awards_retrieve",
+      "path": "/api/v1/ctf/participants/{participant_id}/awards/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_awards",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_awards_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/awards/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_ban_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/ban/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_bracket_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/bracket/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_disqualify_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/disqualify/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_hidden_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/hidden/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_password_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/password/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_range_destroy_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/range/destroy/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_range_provision_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/range/provision/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_range_recover_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/range/recover/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_range_restart_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/range/restart/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_range_start_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/range/start/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_ranges",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_range_stop_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/range/stop/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_requalify_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/requalify/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_role_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/role/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_scoring",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_participants_score_timeline_retrieve",
+      "path": "/api/v1/ctf/participants/{participant_id}/score-timeline/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_unban_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/unban/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:participant",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_participants_username_create",
+      "path": "/api/v1/ctf/participants/{participant_id}/username/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_challenges",
+        "scope": "sql:prerequisite",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_prerequisites_delete_create",
+      "path": "/api/v1/ctf/prerequisites/{prerequisite_id}/delete/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_range_access_create",
+      "path": "/api/v1/ctf/range/access/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_range_status_retrieve",
+      "path": "/api/v1/ctf/range/status/"
+    },
+    {
+      "authority": {
+        "decision": "event.participate",
+        "scope": "sql:active_event",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_range_vpn_profile_create",
+      "path": "/api/v1/ctf/range/vpn-profile/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_participants",
+        "scope": "sql:request",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "ctf_registration_requests_disposition_create",
+      "path": "/api/v1/ctf/registration-requests/{request_id}/disposition/"
+    },
+    {
+      "authority": {
+        "decision": "exempt:cms_model_access",
+        "scope": "sql:none;exemption=cms_model_access",
+        "target": "none"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_scenario_options_retrieve",
+      "path": "/api/v1/ctf/scenario-options/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "ctf_scenarios_retrieve",
+      "path": "/api/v1/ctf/scenarios/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_submissions",
+        "scope": "sql:submission_collection",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "ctf_submissions_retrieve",
+      "path": "/api/v1/ctf/submissions/"
+    },
+    {
+      "authority": {
+        "decision": "event.manage_communications",
+        "scope": "sql:webhook",
+        "target": "event"
+      },
+      "disposition": "retained",
+      "method": "DELETE",
+      "operation_id": "ctf_webhooks_destroy",
+      "path": "/api/v1/ctf/webhooks/{webhook_id}/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_dashboard_summary_retrieve",
+      "path": "/api/v1/dashboard/summary/"
+    },
+    {
+      "authority": {
+        "decision": "account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:asset_collection",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_agents_list",
+      "path": "/api/v1/mission-control/agents/"
+    },
+    {
+      "authority": {
+        "decision": "account.manage_credentials|organization.manage_credentials|workspace.manage_credentials",
+        "scope": "sql:credential_parent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_credentials_create",
+      "path": "/api/v1/mission-control/credentials/"
+    },
+    {
+      "authority": {
+        "decision": "account.manage_credentials|organization.manage_credentials|workspace.manage_credentials",
+        "scope": "sql:credential",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_credentials_delete",
+      "path": "/api/v1/mission-control/credentials/{credential_id}/delete/"
+    },
+    {
+      "authority": {
+        "decision": "range.access|account.access_devices|organization.access_devices|workspace.access_devices",
+        "scope": "sql:bootstrap;selector=persisted_protocol_and_target",
+        "target": "resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_guacamole_bootstrap_status_retrieve",
+      "path": "/api/v1/mission-control/guacamole/bootstrap/{request_id}/"
+    },
+    {
+      "authority": {
+        "decision": "range.access|account.access_devices|organization.access_devices|workspace.access_devices",
+        "scope": "sql:bootstrap;selector=persisted_protocol_and_target",
+        "target": "resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_guacamole_bootstrap_open_retrieve",
+      "path": "/api/v1/mission-control/guacamole/bootstrap/{request_id}/open/"
+    },
+    {
+      "authority": {
+        "decision": "range.access",
+        "scope": "sql:range_instance",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_guacamole_rdp_url",
+      "path": "/api/v1/mission-control/guacamole/rdp-url/"
+    },
+    {
+      "authority": {
+        "decision": "range.access",
+        "scope": "sql:range_instance",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_guacamole_ssh_url",
+      "path": "/api/v1/mission-control/guacamole/ssh-url/"
+    },
+    {
+      "authority": {
+        "decision": "workspace.launch_range",
+        "scope": "sql:authorized_workspace_collection",
+        "target": "workspace"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_launch_workspaces_list",
+      "path": "/api/v1/mission-control/launch-workspaces/"
+    },
+    {
+      "authority": {
+        "decision": "account.manage_devices|organization.manage_devices|workspace.manage_devices",
+        "scope": "sql:device_parent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_ngfw_create",
+      "path": "/api/v1/mission-control/ngfw/"
+    },
+    {
+      "authority": {
+        "decision": "account.read_devices|organization.read_devices|workspace.read_devices",
+        "scope": "sql:device_collection",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_ngfw_list",
+      "path": "/api/v1/mission-control/ngfw/list/"
+    },
+    {
+      "authority": {
+        "decision": "account.manage_devices|organization.manage_devices|workspace.manage_devices",
+        "scope": "sql:device",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_ngfw_destroy",
+      "path": "/api/v1/mission-control/ngfw/{app_id}/destroy/"
+    },
+    {
+      "authority": {
+        "decision": "account.access_devices|organization.access_devices|workspace.access_devices",
+        "scope": "sql:device",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_ngfw_ssh_url",
+      "path": "/api/v1/mission-control/ngfw/{app_id}/ssh-url/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:current_range",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_range_retrieve",
+      "path": "/api/v1/mission-control/range/"
+    },
+    {
+      "authority": {
+        "decision": "range.manage",
+        "scope": "sql:current_range",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_range_cancel",
+      "path": "/api/v1/mission-control/range/cancel/"
+    },
+    {
+      "authority": {
+        "decision": "range.manage",
+        "scope": "sql:current_range",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_range_destroy",
+      "path": "/api/v1/mission-control/range/destroy/"
+    },
+    {
+      "authority": {
+        "decision": "range.manage",
+        "scope": "sql:current_range",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "mission_control_range_extend_create",
+      "path": "/api/v1/mission-control/range/extend/"
+    },
+    {
+      "authority": {
+        "decision": "account.launch_range|organization.launch_range|workspace.launch_range",
+        "scope": "sql:launch_parent;selector=validated_parent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_range_launch",
+      "path": "/api/v1/mission-control/range/launch/"
+    },
+    {
+      "authority": {
+        "decision": "range.manage",
+        "scope": "sql:current_range",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_range_pause",
+      "path": "/api/v1/mission-control/range/pause/"
+    },
+    {
+      "authority": {
+        "decision": "range.manage",
+        "scope": "sql:current_range",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_range_resume",
+      "path": "/api/v1/mission-control/range/resume/"
+    },
+    {
+      "authority": {
+        "decision": "range.access",
+        "scope": "sql:current_range",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "mission_control_range_vpn_profile_create",
+      "path": "/api/v1/mission-control/range/vpn-profile/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_range_cleanup_outcome",
+      "path": "/api/v1/mission-control/range/{request_id}/cleanup-outcome/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_raes_operation_receipts_list",
+      "path": "/api/v1/mission-control/range/{request_id}/raes/operation-receipts/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_raes_operation_status_list",
+      "path": "/api/v1/mission-control/range/{request_id}/raes/operation-status/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_raes_participant_implementations_list",
+      "path": "/api/v1/mission-control/range/{request_id}/raes/participant-implementations/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_raes_participant_runtimes_list",
+      "path": "/api/v1/mission-control/range/{request_id}/raes/participant-runtimes/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:range_request",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_raes_runtime_snapshots_list",
+      "path": "/api/v1/mission-control/range/{request_id}/raes/snapshots/"
+    },
+    {
+      "authority": {
+        "decision": "range.read",
+        "scope": "sql:range_collection",
+        "target": "range"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_ranges_list",
+      "path": "/api/v1/mission-control/ranges/"
+    },
+    {
+      "authority": {
+        "decision": "installation.read_content|account.read_content|organization.read_content|workspace.read_content",
+        "scope": "sql:catalog_collection;selector=private_scope_or_explicit_publication",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_mission_control_scenarios_list",
+      "path": "/api/v1/mission-control/scenarios/"
+    },
+    {
+      "authority": {
+        "decision": "account.manage_content|organization.manage_content|workspace.manage_content",
+        "scope": "sql:upload_intent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_upload_cancel",
+      "path": "/api/v1/mission-control/upload/cancel/"
+    },
+    {
+      "authority": {
+        "decision": "account.manage_content|organization.manage_content|workspace.manage_content",
+        "scope": "sql:upload_intent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_upload_complete",
+      "path": "/api/v1/mission-control/upload/complete/"
+    },
+    {
+      "authority": {
+        "decision": "account.manage_content|organization.manage_content|workspace.manage_content",
+        "scope": "sql:upload_parent",
+        "target": "scope"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_mission_control_upload_initiate",
+      "path": "/api/v1/mission-control/upload/initiate/"
+    },
+    {
+      "authority": {
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "model_access_bindings_drain_create",
+      "path": "/api/v1/model-access/bindings/drain/"
+    },
+    {
+      "authority": {
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "model_access_bindings_policy_preview_create",
+      "path": "/api/v1/model-access/bindings/policy-preview/"
+    },
+    {
+      "authority": {
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "model_access_bindings_publish_create",
+      "path": "/api/v1/model-access/bindings/publish/"
+    },
+    {
+      "authority": {
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "model_access_bindings_selector_preview_create",
+      "path": "/api/v1/model-access/bindings/selector-preview/"
+    },
+    {
+      "authority": {
+        "decision": "exempt:parked_feature_unavailable",
+        "scope": "sql:parked_sharing_boundary;exemption=parked_feature_unavailable",
+        "target": "none"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "model_access_bindings_validate_create",
+      "path": "/api/v1/model-access/bindings/validate/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "organizations_authorization_operations_retrieve",
+      "path": "/api/v1/organizations/{target_uuid}/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "organizations_authorization_operations_create",
+      "path": "/api/v1/organizations/{target_uuid}/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "organizations_memberships_retrieve",
+      "path": "/api/v1/organizations/{target_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "organizations_memberships_create",
+      "path": "/api/v1/organizations/{target_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "authenticated-platform-contract",
+        "scope": "explicit",
+        "target": "operation-resource"
+      },
+      "disposition": "added",
+      "method": "DELETE",
+      "operation_id": "organizations_memberships_destroy",
+      "path": "/api/v1/organizations/{target_uuid}/memberships/{principal_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "api_v1_workspaces_list",
+      "path": "/api/v1/workspaces/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspaces_create",
+      "path": "/api/v1/workspaces/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "workspaces_authorization_catalog_list",
+      "path": "/api/v1/workspaces/authorization/catalog/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "workspaces_authorization_predefined_catalog_list",
+      "path": "/api/v1/workspaces/authorization/predefined-catalog/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "api_v1_workspaces_principal_context",
+      "path": "/api/v1/workspaces/context/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "api_v1_organizations_administrable_list",
+      "path": "/api/v1/workspaces/organizations/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "api_v1_organization_retrieve",
+      "path": "/api/v1/workspaces/organizations/{organization_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "PATCH",
+      "operation_id": "api_v1_organization_update",
+      "path": "/api/v1/workspaces/organizations/{organization_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_authorization_direct_assignments_create",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/direct-assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "workspaces_authorization_groups_list",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/groups/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_authorization_groups_create",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/groups/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_authorization_groups_memberships_create",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/groups/{group_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "workspaces_authorization_operations_retrieve",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_authorization_operations_create",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/operations/{operation_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "workspaces_authorization_policies_list",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/policies/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_authorization_policies_create",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/policies/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_authorization_policies_actions_create",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/policies/{policy_uuid}/actions/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_authorization_policies_assignments_create",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/policies/{policy_uuid}/assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_authorization_predefined_assignments_create",
+      "path": "/api/v1/workspaces/{target_uuid}/authorization/predefined-assignments/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "workspaces_memberships_retrieve",
+      "path": "/api/v1/workspaces/{target_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_memberships_create",
+      "path": "/api/v1/workspaces/{target_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "DELETE",
+      "operation_id": "workspaces_memberships_destroy",
+      "path": "/api/v1/workspaces/{target_uuid}/memberships/{principal_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "api_v1_workspace_detail",
+      "path": "/api/v1/workspaces/{workspace_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "PATCH",
+      "operation_id": "api_v1_workspace_rename",
+      "path": "/api/v1/workspaces/{workspace_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_archive",
+      "path": "/api/v1/workspaces/{workspace_uuid}/archive/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "PUT",
+      "operation_id": "api_v1_workspace_set_egress_policy",
+      "path": "/api/v1/workspaces/{workspace_uuid}/egress-policy/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "api_v1_workspace_invitations_list",
+      "path": "/api/v1/workspaces/{workspace_uuid}/invitations/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_invitations_issue",
+      "path": "/api/v1/workspaces/{workspace_uuid}/invitations/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_invitations_resend",
+      "path": "/api/v1/workspaces/{workspace_uuid}/invitations/{invitation_uuid}/resend/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_invitations_revoke",
+      "path": "/api/v1/workspaces/{workspace_uuid}/invitations/{invitation_uuid}/revoke/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "api_v1_workspace_membership_self",
+      "path": "/api/v1/workspaces/{workspace_uuid}/membership/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "GET",
+      "operation_id": "api_v1_workspace_memberships_list",
+      "path": "/api/v1/workspaces/{workspace_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_memberships_add",
+      "path": "/api/v1/workspaces/{workspace_uuid}/memberships/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_memberships_leave",
+      "path": "/api/v1/workspaces/{workspace_uuid}/memberships/leave/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_memberships_remove",
+      "path": "/api/v1/workspaces/{workspace_uuid}/memberships/{user_id}/remove/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_memberships_change_role",
+      "path": "/api/v1/workspaces/{workspace_uuid}/memberships/{user_id}/role/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_owners_create",
+      "path": "/api/v1/workspaces/{workspace_uuid}/owners/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "DELETE",
+      "operation_id": "workspaces_owners_destroy",
+      "path": "/api/v1/workspaces/{workspace_uuid}/owners/{principal_uuid}/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "PUT",
+      "operation_id": "workspaces_quota_policy_update",
+      "path": "/api/v1/workspaces/{workspace_uuid}/quota-policy/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "GET",
+      "operation_id": "api_v1_workspace_quota",
+      "path": "/api/v1/workspaces/{workspace_uuid}/quota/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "workspaces_rename_create",
+      "path": "/api/v1/workspaces/{workspace_uuid}/rename/"
+    },
+    {
+      "authority": {
+        "decision": "registered-action",
+        "scope": "sql-ancestry",
+        "target": "route-resource"
+      },
+      "disposition": "retained",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_restore",
+      "path": "/api/v1/workspaces/{workspace_uuid}/restore/"
+    },
+    {
+      "authority": {
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
+      },
+      "disposition": "retired",
+      "method": "POST",
+      "operation_id": "api_v1_workspace_transfer_ownership",
+      "path": "/api/v1/workspaces/{workspace_uuid}/transfer/"
+    }
+  ],
+  "non_http": [
+    {
+      "decision": "registered-action-readonly",
+      "disposition": "retained",
+      "kind": "django-admin",
+      "scope": "policy-admin-site",
+      "surface": "ActivityLog",
+      "target": "model-resource"
+    },
+    {
+      "decision": "registered-action-readonly",
+      "disposition": "retained",
+      "kind": "django-admin",
+      "scope": "policy-admin-site",
+      "surface": "ApiToken",
+      "target": "model-resource"
+    },
+    {
+      "decision": "registered-action-readonly",
+      "disposition": "retained",
+      "kind": "django-admin",
+      "scope": "policy-admin-site",
+      "surface": "UserProfile",
+      "target": "model-resource"
+    },
+    {
+      "decision": "registered-action-readonly",
+      "disposition": "retained",
+      "kind": "django-admin",
+      "scope": "policy-admin-site",
+      "surface": "WorkspaceInvitation",
+      "target": "model-resource"
+    },
+    {
+      "decision": "registered-action-readonly",
+      "disposition": "retained",
+      "kind": "django-admin",
+      "scope": "policy-admin-site",
+      "surface": "WorkspaceQuotaPolicy",
+      "target": "model-resource"
+    },
+    {
+      "decision": "registered-action-readonly",
+      "disposition": "retained",
+      "kind": "django-admin",
+      "scope": "policy-admin-site",
+      "surface": "get_user_model()",
+      "target": "model-resource"
+    },
+    {
+      "decision": "canonical-service-only",
+      "disposition": "retired",
+      "kind": "django-admin",
+      "scope": "explicit",
+      "surface": "unregistered-model-writes",
+      "target": "model-resource"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:acquire_feature_artifacts",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:bootstrap_inbox_catalog",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:prune_agent_uploads",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:reconcile_range_events",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:reconcile_tenant_pack_removals",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:reconcile_warm_pool",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:register_pack",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:run_post_deploy_smoke",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:run_raes_backend_validation",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:run_range_escape_validation",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "cms:validate_pack_conformance",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "config:api_contract",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "config:generate_env_manifest",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "config:identity_cutover",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "config:identity_cutover_bootstrap",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "config:identity_runtime_check",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "ctf:ctf_recompute_leaderboard",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "ctf:cutover_ctf_communications",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "ctf:drain_ctf_communication_deliveries",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "ctf:prune_ctf_communications",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "ctf:resume_ctf_event_initialization",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "ctf:run_ctf_scheduler",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "ctf:seed_e2e_ctf",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:apply_operation_results",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:backfill_range_backend_binding",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:drain_provisioner_launch_outbox",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:drain_range_event_outbox",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:install_preparation_grant",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:prune_retry_bindings",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:raes_image_registry",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:reconcile_artifact_preparation",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:render_preparation_runtime",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "engine:seed_raes_image_registry",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "management:check_model_fks",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "management:delete_user",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "mission_control:provision_guacamole_database",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "mission_control:run_guacamole_bootstrap_prune",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:audit_archive",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:audit_verify",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:prune_notifications",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:reconcile_gcp_database_duties",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:render_openfga_model",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:run_raes_operation_record_prune",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:run_worker",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "workspaces:reconcile_hierarchy_publications",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "workspaces:seed_e2e",
+      "target": "installation"
+    },
+    {
+      "decision": "dispatch-reauthorization",
+      "disposition": "retained",
+      "kind": "queue",
+      "scope": "recorded-scope",
+      "surface": "provisioner-launch",
+      "target": "range-or-device"
+    },
+    {
+      "decision": "recorded-authority",
+      "disposition": "retained",
+      "kind": "queue",
+      "scope": "recorded-scope",
+      "surface": "operation-result",
+      "target": "operation"
+    },
+    {
+      "decision": "service-principal-action",
+      "disposition": "retained",
+      "kind": "scheduler",
+      "scope": "event-account",
+      "surface": "ctf",
+      "target": "event"
+    },
+    {
+      "decision": "service-principal-action",
+      "disposition": "retained",
+      "kind": "worker",
+      "scope": "event-account",
+      "surface": "ctf-communication",
+      "target": "event"
+    },
+    {
+      "decision": "dispatch-reauthorization",
+      "disposition": "retained",
+      "kind": "worker",
+      "scope": "resource-account",
+      "surface": "range-lifecycle",
+      "target": "range"
+    },
+    {
+      "decision": "continuing-access-check",
+      "disposition": "retained",
+      "kind": "callback",
+      "scope": "resource-account",
+      "surface": "guacamole-authority",
+      "target": "connection"
+    },
+    {
+      "decision": "continuing-access-check",
+      "disposition": "retained",
+      "kind": "callback",
+      "scope": "resource-account",
+      "surface": "openvpn-authority",
+      "target": "vpn-session"
+    },
+    {
+      "decision": "continuing-access-check",
+      "disposition": "retained",
+      "kind": "socket",
+      "scope": "resource-account",
+      "surface": "mission_control/routing.py:'ws/ngfw-status/(?P<app_id>[a-f0-9-]+)/$'",
+      "target": "connection"
+    },
+    {
+      "decision": "continuing-access-check",
+      "disposition": "retained",
+      "kind": "socket",
+      "scope": "resource-account",
+      "surface": "mission_control/routing.py:'ws/range-status/(?P<request_id>[a-f0-9-]+)/$'",
+      "target": "connection"
+    },
+    {
+      "decision": "continuing-access-check",
+      "disposition": "retained",
+      "kind": "socket",
+      "scope": "resource-account",
+      "surface": "mission_control/routing.py:f'ws/terminal/(?P<instance_uuid>{TERMINAL_TARGET_SEGMENT_PATTERN})/$'",
+      "target": "connection"
+    },
+    {
+      "decision": "event.read|event.participate",
+      "disposition": "retained",
+      "kind": "socket",
+      "scope": "credential-bound-topic-and-live-participation",
+      "surface": "shared/routing.py:'ws/notifications/$'",
+      "target": "event"
+    },
+    {
+      "decision": "provider-binding-proof",
+      "disposition": "retained",
+      "kind": "webhook",
+      "scope": "installation",
+      "surface": "identity-provider",
+      "target": "principal"
+    },
+    {
+      "decision": "service-principal-action",
+      "disposition": "retained",
+      "kind": "cronjob",
+      "scope": "bounded-system",
+      "surface": "maintenance",
+      "target": "owned-records"
+    },
+    {
+      "decision": "not-mounted",
+      "disposition": "retired",
+      "kind": "legacy",
+      "scope": "none",
+      "surface": "personal-workspace-authority",
+      "target": "none"
+    },
+    {
+      "decision": "not-authoritative",
+      "disposition": "retired",
+      "kind": "legacy",
+      "scope": "none",
+      "surface": "staff-superuser-authority",
+      "target": "none"
+    },
+    {
+      "decision": "per-credential-certificate",
+      "disposition": "retired",
+      "kind": "legacy",
+      "scope": "resource-account",
+      "surface": "shared-vpn-secret-delivery",
+      "target": "vpn-profile"
+    }
+  ],
+  "schema": "shifter.identity-authorization-surfaces/v1"
+}

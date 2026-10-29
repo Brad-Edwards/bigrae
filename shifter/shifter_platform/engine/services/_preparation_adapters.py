@@ -20,11 +20,13 @@ from shared.audit import (
 )
 from shared.authorization import AuthorizationRequest, TargetRef
 from shared.authorization.policy import require_authorization
-from shared.credentials import CredentialContext, resolve_current_credential
+from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.exceptions import ValidationError
 from shared.identity_scope import ResourceScope
 from shared.preparation_grant import PreparationGrantConfiguration
 from shared.raes.preparation_contract import AdapterManifest
+
+_PREPARATION_ACCESS_DENIED = "Artifact preparation access is not permitted"
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -44,14 +46,14 @@ class PreparationAdapterView:
     state: str
 
 
-def require_preparation_permission(user: User | CredentialContext, permission: str) -> CredentialContext | None:
+def require_preparation_permission(user: User | CredentialContext, permission: str) -> CredentialContext:
     """Enforce explicit application authority for CLI, API and service callers."""
+    actions = {
+        "manage_preparation_adapters": "installation.manage_adapters",
+        "manage_preparation_grants": "installation.manage_adapters",
+        "prepare_artifacts": "installation.prepare_content",
+    }
     if isinstance(user, CredentialContext):
-        actions = {
-            "manage_preparation_adapters": "installation.manage_adapters",
-            "manage_preparation_grants": "installation.manage_adapters",
-            "prepare_artifacts": "installation.prepare_content",
-        }
         try:
             current = resolve_current_credential(user)
             require_authorization(
@@ -65,10 +67,27 @@ def require_preparation_permission(user: User | CredentialContext, permission: s
             )
             return current
         except Exception:
-            raise ValidationError("Artifact preparation access is not permitted") from None
-    if not (user and user.is_authenticated and user.is_active and user.has_perm(f"engine.{permission}")):
-        raise ValidationError("Artifact preparation access is not permitted")
-    return None
+            raise ValidationError(_PREPARATION_ACCESS_DENIED) from None
+    # Trusted synchronous administration can supply a human identity. It still
+    # uses the same application policy and is never serialized as native proof.
+    from shared.api.principals import human_session_credential
+    from shared.principal_port import resolve_principal
+
+    try:
+        current = human_session_credential(user)
+        resolve_principal(current.principal)
+        require_authorization(
+            AuthorizationRequest(
+                current.principal,
+                actions[permission],
+                TargetRef("installation"),
+                ResourceScope("installation"),
+                current.ceiling,
+            )
+        )
+        return current
+    except Exception:
+        raise ValidationError(_PREPARATION_ACCESS_DENIED) from None
 
 
 def install_preparation_adapter(
@@ -82,12 +101,15 @@ def install_preparation_adapter(
     from engine.models import PreparationAdapter
 
     current = require_preparation_permission(user, "manage_preparation_adapters")
+    if isinstance(user, CredentialContext):
+        user = current
     try:
         manifest = AdapterManifest.model_validate(payload)
     except ModelValidationError as exc:
         # Pydantic errors carry input values, including private registry names.
         raise ValidationError("The adapter manifest is invalid") from exc
     with transaction.atomic():
+        _fence_preparation_actor(user)
         grant = _locked_grant(grant_id)
         _validate_grant(grant, manifest)
         row, created = PreparationAdapter.objects.get_or_create(
@@ -115,10 +137,13 @@ def set_preparation_adapter_state(
     """Fence new starts without retargeting in-flight execution or cleanup."""
     from engine.models import PreparationAdapter
 
-    require_preparation_permission(user, "manage_preparation_adapters")
+    current = require_preparation_permission(user, "manage_preparation_adapters")
+    if isinstance(user, CredentialContext):
+        user = current
     if state not in PreparationAdapter.State.values:
         raise ValidationError("The adapter lifecycle state is invalid")
     with transaction.atomic():
+        _fence_preparation_actor(user)
         initial = PreparationAdapter.objects.filter(pk=adapter_id).first()
         if initial is None:
             raise ValidationError("The adapter is unavailable")
@@ -134,6 +159,21 @@ def set_preparation_adapter_state(
             row.save(update_fields=["state", "updated_at"])
             _audit_adapter(user, row, state, previous=previous, audit=audit)
         return _view(row)
+
+
+def _fence_preparation_actor(user: User | CredentialContext) -> None:
+    """An admitted native proof must still be locally live at the SQL effect."""
+    if isinstance(user, CredentialContext):
+        try:
+            if resolve_local_credential(user) != user:
+                raise ValueError("Credential changed")
+        except ValueError:
+            raise ValidationError(_PREPARATION_ACCESS_DENIED) from None
+    else:
+        from shared.api.principals import human_session_credential
+        from shared.principal_port import resolve_principal
+
+        resolve_principal(human_session_credential(user).principal)
 
 
 def list_preparation_adapters(user: User | CredentialContext) -> list[PreparationAdapterView]:

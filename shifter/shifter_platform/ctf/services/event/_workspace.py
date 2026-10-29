@@ -1,40 +1,68 @@
-"""Resolve the immutable workspace scope for a new CTF event (ADR-051, #2048).
-
-Split from ``_crud`` for the python:S104 file-size budget. CTF reaches tenancy
-only through the public ``workspaces.services`` facade -- the one sanctioned CTF
--> workspaces edge -- never a workspace model or cross-layer foreign key.
-"""
+"""Resolve explicit account ancestry for new CTF events (ADR-066)."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import Any, Literal
+from uuid import UUID
 
 import workspaces.services as workspace_services
 from ctf.exceptions import CTFValidationError
+from ctf.services.unified_authorization import require_event_creation
+from shared.authorization import TargetRef
+from shared.credentials import CredentialContext
+from shared.identity_scope import ResourceScope
 
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
+_PLACEMENT_KEYS: tuple[Literal["account", "organization", "workspace"], ...] = ("account", "organization", "workspace")
 
 
-def resolve_event_workspace_id(user: User, event_data: dict[str, Any]) -> int:
-    """Resolve the immutable workspace scope for a new event (ADR-051, #2048).
+@dataclass(frozen=True, slots=True)
+class EventPlacement:
+    """Validated target, public scope, and scalar persistence ancestry."""
 
-    An explicit public ``workspace`` UUID is authorized through the tenancy seam
-    for the ``USE_CTF_COMMUNICATIONS`` membership operation (which proves the
-    creator belongs to the workspace and refuses an archived one); this never
-    grants CTF event or recipient authority. Omitting it uses the creator's
-    personal compatibility workspace.
-    """
-    workspace_uuid = event_data.get("workspace")
-    if workspace_uuid:
-        try:
-            authorization = workspace_services.authorize_workspace(
-                user, workspace_uuid, workspace_services.WorkspaceOperation.USE_CTF_COMMUNICATIONS
-            )
-        except workspace_services.WorkspaceAuthorizationError:
-            raise CTFValidationError(
-                "Workspace is not available for CTF event creation.",
-                code="CTF_WORKSPACE_NOT_AVAILABLE",
-            ) from None
-        return authorization.workspace_id
-    return workspace_services.resolve_personal_workspace(user).workspace_id
+    target: TargetRef
+    scope: ResourceScope
+    account_id: int
+    organization_id: int | None
+    workspace_id: int | None
+
+
+def resolve_event_placement(
+    credential: CredentialContext, event_data: dict[str, Any], *, compatibility_actor: object | None = None
+) -> EventPlacement:
+    """Authorize one selected parent; omission means the human's existing individual account."""
+    selected = [(kind, event_data.get(kind)) for kind in _PLACEMENT_KEYS if event_data.get(kind) is not None]
+    try:
+        if not selected:
+            scope = workspace_services.individual_account_scope(credential.principal)
+            if scope.account_uuid is None:
+                raise ValueError
+            target = TargetRef("account", scope.account_uuid)
+        elif len(selected) == 1:
+            kind, selected_uuid = selected[0]
+            if not isinstance(selected_uuid, UUID):
+                raise ValueError
+            target = TargetRef(kind, selected_uuid)
+            scope = workspace_services.event_placement_scope(kind, selected_uuid)
+        else:
+            raise ValueError
+        authorized_scope = require_event_creation(
+            compatibility_actor if compatibility_actor is not None else credential, target
+        )
+        if authorized_scope != scope:
+            raise ValueError
+        binding = workspace_services.resolve_resource_scope(scope)
+        if binding.account_id is None:
+            raise ValueError
+    except (ValueError, workspace_services.AccountScopeError):
+        raise CTFValidationError(
+            "Event placement is not available.",
+            code="CTF_EVENT_PLACEMENT_NOT_AVAILABLE",
+        ) from None
+    return EventPlacement(
+        target,
+        scope,
+        binding.account_id,
+        binding.organization_id,
+        binding.workspace_id,
+    )

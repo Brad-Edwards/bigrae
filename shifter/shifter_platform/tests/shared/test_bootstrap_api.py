@@ -8,6 +8,20 @@ from rest_framework.test import APIClient
 pytestmark = pytest.mark.django_db
 
 BOOTSTRAP_URL = "/api/v1/bootstrap/"
+DENIED_POLICY = {
+    "can_administer_accounts": False,
+    "can_administer_platform": False,
+    "can_read_audit": False,
+    "can_manage_lease_policy": False,
+    "can_manage_adapters": False,
+    "can_manage_model_sources": False,
+}
+
+
+@pytest.fixture(autouse=True)
+def _policy_decisions(monkeypatch):
+    """Keep endpoint tests independent of a released OpenFGA process."""
+    monkeypatch.setattr("config.api_bootstrap._policy_permissions", lambda _request: DENIED_POLICY)
 
 
 @pytest.fixture
@@ -56,17 +70,24 @@ def test_user_admin_capabilities_false_without_model_permissions(user):
     assert permissions["can_manage_model_sources"] is False
 
 
-def test_adapter_administration_flag_accepts_tenant_admin_without_staff(user):
-    from workspaces.models import Organization, OrganizationMembership
-
+def test_administer_flags_are_returned_from_policy_decisions_without_staff(user, monkeypatch):
     user.is_staff = False
     user.save(update_fields=["is_staff"])
-    organization = Organization.objects.create(name="Example organization")
-    OrganizationMembership.objects.create(organization=organization, user=user, role="admin")
+    monkeypatch.setattr(
+        "config.api_bootstrap._policy_permissions",
+        lambda _request: {
+            **DENIED_POLICY,
+            "can_administer_accounts": True,
+            "can_manage_adapters": True,
+            "can_manage_model_sources": True,
+        },
+    )
     client = APIClient()
     client.force_authenticate(user=user)
-    assert client.get(BOOTSTRAP_URL).json()["permissions"]["can_manage_adapters"] is True
-    assert client.get(BOOTSTRAP_URL).json()["permissions"]["can_manage_model_sources"] is True
+    permissions = client.get(BOOTSTRAP_URL).json()["permissions"]
+    assert permissions["can_administer_accounts"] is True
+    assert permissions["can_manage_adapters"] is True
+    assert permissions["can_manage_model_sources"] is True
 
 
 def test_user_admin_capabilities_reflect_model_permissions(django_user_model):

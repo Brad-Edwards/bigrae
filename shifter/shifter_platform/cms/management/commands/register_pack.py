@@ -10,19 +10,16 @@ traceback).
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from uuid import UUID
 
-from django.contrib.auth import get_user_model
-from django.core.exceptions import PermissionDenied
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from cms.exceptions import CMSError
 from cms.services import PackRegistrationRequest, register_pack
-
-if TYPE_CHECKING:
-    from django.contrib.auth.models import User
-
-user_model = get_user_model()
+from shared.api_tokens.cli import credential_from_file
+from shared.identity_scope import ResourceScope
+from workspaces.services import AccountScopeError, hierarchy_target_scope
 
 
 class Command(BaseCommand):
@@ -45,11 +42,20 @@ class Command(BaseCommand):
         parser.add_argument("--lock-ref", default="", help="Lock artifact path/key.")
         parser.add_argument("--lock-digest", default="", help="Lock artifact digest.")
         parser.add_argument("--provenance", default="", help="JSON object of bounded provenance references.")
-        parser.add_argument("--actor", required=True, help="Username of the registering user.")
+        parser.add_argument("--credential-file", required=True, help="Private file containing an issued bearer proof.")
+        parser.add_argument(
+            "--scope-kind", required=True, choices=("installation", "account", "organization", "workspace")
+        )
+        for name in ("account", "organization", "workspace"):
+            parser.add_argument(f"--{name}", type=UUID)
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Resolve the actor and register the pack, surfacing failures cleanly."""
-        actor = self._resolve_actor(options["actor"])
+        try:
+            actor = credential_from_file(options["credential_file"])
+            scope = self._scope(options)
+        except (ValueError, AccountScopeError):
+            raise CommandError("Native registration credential or scope unavailable") from None
         request = PackRegistrationRequest(
             scenario_id=options["scenario_id"],
             source_kind=options["source_kind"],
@@ -64,8 +70,8 @@ class Command(BaseCommand):
             provenance=self._parse_provenance(options["provenance"]),
         )
         try:
-            result = register_pack(user=actor, request=request)
-        except (CMSError, PermissionDenied, TypeError, ValueError) as exc:
+            result = register_pack(user=actor, request=request, scope=scope)
+        except (CMSError, TypeError, ValueError) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(
             self.style.SUCCESS(
@@ -74,12 +80,19 @@ class Command(BaseCommand):
             )
         )
 
-    def _resolve_actor(self, username: str) -> User:
-        """Return the registering user or raise a clean ``CommandError``."""
-        try:
-            return user_model.objects.get(username=username)
-        except user_model.DoesNotExist as exc:
-            raise CommandError(f"actor '{username}' not found") from exc
+    @staticmethod
+    def _scope(options: dict[str, Any]) -> ResourceScope:
+        """Select one explicit parent; owning SQL resolution validates its ancestry."""
+        kind = options["scope_kind"]
+        selected = {name: options.get(name) for name in ("account", "organization", "workspace") if options.get(name)}
+        if kind == "installation" and not selected:
+            return ResourceScope("installation")
+        if kind not in selected or set(selected) != {kind}:
+            raise ValueError("Invalid explicit content scope")
+        identity = selected[kind]
+        if not isinstance(identity, UUID):
+            raise ValueError("Invalid explicit content scope")
+        return hierarchy_target_scope(kind, identity)
 
     def _parse_provenance(self, raw: str) -> dict[str, Any]:
         """Parse the optional ``--provenance`` JSON object argument."""

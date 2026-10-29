@@ -21,4 +21,4 @@ API authentication is a platform capability. CTF composes with PLAT-102, adding 
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#634` (CTF-1202: API Authentication)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#634` (CTF-1202: API Authentication)

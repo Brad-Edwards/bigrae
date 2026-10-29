@@ -1,5 +1,6 @@
 """Scope moves authorize both persisted parents and fence all range projections."""
 
+from importlib import import_module
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -317,6 +318,191 @@ def test_service_administrator_reassigns_business_owner_without_fabricating_user
     assert fixture.instance.user_id is None
     assert fixture.realized.user_id is None
     assert fixture.instance.account_id == fixture.account.id
+
+
+@pytest.mark.parametrize("operation", ["owner", "scope"])
+@pytest.mark.parametrize("revoked", ["credential", "principal"])
+def test_prepared_native_move_rejects_revoked_initiator(transferable_range, operation, revoked):
+    from engine.models import RangeAuthorityChange
+    from engine.services import (
+        commit_range_owner_move,
+        commit_range_scope_move,
+        prepare_range_owner_move,
+        prepare_range_scope_move,
+    )
+    from management.models import Principal, ServiceCredentialAdmission
+    from management.services import create_service_principal
+    from shared.models import AuditLog
+    from workspaces.services import add_account_member, hierarchy_target_scope
+
+    fixture = transferable_range
+    if operation == "owner":
+        owner = create_service_principal("Synthetic revoked move destination")
+        add_account_member(fixture.account.uuid, owner)
+        prepared = prepare_range_owner_move(fixture.credential, fixture.request.request_id, owner)
+        commit = commit_range_owner_move
+    else:
+        target = hierarchy_target_scope("workspace", fixture.destination.workspace.uuid)
+        prepared = prepare_range_scope_move(fixture.credential, fixture.request.request_id, target)
+        commit = commit_range_scope_move
+    before_audit = AuditLog.objects.count()
+    if revoked == "credential":
+        ServiceCredentialAdmission.objects.filter(uuid=fixture.credential.credential_uuid).update(is_active=False)
+    else:
+        Principal.objects.filter(uuid=fixture.credential.principal.uuid).update(is_active=False)
+
+    with pytest.raises(ValueError):
+        commit(prepared)
+    fixture.realized.refresh_from_db()
+    fixture.realized.request.refresh_from_db()
+    assert fixture.realized.owner_principal_uuid == fixture.realized.request.owner_principal_uuid == fixture.owner.uuid
+    assert fixture.realized.account_id == fixture.account.id
+    assert fixture.realized.workspace_id is None
+    assert not RangeAuthorityChange.objects.exists()
+    assert AuditLog.objects.count() == before_audit
+
+
+@pytest.mark.parametrize("operation", ["owner", "scope"])
+def test_cms_move_rolls_back_every_projection_if_credential_revoked_after_admission(
+    transferable_range, operation, monkeypatch
+):
+    from cms.services import RangeScopeAuditContext, reassign_range_owner, rebind_range_workspace
+    from management.models import ServiceCredentialAdmission
+    from management.services import create_service_principal
+    from workspaces.models import WorkspaceQuotaReservation
+    from workspaces.services import add_account_member
+
+    fixture = transferable_range
+    module_name = f"cms.services._scoped_range_{operation}"
+    module = import_module(module_name)
+    prepare_name = f"prepare_range_{operation}_move"
+    original = getattr(module, prepare_name)
+
+    def prepare_then_revoke(*args, **kwargs):
+        prepared = original(*args, **kwargs)
+        ServiceCredentialAdmission.objects.filter(uuid=fixture.credential.credential_uuid).update(is_active=False)
+        return prepared
+
+    monkeypatch.setattr(module, prepare_name, prepare_then_revoke)
+    with pytest.raises(CMSError):
+        if operation == "owner":
+            owner = create_service_principal("Synthetic revoked CMS move destination")
+            add_account_member(fixture.account.uuid, owner)
+            reassign_range_owner(fixture.instance.pk, owner, credential=fixture.credential)
+        else:
+            rebind_range_workspace(
+                fixture.credential,
+                request_id=fixture.request.request_id,
+                target_workspace_uuid=fixture.destination.workspace.uuid,
+                audit=RangeScopeAuditContext(actor_type="service", actor_id=None),
+            )
+    fixture.instance.refresh_from_db()
+    fixture.request.refresh_from_db()
+    fixture.realized.refresh_from_db()
+    assert all(
+        (row.owner_principal_uuid, row.account_id, row.workspace_id) == (fixture.owner.uuid, fixture.account.id, None)
+        for row in (fixture.instance, fixture.request, fixture.realized)
+    )
+    assert not WorkspaceQuotaReservation.objects.filter(
+        workspace_id=fixture.destination.workspace.id, correlation_key=str(fixture.request.request_id)
+    ).exists()
+
+
+def _pending_range_model_grant(fixture):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from engine.models import ModelAllocation, ModelPendingGrant
+
+    operation_id = uuid4()
+    fixture.realized.provisioner_operation_id = operation_id
+    fixture.realized.save(update_fields=["provisioner_operation_id"])
+    allocation = ModelAllocation.objects.create(
+        deployment_id=uuid4(),
+        request_id=fixture.request.request_id,
+        operation_id=operation_id,
+        range_id=fixture.realized.uuid,
+        draw_key=uuid4(),
+        workload_role="synthetic-workload",
+        intent_digest="synthetic-intent",
+        policy_digest="synthetic-policy",
+        alias_shards={},
+        snapshot={"shards": {}},
+        deadline=timezone.now() + timedelta(hours=1),
+    )
+    return ModelPendingGrant.objects.create(allocation=allocation)
+
+
+def test_model_source_revoke_fences_exact_admitted_generation(transferable_range):
+    from cms.services import revoke_range_model_sources
+    from shared.models import AuditLog
+
+    fixture = transferable_range
+    grant = _pending_range_model_grant(fixture)
+    result = revoke_range_model_sources(fixture.credential, request_id=fixture.request.request_id)
+    grant.refresh_from_db()
+    assert grant.state == "revoked"
+    assert result["runtime"]["state"] == "unavailable"
+    assert AuditLog.objects.filter(
+        action="update",
+        context__startswith="model access revoked",
+        actor_principal_uuid=fixture.credential.principal.uuid,
+    ).exists()
+
+
+def test_model_source_revoke_missing_range_is_an_opaque_denial(transferable_range):
+    from cms.services import revoke_range_model_sources
+    from workspaces.services import WorkspaceAuthorizationError
+
+    with pytest.raises(WorkspaceAuthorizationError, match="Range access denied"):
+        revoke_range_model_sources(transferable_range.credential, request_id=uuid4())
+
+
+@pytest.mark.parametrize("changed", ["credential", "custody", "native_generation", "native_operation", "native_policy"])
+def test_model_source_revoke_cannot_follow_changed_authority(transferable_range, changed, monkeypatch):
+    from cms.models import RangeInstance
+    from cms.services import _range_model_sources, revoke_range_model_sources
+    from engine.models import ModelAllocation, ModelPendingGrant, Range
+    from management.models import ServiceCredentialAdmission
+    from shared.models import AuditLog
+    from workspaces.services import WorkspaceAuthorizationError
+
+    fixture = transferable_range
+    grant = _pending_range_model_grant(fixture)
+    grants = [grant]
+    original = _range_model_sources._authorized_instance
+
+    def admit_then_change(*args, **kwargs):
+        snapshot = original(*args, **kwargs)
+        if changed == "credential":
+            ServiceCredentialAdmission.objects.filter(uuid=fixture.credential.credential_uuid).update(is_active=False)
+        elif changed == "custody":
+            RangeInstance.objects.filter(pk=fixture.instance.pk).update(owner_principal_uuid=uuid4())
+        elif changed == "native_generation":
+            Range.objects.filter(pk=fixture.realized.pk).update(resource_generation=uuid4())
+        elif changed == "native_operation":
+            grants.append(_pending_range_model_grant(fixture))
+        else:
+            Range.objects.filter(pk=fixture.realized.pk).update(model_source_policy_revision=1)
+            allocation = grant.allocation
+            fields = {
+                field.name: getattr(allocation, field.name)
+                for field in ModelAllocation._meta.fields
+                if field.name not in {"id", "created_at"}
+            }
+            successor = ModelAllocation.objects.create(**{**fields, "source_policy_revision": 1})
+            grants.append(ModelPendingGrant.objects.create(allocation=successor))
+        return snapshot
+
+    monkeypatch.setattr(_range_model_sources, "_authorized_instance", admit_then_change)
+    with pytest.raises((ValueError, WorkspaceAuthorizationError)):
+        revoke_range_model_sources(fixture.credential, request_id=fixture.request.request_id)
+    for pending in grants:
+        pending.refresh_from_db()
+        assert pending.state == "pending"
+        assert pending.grant_epoch == 1
+    assert not AuditLog.objects.filter(context__startswith="model access revoked").exists()
 
 
 def test_ownership_audit_failure_rolls_back_all_projections(transferable_range, monkeypatch):

@@ -71,7 +71,7 @@ class TestDynamicScoringEndToEnd:
             scoring_mode=ScoringMode.DYNAMIC.value,
         )
 
-    def _challenge(self, event):
+    def _challenge(self, event, actor):
         challenge = CTFChallenge.objects.create(
             event=event,
             name="Decaying Challenge",
@@ -83,16 +83,17 @@ class TestDynamicScoringEndToEnd:
             decay_solve_count=4,
             difficulty=ChallengeDifficulty.EASY.value,
         )
-        add_flag(challenge.pk, {"flag": "FLAG{decay}"}, actor_id=event.created_by_id)
+        add_flag(challenge.pk, {"flag": "FLAG{decay}"}, actor_id=actor)
         return challenge
 
-    def _participant(self, event, index):
+    def _participant(self, event, index, actor):
         from ctf.services.participant import add_participant
 
         participant = add_participant(
             event_id=event.pk,
             email=f"decay-player-{index}@test.com",
             name=f"Decay Player {index}",
+            actor=actor,
         )
         from django.utils import timezone
 
@@ -101,10 +102,10 @@ class TestDynamicScoringEndToEnd:
         participant.save(update_fields=["registered_at", "status", "updated_at"])
         return participant
 
-    def test_new_solve_reprices_earlier_solvers(self, dynamic_event):
-        challenge = self._challenge(dynamic_event)
-        first = self._participant(dynamic_event, 1)
-        second = self._participant(dynamic_event, 2)
+    def test_new_solve_reprices_earlier_solvers(self, dynamic_event, organizer_credential):
+        challenge = self._challenge(dynamic_event, organizer_credential)
+        first = self._participant(dynamic_event, 1, organizer_credential)
+        second = self._participant(dynamic_event, 2, organizer_credential)
 
         first_submission = submit_flag(first.pk, challenge.pk, "FLAG{decay}")
         assert first_submission.points_awarded == 400  # 500 - (400/4)*1
@@ -120,17 +121,17 @@ class TestDynamicScoringEndToEnd:
         assert first.cached_score == 300
         assert second.cached_score == 300
 
-    def test_value_floors_at_minimum(self, dynamic_event):
-        challenge = self._challenge(dynamic_event)
+    def test_value_floors_at_minimum(self, dynamic_event, organizer_credential):
+        challenge = self._challenge(dynamic_event, organizer_credential)
         submissions = []
         for index in range(1, 7):
-            participant = self._participant(dynamic_event, index)
+            participant = self._participant(dynamic_event, index, organizer_credential)
             submissions.append(submit_flag(participant.pk, challenge.pk, "FLAG{decay}"))
         for submission in submissions:
             submission.refresh_from_db()
             assert submission.points_awarded == 100
 
-    def test_standard_events_unaffected(self, organizer_user):
+    def test_standard_events_unaffected(self, organizer_user, organizer_credential):
         from datetime import timedelta
 
         from django.utils import timezone
@@ -144,9 +145,9 @@ class TestDynamicScoringEndToEnd:
             event_end=timezone.now() + timedelta(hours=7),
             scenario_id="basic",
         )
-        challenge = self._challenge(event)
-        first = self._participant(event, 1)
-        second = self._participant(event, 2)
+        challenge = self._challenge(event, organizer_credential)
+        first = self._participant(event, 1, organizer_credential)
+        second = self._participant(event, 2, organizer_credential)
         s1 = submit_flag(first.pk, challenge.pk, "FLAG{decay}")
         s2 = submit_flag(second.pk, challenge.pk, "FLAG{decay}")
         assert s1.points_awarded == 500

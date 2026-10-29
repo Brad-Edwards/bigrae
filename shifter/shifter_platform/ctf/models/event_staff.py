@@ -25,10 +25,13 @@ class CTFEventStaff(CTFBaseModel):
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="ctf_staff_roles",
-        help_text="Platform user holding the staff role",
+        help_text="Optional legacy human projection; never application authority",
     )
+    principal_uuid = models.UUIDField(db_index=True, editable=False)
     role = models.CharField(
         max_length=16,
         choices=EventStaffRole.choices(),
@@ -47,9 +50,9 @@ class CTFEventStaff(CTFBaseModel):
         verbose_name_plural = "CTF Event Staff"
         constraints = [
             models.UniqueConstraint(
-                fields=["event", "user"],
+                fields=["event", "principal_uuid"],
                 condition=models.Q(deleted_at__isnull=True),
-                name="unique_active_ctf_event_staff_user",
+                name="unique_active_ctf_event_staff_principal",
             ),
             models.CheckConstraint(
                 condition=models.Q(role__in=[role.value for role in EventStaffRole]),
@@ -59,4 +62,15 @@ class CTFEventStaff(CTFBaseModel):
 
     def __str__(self) -> str:
         """Return the assignment as user@event with role."""
-        return f"{self.user_id}@{self.event_id}: {self.role}"
+        return f"{self.principal_uuid}@{self.event_id}: {self.role}"
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        """Populate the principal fact for legacy human callers on initial create."""
+        if self._state.adding and self.user_id is not None and not getattr(self, "principal_uuid", None):
+            actor_user = self.user
+            if actor_user is None:
+                raise ValueError("Human attribution unavailable")
+            from shared.principal_port import principal_for_user
+
+            self.principal_uuid = principal_for_user(actor_user).uuid
+        super().save(*args, **kwargs)

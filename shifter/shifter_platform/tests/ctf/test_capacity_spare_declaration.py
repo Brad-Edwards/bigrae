@@ -16,26 +16,26 @@ pytestmark = pytest.mark.django_db
 
 
 class TestSpareDeclarationOrdering:
-    def test_declaration_reflects_the_new_spare_target(self, ctf_event):
+    def test_declaration_reflects_the_new_spare_target(self, ctf_event, organizer_credential):
         from ctf.services.range.spares import provision_event_spares
 
         ctf_event.spare_range_count = 0
         ctf_event.save(update_fields=["spare_range_count", "updated_at"])
 
-        provision_event_spares(ctf_event.pk, 7)
+        provision_event_spares(ctf_event.pk, 7, operator=organizer_credential)
 
         declaration = CapacityDeclaration.objects.filter(event_ref=ctf_event.pk).order_by("-declared_at").first()
         assert declaration is not None
         # cohort (0 participants) + the newly declared spare target.
         assert declaration.expected_concurrent_ranges == 7
 
-    def test_shrinking_the_pool_also_declares_the_new_target(self, ctf_event):
+    def test_shrinking_the_pool_also_declares_the_new_target(self, ctf_event, organizer_credential):
         from ctf.services.range.spares import provision_event_spares
 
         ctf_event.spare_range_count = 12
         ctf_event.save(update_fields=["spare_range_count", "updated_at"])
 
-        provision_event_spares(ctf_event.pk, 3)
+        provision_event_spares(ctf_event.pk, 3, operator=organizer_credential)
 
         declaration = CapacityDeclaration.objects.filter(event_ref=ctf_event.pk).order_by("-declared_at").first()
         assert declaration is not None

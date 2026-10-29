@@ -10,27 +10,8 @@ import { AdaptersPage } from "@/features/administer/AdaptersPage";
 import { ModelAccessSharing } from "@/features/administer/ModelAccessSharing";
 import { ModelSourcesPage } from "@/features/administer/ModelSourcesPage";
 import { platformSettingsPath } from "@/features/administer/routes";
-import { UserDetailPage } from "@/features/administer/UserDetailPage";
-import { UsersListPage } from "@/features/administer/UsersListPage";
-import { ConsoleSlotPage } from "@/features/administer/organization/ConsoleSlotPage";
-import { OrganizationConsoleLayout } from "@/features/administer/organization/OrganizationConsoleLayout";
-import { OrganizationOverviewPage } from "@/features/administer/organization/OrganizationOverviewPage";
-import {
-  OrganizationSettingsDetailPage,
-  OrganizationSettingsPage,
-} from "@/features/administer/organization/OrganizationSettingsPage";
-import { WorkspaceDetailPage } from "@/features/administer/organization/WorkspaceDetailPage";
-import { WorkspaceListPage } from "@/features/administer/organization/WorkspaceListPage";
-import { WorkspaceMembershipPage } from "@/features/administer/organization/WorkspaceMembershipPage";
-import { WorkspaceInvitationsPage } from "@/features/administer/organization/WorkspaceInvitationsPage";
-import { WorkspaceRangeScopingPage } from "@/features/administer/organization/WorkspaceRangeScopingPage";
-import { WorkspaceQuotaPage } from "@/features/administer/organization/WorkspaceQuotaPage";
-import { WorkspaceAuthorizationPage } from "@/features/administer/organization/WorkspaceAuthorizationPage";
-import { WorkspaceScopeLayout } from "@/features/administer/organization/WorkspaceScopeLayout";
-import {
-  WORKSPACE_SURFACES,
-  type WorkspaceSurface,
-} from "@/features/administer/organization/surfaces";
+import { AccountAdministrationEntry } from "@/features/administer/accounts/AccountAdministrationPage";
+import { PlatformAdministrationPage } from "@/features/administer/accounts/PlatformAdministrationPage";
 import { ChallengeDetailPage } from "@/features/ctf/ChallengeDetailPage";
 import { ChallengesPage } from "@/features/ctf/ChallengesPage";
 import { AdminDashboardPage } from "@/features/ctf/admin/AdminDashboardPage";
@@ -48,6 +29,7 @@ import { ParticipantsPage } from "@/features/ctf/admin/ParticipantsPage";
 import { BriefingPage } from "@/features/ctf/BriefingPage";
 import { EventHomePage } from "@/features/ctf/EventHomePage";
 import { HelpPage } from "@/features/ctf/HelpPage";
+import { InboxPage } from "@/features/ctf/inbox/InboxPage";
 import { RangePage } from "@/features/ctf/RangePage";
 import { ScoreboardPage } from "@/features/ctf/ScoreboardPage";
 import { AccountPage } from "@/features/ctf/AccountPage";
@@ -62,14 +44,6 @@ import { NgfwDetailPage } from "@/features/mission-control/NgfwDetailPage";
 import { NgfwListPage } from "@/features/mission-control/NgfwListPage";
 import { NgfwWizardPage } from "@/features/mission-control/NgfwWizardPage";
 
-function workspaceSurfaceElement(surface: WorkspaceSurface) {
-  if (surface.key === "membership") return <WorkspaceMembershipPage />;
-  if (surface.key === "invitations") return <WorkspaceInvitationsPage />;
-  if (surface.key === "range-scoping") return <WorkspaceRangeScopingPage />;
-  if (surface.key === "quota") return <WorkspaceQuotaPage />;
-  if (surface.key === "policy") return <WorkspaceAuthorizationPage />;
-  return <ConsoleSlotPage title={surface.label} />;
-}
 import { RangeDashboardPage } from "@/features/mission-control/RangeDashboardPage";
 import { RangeDetailPage } from "@/features/mission-control/RangeDetailPage";
 import { RangeHistoryPage } from "@/features/mission-control/RangeHistoryPage";
@@ -90,9 +64,9 @@ const missionControlHandle: RouteHandle = { permissionPolicy: "authenticated" };
 const scenarioEditorHandle: RouteHandle = { permissionPolicy: "threat_research" };
 // RAES image registry (#1566) shares the "Author" CMS-authoring gate.
 const raesImageRegistryHandle: RouteHandle = { permissionPolicy: "threat_research" };
-// Administer workspace (#1373) is gated on staff, the same advisory policy the
-// "Administer" nav group and the /api/v1/administer/ endpoints enforce.
-const administerHandle: RouteHandle = { permissionPolicy: "staff" };
+// The Administer shell is authenticated; each child is gated by the exact
+// server-returned policy decision relevant to that surface.
+const administerHandle: RouteHandle = { permissionPolicy: "authenticated" };
 // CTF participant workspace (#1372) is gated on CTF-participant access, the same
 // advisory policy the legacy participant Django views use.
 const ctfHandle: RouteHandle = { permissionPolicy: "ctf_participant" };
@@ -139,7 +113,7 @@ export const router = createBrowserRouter(
             { path: "ngfw/:appId", element: <NgfwDetailPage /> },
             { path: "credentials", element: <CredentialsPage /> },
             // Preserve the stable Django route/bookmark while keeping Platform
-            // Settings owned and staff-gated by the Administer workspace.
+            // Settings owned and policy-gated by the Administer workspace.
             { path: "settings", element: <Navigate to={platformSettingsPath()} replace /> },
           ],
         },
@@ -177,6 +151,7 @@ export const router = createBrowserRouter(
             { path: "account", element: <AccountPage /> },
             { path: "help", element: <HelpPage /> },
             { path: "briefing", element: <BriefingPage /> },
+            { path: "inbox", element: <InboxPage /> },
           ],
         },
         {
@@ -230,10 +205,11 @@ export const router = createBrowserRouter(
           path: "administer",
           handle: administerHandle,
           children: [
-            { index: true, element: <UsersListPage /> },
-            { path: "users/:id", element: <UserDetailPage /> },
-            { path: "cost", element: <CostPage /> },
-            { path: "settings", element: <PlatformSettingsPage /> },
+            { index: true, element: <PlatformAdministrationPage />, handle: { permissionPolicy: "platform_admin" } },
+            { path: "accounts", element: <AccountAdministrationEntry />, handle: { permissionPolicy: "account_admin" } },
+            { path: "organization/*", element: <Navigate to="/administer/accounts" replace />, handle: { permissionPolicy: "account_admin" } },
+            { path: "cost", element: <CostPage />, handle: { permissionPolicy: "platform_admin" } },
+            { path: "settings", element: <PlatformSettingsPage />, handle: { permissionPolicy: "lease_admin" } },
             { path: "adapters", element: <AdaptersPage />, handle: { permissionPolicy: "adapter_admin" } },
             { path: "model-sources", element: <ModelSourcesPage />, handle: { permissionPolicy: "model_source_admin" } },
             {
@@ -242,39 +218,9 @@ export const router = createBrowserRouter(
               handle: { permissionPolicy: "model_source_admin" },
             },
             // Administrator audit / activity history (#1947, PLAT-240): a
-            // deployment-global, staff-only surface. Top-level (not workspace
+            // deployment-global, policy-gated surface. Top-level (not workspace
             // scoped) because the audit store carries no per-row tenant scope.
-            { path: "audit", element: <AuditPage /> },
-            {
-              // Organization/workspace admin console (#1938, PLAT-231). The shell
-              // owns routing, the switcher, context, and capability-aware nav; the
-              // child surface slots (org settings, workspaces, membership, and
-              // invitations are implemented; later scoped surfaces remain
-              // placeholders owned by PLAT-236–239). The
-              // selected workspace is the public-UUID route param; the host
-              // catch-all already serves /administer/* so deep links resolve.
-              path: "organization",
-              element: <OrganizationConsoleLayout />,
-              children: [
-                { index: true, element: <OrganizationOverviewPage /> },
-                { path: "settings", element: <OrganizationSettingsPage /> },
-                { path: "settings/:organizationUuid", element: <OrganizationSettingsDetailPage /> },
-                { path: "workspaces", element: <WorkspaceListPage /> },
-                {
-                  path: "workspaces/:workspaceUuid",
-                  element: <WorkspaceScopeLayout />,
-                  children: [
-                    { index: true, element: <WorkspaceDetailPage /> },
-                    // Membership (#1941) and invitations (#1942) are real surfaces;
-                    // later scoped slots stay placeholders until PLAT-236–239 land.
-                    ...WORKSPACE_SURFACES.map((surface) => ({
-                      path: surface.key,
-                      element: workspaceSurfaceElement(surface),
-                    })),
-                  ],
-                },
-              ],
-            },
+            { path: "audit", element: <AuditPage />, handle: { permissionPolicy: "audit_admin" } },
           ],
         },
         { path: "*", element: <NotFoundPage /> },

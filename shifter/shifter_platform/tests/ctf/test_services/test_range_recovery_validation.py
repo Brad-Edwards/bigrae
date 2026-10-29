@@ -78,13 +78,13 @@ class TestGetRecoveryStatus:
         assert get_recovery_status(participant.pk) is None
 
     @pytest.mark.django_db
-    def test_returns_latest_recovery_after_completion(self, rich_participant, organizer_user):
+    def test_returns_latest_recovery_after_completion(self, rich_participant, organizer_credential):
         participant, _ = rich_participant
 
         recover_participant_range(
             participant.pk,
             strategy=RecoveryStrategy.REBUILD.value,
-            operator=organizer_user,
+            operator=organizer_credential,
         )
 
         status = get_recovery_status(participant.pk)

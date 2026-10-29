@@ -16,23 +16,26 @@ preflights record the boundaries.
 ## Console read projections
 
 `ctf/services/communication/reporting.py` owns the console reads. It writes no
-row. Each campaign read first runs `reauthorize` over the complete persisted
-target set with the read scope.
+row. `read_admission.py` prepares current native authority over the complete
+persisted target set before SQL projection, then rechecks local proof and target
+state. Direct service calls require an `AdmissionActor` and a campaign UUID.
 
 | Projection | Source | Bound |
 | --- | --- | --- |
-| Targets | `authorized_workspace_ids`, `authorize_bound_workspace`, `events_with_capability` | 100 events per page |
+| Targets | `targets.py`: current `event.manage_communications` on each exact event scope, before offsets | 100 events per page |
 | Preview | `recipient_queryset` grouped by event; no row load | Target count |
 | Delivery | `DeliveryAttempt` and `RecipientSnapshot` in separate grouped queries | 100 occurrences per page |
-| Recipients | Snapshots for one occurrence and one event; also needs `participants` capability | 100 rows per page |
+| Recipients | Snapshots for one occurrence and one event; also needs current `event.manage_participants` | 100 rows per page |
 | Activity | Campaign, revision, and intent attribution columns | 100 revisions and 100 intents |
 
 Separate grouped queries keep receipts from being multiplied by channel rows.
 The delivery projection adds the latest `release_communication` task status for
 a scheduled intent. Preview returns each event's local due time from
-`event_timezone`. `MessageRevision.actor_user_id` / `actor_token_id` and
-`CommunicationCampaign.cancelled_*` hold the timeline attribution. Migration
-`0065` attributes each existing revision 1 to its campaign author. Strict
+`event_timezone`. Native principal and credential attribution identify the
+actual revision, release and cancellation actor. Services never inherit a human
+contact identity. Historical migration `0065_communication_attribution` preserves
+revision-1 authors; `0077` joins both migration histories, and `0078` adds native
+revision and cancellation attribution. Strict
 `shared.audit` stays the investigator record; it has no organizer read surface.
 
 `_reschedule_event_tasks` cancels only the event-derived task types it
@@ -40,16 +43,25 @@ recreates. A pending `release_communication` task keeps its authored due time.
 
 ## Authorization and serialization
 
-Bearer authentication precedes session authentication. `require_scope` publishes
-and enforces the exact communication scopes. Token requests resolve the effective
-actor through `active_actor_user`, never by assuming `request.user` is that actor.
-Admission locks the live user and token and verifies the original user/token pair,
-activity, expiry, profile eligibility, and exact scope. The workspace owning
-service enforces its membership/archive mutex, and `resolve_event_authority`
-enforces notification permission on every target. Event locks follow primary-key
-order, ahead of campaign/revision mutations. Revise and cancel take an explicit
-actor and reload the campaign under lock. Per-target strict audit records retain
-the effective actor, token principal, operation, request correlation and authority source without message content.
+Native credentials carry the authenticated principal, current proof and action
+ceiling through the controller and owning service. Current policy checks require
+`event.manage_communications` on every target. Recipient detail also requires
+`event.manage_participants` on the selected event. SQL owns exact account,
+organization and workspace placement. Legacy user, staff and workspace roles
+cannot substitute for policy. Provider unavailability remains a bounded 503.
+
+Policy I/O occurs before domain row locks. Local credential and target checks
+fence subsequent projection or commit. Event locks follow primary-key order,
+ahead of campaign/revision mutations. Revise and cancel reload the campaign
+under lock. Per-target strict audit retains principal, credential, operation,
+correlation and authority evidence without message content.
+
+`target-options/` exposes explicit `{kind,id}` parents and authorized event
+options. The parent filter accepts zero or one of `account`, `organization` and
+`workspace`. Parent names come from a narrow Workspaces projection of scopes
+already admitted through event authority; this is not directory access.
+The incoming workspace-only `targets/` contract remains a projection of the
+same discovery helper. Authorization precedes offsets in both surfaces.
 
 Organizer collection queries filter complete-target authority before pagination,
 have finite limits and preload target aggregates. Continuation describes only
@@ -62,19 +74,47 @@ with bounded errors. API errors use authored messages through `shared.api.errors
 
 ## Inbox and socket policy
 
+The [participant inbox boundary note](../../design/ctf-participant-inbox-boundaries-2053.md)
+(#2053) records the preflight constraints, including CTF-014's trusted-app,
+branding and Django/gettext boundaries. It does not claim multilingual SPA support.
+The [participant inbox design](../../architecture/ctf-participant-inbox-design-2053.md)
+records the receipt states, views, content checks, security controls and data flow.
+
 `ctf.services.communication.inbox` matches event, immutable participant public
 identity and user together. A committed receipt and released intent prove in-app
-availability. A GET never creates or changes a receipt. Read/ack actions lock and
-recheck live participation, then set the first timestamp idempotently. The pinned
+availability. Inbox reads exclude campaigns past the retention cut-off from
+`retention.expired_campaign_ids`, so purge lag does not extend access. A GET never
+creates or changes a receipt. `interact_with_receipt` takes one closed
+`ReceiptAction` (`read`, `dismiss`, `acknowledge`). It locks the event, the
+participant and the receipt, rechecks live participation, and then sets that
+action's first timestamp. No action changes another timestamp. The pinned
 acknowledgement policy governs explicit acknowledgement. Retained inbox access
 is distinct from permission to compete or temporary-account lifetime.
 
+`InboxFilter` selects the list view. `inbox` hides a dismissed message only when
+its pinned policy has no open obligation. `action_required` lists open
+obligations. `dismissed` lists dismissed messages. The list adds inbox-wide counts
+and the deployment link-host allowlist. Every inbox response carries Django's
+never-cache headers (`no-store`, `private`). Validation errors use one generic
+`invalid` envelope that does not repeat the input.
+
+Admission parses the body with `markdown-it-py` (CommonMark, tables and
+strikethrough). It rejects image tokens, HTML tokens, link targets outside the
+policy, GFM `www.` autolinks and rendered output above 131,072 bytes. The link-host
+setting rejects `localhost` and IP literals at startup. The participant inbox and
+the organizer preview render under the same server-projected allowlist.
+
 The exact `/ws/notifications/` path is admitted for an eligible temporary account
 after password change, through the existing origin/session/account stack. The
-consumer rechecks topic policy on each delivery and projects retained payloads
+consumer retains the actual native credential and checks topic policy on
+subscription, replay and each delivery. It projects retained payloads
 through the current registration. CTF wake-ups contain references only; legacy
-bodies become a refresh hint. The communication Markdown profile on the canonical
-renderer rejects media and non-allowlisted navigation at render time.
+bodies become a refresh hint. Revocation at final send retains the undelivered
+receipt. The SPA shell refetches the inbox on a `communication` hint and
+refetches CTF reads on a `refresh` hint. It drops other frames. The
+communication Markdown profile on the canonical renderer drops media and renders
+non-allowlisted links as plain text. An unknown content profile shows no body
+and offers no read or acknowledge action.
 
 ## Public contract and verification
 

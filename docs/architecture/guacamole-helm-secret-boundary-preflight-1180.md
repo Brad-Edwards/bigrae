@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-07-07
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/1180>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/1180>
 
 Canonical finding: `csf_afa7479c33666959a2a8ed84`
 

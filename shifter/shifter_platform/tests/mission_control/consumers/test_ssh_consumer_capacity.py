@@ -67,8 +67,10 @@ def authenticated_scope():
 
 
 @pytest.fixture
-def real_user(db):
-    return User.objects.create_user(username="ssh-cap@example.com", email="ssh-cap@example.com")
+def real_user(db, live_session_credential):
+    user = User.objects.create_user(username="ssh-cap@example.com", email="ssh-cap@example.com")
+    user.credential = live_session_credential(user)
+    return user
 
 
 @pytest.fixture
@@ -146,6 +148,7 @@ class TestSSHConsumerCapacity:
         consumer.close.assert_awaited_once_with(code=WebSocketCloseCode.SERVICE_UNAVAILABLE)
 
     @pytest.mark.django_db(transaction=True)
+    @pytest.mark.postgres
     @pytest.mark.asyncio
     async def test_releases_slot_on_ssh_failure(self, consumer, seeded_ssh_range, secrets_boundary, settings):
         settings.TERMINAL_MAX_SESSIONS = 5
@@ -154,6 +157,7 @@ class TestSSHConsumerCapacity:
         consumer.scope = {
             "type": "websocket",
             "user": user,
+            "credential_context": user.credential,
             "url_route": {"kwargs": {"instance_uuid": instance["uuid"]}},
         }
 
