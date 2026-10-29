@@ -82,10 +82,10 @@ class TestDeclarationRecording:
 
 
 class TestProvisioningDeclares:
-    def test_throttled_batch_declares_before_spinup(self, ctf_event_active):
+    def test_throttled_batch_declares_before_spinup(self, ctf_event_active, organizer_credential):
         from ctf.services.range.batch import provision_event_ranges_throttled
 
         # No eligible participants: the loop is a no-op, but the declaration
         # must still be recorded before spinup would have begun.
-        provision_event_ranges_throttled(ctf_event_active.pk, 60)
+        provision_event_ranges_throttled(ctf_event_active.pk, 60, actor=organizer_credential)
         assert CapacityDeclaration.objects.filter(event_ref=ctf_event_active.pk).exists()

@@ -1,4 +1,4 @@
-"""Session-authenticated tenant pack installation and removal; multipart bytes are bounded."""
+"""Native tenant pack installation and removal; multipart bytes are bounded."""
 
 from uuid import UUID
 
@@ -15,16 +15,26 @@ from rest_framework.views import APIView
 from cms.services import PackRemovalConflict, request_tenant_pack_removal
 from cms.services._tenant_pack_upload import upload_tenant_pack
 from shared.api.errors import api_error_response
-from shared.api.permissions import IsAuthenticatedSession
 from shared.api.schema import ApiErrorSerializer
 from shared.audit import get_request_id
+from shared.enums import ResourceStatus
 from shared.exceptions import ValidationError
-from workspaces.services import OrganizationAuthorizationError, get_organization_profile
+from workspaces.services import OrganizationAuthorizationError
 
+from .permissions import CMS_WRITE_PERMISSIONS, cms_actor_credential
 from .preparation_adapters import PreparationSerializer, preparation_request_audit
 
-# Pack administration is session-only: IsAuthenticatedSession rejects tokens.
+# Retained schema constant for session-only callers outside tenant pack services.
 SESSION_ONLY_SCHEMA_AUTH: list[dict[str, list[str]]] = [{"cookieAuth": []}]
+
+# These are public lifecycle scalars, never upstream exception messages. Domain
+# labels require independent read admission and remain omitted during removal.
+_BLOCKER_STATES = {
+    "range": ("range", {state.value: state.value for state in ResourceStatus}),
+    "ctf_event": ("ctf_event", {state: state for state in ("draft", "registration", "active", "paused")}),
+    "ctf_scheduled_launch": ("ctf_scheduled_launch", {state: state for state in ("pending", "running")}),
+    "warm_pool_bucket": ("warm_pool_bucket", {"configured": "configured"}),
+}
 
 
 class _BoundedUpload(FileUploadHandler):
@@ -71,7 +81,8 @@ class TenantPackInstalledSerializer(serializers.Serializer):
 class TenantPackUploadView(APIView):
     """Validate and install an organization-owned scenario pack."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = CMS_WRITE_PERMISSIONS
+    serializer_class = TenantPackUploadSerializer
     parser_classes = [MultiPartParser]
 
     def initialize_request(self, request: HttpRequest, *args: object, **kwargs: object) -> Request:
@@ -82,11 +93,10 @@ class TenantPackUploadView(APIView):
     @extend_schema(
         request=TenantPackUploadSerializer,
         responses={201: TenantPackInstalledSerializer},
-        auth=SESSION_ONLY_SCHEMA_AUTH,  # type: ignore[arg-type]
     )
     def post(self, request: Request, organization_uuid: UUID) -> Response:
         try:
-            get_organization_profile(request.user, organization_uuid)
+            actor = cms_actor_credential(request)
             data = request.data
             if any(getattr(handler, "exceeded", False) for handler in request._request.upload_handlers):
                 raise ValidationError("The pack archive exceeds its size limit")
@@ -95,7 +105,7 @@ class TenantPackUploadView(APIView):
             serializer = TenantPackUploadSerializer(data=data)
             serializer.is_valid(raise_exception=True)
             result = upload_tenant_pack(
-                user=request.user,
+                user=actor,
                 organization_uuid=organization_uuid,
                 request_id=get_request_id(request._request),
                 **serializer.validated_data,
@@ -129,7 +139,8 @@ class TenantPackRemovalSerializer(serializers.Serializer):
 class TenantPackRemovalView(APIView):
     """Remove an organization-owned pack, or resume its pending cleanup."""
 
-    permission_classes = [IsAuthenticatedSession]
+    permission_classes = CMS_WRITE_PERMISSIONS
+    serializer_class = TenantPackRemovalRequestSerializer
 
     @extend_schema(
         request=TenantPackRemovalRequestSerializer,
@@ -146,14 +157,13 @@ class TenantPackRemovalView(APIView):
                 ),
             ),
         },
-        auth=SESSION_ONLY_SCHEMA_AUTH,  # type: ignore[arg-type]
     )
     def post(self, request: Request, organization_uuid: UUID, pack_id: str) -> Response:
         body = TenantPackRemovalRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         try:
             result = request_tenant_pack_removal(
-                request.user,
+                cms_actor_credential(request),
                 organization_uuid,
                 pack_id,
                 body.validated_data["pack_digest"],
@@ -179,10 +189,7 @@ def _removal_error(request: Request, exc: Exception) -> Response:
     elif isinstance(exc, PackRemovalConflict):
         code, message, status_code, details = exc.code, exc.message, 409, None
         if exc.code == "pack_in_use":
-            details = {
-                "blockers": [{"kind": row.kind, "status": row.status, "label": row.label} for row in exc.blockers],
-                "blocker_count": exc.total,
-            }
+            details = _removal_blocker_details(exc)
     else:
         code, message, status_code, details = (
             "pack_invalid",
@@ -190,4 +197,18 @@ def _removal_error(request: Request, exc: Exception) -> Response:
             400,
             None,
         )
-    return api_error_response(code=code, message=message, status_code=status_code, details=details, request=request)
+    response = api_error_response(code=code, message=message, status_code=status_code, request=request)
+    if details is not None:
+        # This is an explicitly projected domain payload, not arbitrary error or
+        # validation text. Keep its fixed public fields outside detail normalization.
+        response.data["error"]["details"] = details
+    return response
+
+
+def _removal_blocker_details(exc: PackRemovalConflict) -> dict[str, object]:
+    """Keep counts and enumerated states useful without exposing labels or errors."""
+    blockers = []
+    for row in exc.blockers:
+        kind, states = _BLOCKER_STATES.get(row.kind, ("resource", {}))
+        blockers.append({"kind": kind, "status": states.get(row.status, "unavailable"), "label": None})
+    return {"blockers": blockers, "blocker_count": exc.total}

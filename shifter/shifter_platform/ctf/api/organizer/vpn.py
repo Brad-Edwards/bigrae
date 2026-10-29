@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.conf import settings
 from django.http import HttpResponse
 from django.utils.cache import patch_vary_headers
 from drf_spectacular.types import OpenApiTypes
@@ -19,13 +18,12 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ctf.api._base import CTF_PARTICIPANT_PERMISSIONS, _CtfApiError
+from ctf.api._base import CTF_AUTH_PERMISSIONS, _CtfApiError
 from ctf.api.organizer._base import (
     _actor,
     _raise_not_found,
     _resolve_active_participant,
 )
-from shared.api.permissions import IsAuthenticatedSessionOrApiToken
 from shared.api.principals import authenticated_credential
 from shared.api.schema import ApiErrorSerializer
 from shared.api_tokens import scopes
@@ -34,8 +32,6 @@ from shared.remote_access import OPENVPN_PROFILE_MEDIA_TYPE
 
 if TYPE_CHECKING:
     from uuid import UUID
-
-    from rest_framework.permissions import BasePermission
 
     from ctf.models import CTFParticipant
     from shared.remote_access import OpenVpnProfile
@@ -51,13 +47,8 @@ _VPN_PROFILE_UNAVAILABLE = "VPN profile is temporarily unavailable."
 class ParticipantVpnProfileView(APIView):
     """Deliver the current participant's generation-bound OpenVPN profile."""
 
-    permission_classes = CTF_PARTICIPANT_PERMISSIONS
+    permission_classes = CTF_AUTH_PERMISSIONS
     required_write_scopes = _VPN_PROFILE_READ
-
-    def get_permissions(self) -> list[BasePermission]:
-        if isinstance(getattr(self.request, "auth", None), CredentialContext) or settings.OPENFGA_ENABLED:
-            return [IsAuthenticatedSessionOrApiToken()]
-        return super().get_permissions()
 
     @extend_schema(
         request=None,
@@ -76,7 +67,7 @@ class ParticipantVpnProfileView(APIView):
         from ctf.services.audit import audit_vpn_profile_download
 
         try:
-            source = isinstance(getattr(request, "auth", None), CredentialContext) or settings.OPENFGA_ENABLED
+            source = True
             credential = None
             if request.body or (set(request.query_params) - {"event_id"} if source else request.query_params):
                 raise _CtfApiError(

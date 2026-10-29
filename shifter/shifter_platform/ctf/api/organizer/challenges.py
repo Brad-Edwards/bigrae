@@ -18,9 +18,9 @@ from ctf.api.organizer._base import (
     _EVENT_READ,
     _EVENT_WRITE,
     _INVALID_CHALLENGE,
-    _actor,
     _actor_may_manage,
     _challenge_detail_payload,
+    _credential,
     _delete_via_service,
     _raise_bad_request,
     _raise_forbidden,
@@ -63,7 +63,7 @@ class ChallengeListView(APIView):
         try:
             _resolve_owned_event(request, event_id, capability=EventCapability.CHALLENGES)
             try:
-                challenges = list_challenges_for_event(event_id, actor_id=_actor(request).pk).prefetch_related(
+                challenges = list_challenges_for_event(event_id, actor_id=_credential(request)).prefetch_related(
                     "tags", "topics"
                 )
             except CTFPermissionError:
@@ -97,7 +97,7 @@ class ChallengeListView(APIView):
             serializer = ChallengeWriteSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             try:
-                challenge = create_challenge(event_id, dict(serializer.validated_data), actor_id=_actor(request).pk)
+                challenge = create_challenge(event_id, dict(serializer.validated_data), actor_id=_credential(request))
             except CTFPermissionError:
                 _raise_forbidden()
             except CTFNotFoundError:
@@ -145,7 +145,7 @@ class ChallengeDetailView(APIView):
             serializer = ChallengeWriteSerializer(data=request.data, partial=True)
             serializer.is_valid(raise_exception=True)
             try:
-                updated = update_challenge(challenge_id, dict(serializer.validated_data), actor_id=_actor(request).pk)
+                updated = update_challenge(challenge_id, dict(serializer.validated_data), actor_id=_credential(request))
             except CTFPermissionError:
                 _raise_forbidden()
             except (CTFNotFoundError, CTFValidationError, CTFStateError):
@@ -171,7 +171,7 @@ class ChallengeDetailView(APIView):
         try:
             _resolve_owned_challenge(request, challenge_id)
             try:
-                delete_challenge(challenge_id, actor_id=_actor(request).pk)
+                delete_challenge(challenge_id, actor_id=_credential(request))
             except CTFPermissionError:
                 _raise_forbidden()
             except (CTFNotFoundError, CTFStateError):
@@ -212,7 +212,7 @@ class AddFlagView(APIView):
                 "validator_config": data["validator_config"],
             }
             try:
-                flag_obj = add_flag(challenge_id, flag_data, actor_id=_actor(request).pk)
+                flag_obj = add_flag(challenge_id, flag_data, actor_id=_credential(request))
             except CTFPermissionError:
                 _raise_forbidden()
             except CTFNotFoundError:
@@ -289,7 +289,7 @@ class ChallengeHintsView(APIView):
             serializer = HintWriteSerializer(data=request.data)
             serializer.is_valid(raise_exception=True)
             try:
-                hint = add_hint(challenge_id, dict(serializer.validated_data), actor_id=_actor(request).pk)
+                hint = add_hint(challenge_id, dict(serializer.validated_data), actor_id=_credential(request))
             except CTFPermissionError:
                 _raise_forbidden()
             except (CTFNotFoundError, CTFStateError, CTFValidationError):
@@ -322,10 +322,10 @@ class HintDeleteView(APIView):
             hint = CTFHint.objects.select_related("challenge__event").filter(pk=hint_id).first()
             if hint is None:
                 _raise_not_found("Hint or challenge not found.")
-            if not _actor_may_manage(request, hint.challenge.event, None):
+            if not _actor_may_manage(request, hint.challenge.event, EventCapability.CHALLENGES):
                 _raise_forbidden()
             try:
-                remove_hint(hint_id, actor_id=_actor(request).pk)
+                remove_hint(hint_id, actor_id=_credential(request))
             except CTFPermissionError:
                 _raise_forbidden()
             except CTFNotFoundError:

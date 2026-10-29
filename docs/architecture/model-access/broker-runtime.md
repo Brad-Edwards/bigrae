@@ -1,6 +1,6 @@
 # Private model broker runtime (M05)
 
-Issue [#2122](https://github.com/Brad-Edwards/shifter/issues/2122) completes the
+Issue [#2122](https://github.com/Brad-Edwards/bigrae/issues/2122) completes the
 existing standalone broker and Engine control boundary. This is a local runtime
 contract, not a cloud, load, restore or full PLAT-202 qualification record.
 [ADR-059](../../adr/059-range-model-access-broker.md), the

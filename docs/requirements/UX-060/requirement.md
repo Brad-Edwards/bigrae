@@ -20,4 +20,4 @@ Externalizing strings is cheap when done as code is written and prohibitively ex
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#787` (Adopt minimum Django i18n to clear 481 Web:InternationalizationCheck findings)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#787` (Adopt minimum Django i18n to clear 481 Web:InternationalizationCheck findings)

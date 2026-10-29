@@ -21,6 +21,9 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 
 ## Traceability
 
+- IMPLEMENTS → CODE_FILE `scripts/adr_guard/changed_python_quality.py` (Select changed owned Python paths for the existing static quality gate without traversing installed dependencies)
+- TESTS → TEST `scripts/adr_guard/tests/test_changed_python_quality.py` (Preserve source scope, Git diff coverage, filename handling and quality-gate failures)
+
 - IMPLEMENTS → GITHUB_ISSUE `2555` (Repair blocking quality coverage during the BigRAE rename)
 - IMPLEMENTS → CONFIG `scripts/adr_guard/ruff.toml` (Blocking lint and security rules for architecture tooling)
 - IMPLEMENTS → CONFIG `scripts/quality_ownership/ruff.toml` (Reuse the architecture tooling policy)
@@ -42,7 +45,7 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 - TESTS → TEST `scripts/check_tf_gcp_wif_trust/test_check_tf_gcp_wif_trust.py` (Identity trust guard regression tests)
 - TESTS → TEST `scripts/adr_guard/tests/test_deploy_workflow.py` (GCP deploy invariants read from the deploy command modules)
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#1583` (In-tenant artifact preparation and dependency compatibility)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#1583` (In-tenant artifact preparation and dependency compatibility)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/cloud/preparation_policy.py` (Executable preparation Job authority and exact-image admission)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/cloud/preparation_installation_readback.py` (Fail-closed verification of installed Kubernetes authority)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/cloud/preparation_cloud_readback.py` (Independent installed cloud IAM and isolation verification)
@@ -54,7 +57,7 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 - IMPLEMENTS → CODE_FILE `scripts/check_tf_gcp_iam_resource_scope/check_tf_gcp_iam_resource_scope.py` (Closed dynamic-secret name and participant-version conditions verified in the tenant)
 - TESTS → TEST `scripts/check_tf_gcp_iam_resource_scope/test_check_tf_gcp_iam_resource_scope.py` (Reject widened prefixes, participant classes, permissions and invalid condition compositions)
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#689` (Refactor CI and guardrail automation god files)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#689` (Refactor CI and guardrail automation god files)
 - CONSTRAINS → ADR `ADR-001` (Cross-layer access goes through service boundaries)
 - CONSTRAINS → ADR `ADR-002` (Guardrail changes must remain documented)
 - CONSTRAINS → ADR `ADR-003` (ADR enforcement is a required architecture gate)
@@ -74,10 +77,10 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 - DOCUMENTS → DOCUMENTATION `docs/adr/README.md` (ADR enforcement documentation)
 - DOCUMENTS → DOCUMENTATION `docs/adr-enforcement-plan.md` (ADR enforcement design plan)
 - IMPLEMENTS → PULL_REQUEST `947` (ADR enforcement audit and guardrail backfill)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#915` (deploy: single source of truth for deployment mode and portal sizing)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#915` (deploy: single source of truth for deployment mode and portal sizing)
 - IMPLEMENTS → CONFIG `.github/workflows/_shifter-platform.yml` (AWS portal deploy workflow topology enforcement)
 - IMPLEMENTS → PULL_REQUEST `964` (fix: unify portal deploy mode source)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#927` (test: adopt a boundary-mock policy + lint to stop topology-coupled tests)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#927` (test: adopt a boundary-mock policy + lint to stop topology-coupled tests)
 - IMPLEMENTS → PULL_REQUEST `973` (test: add boundary mock policy guard)
 - IMPLEMENTS → CODE_FILE `scripts/adr_guard/boundary_mock_baseline.json` (Boundary mock legacy baseline)
 - CONSTRAINS → ADR `ADR-019` (Tests mock external boundaries, not first-party topology)
@@ -93,14 +96,14 @@ The repo now has guardrail enforcement in ADR registry, adr_guard, CI, hooks, an
 - TESTS → TEST `scripts/gcp/tests/test_verify_running_image_ids.py` (missing, lookalike, and partial-rollout regression coverage)
 - IMPLEMENTS → CODE_FILE `scripts/check_tf_gcp_wif_trust/check_tf_gcp_wif_trust.py` (Purpose-specific GCP CI role-boundary guard)
 - TESTS → TEST `scripts/check_tf_gcp_wif_trust/test_check_tf_gcp_wif_trust.py` (Purpose-specific GCP CI role-boundary regression tests)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#2084` (GCP exact-release security gate reconciliation)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#2084` (GCP exact-release security gate reconciliation)
 - IMPLEMENTS → CODE_FILE `scripts/adr_guard/_guard/checks/documentation.py` (`lilrae-identity-boundary` check enforcing ADR-024-R6 identity and scenario-pack terminology)
 - TESTS → TEST `scripts/adr_guard/tests/test_adr_guard.py` (LilraeIdentityBoundaryTests for rename continuity, TechVault role, false pairing, and historical evidence boundaries)
 - IMPLEMENTS → CONFIG `.github/workflows/iam-drift-check.yml` (Out-of-band global/iam CI drift-check gating on `terraform plan -detailed-exitcode` (ADR-004-R26, #247))
 - IMPLEMENTS → CODE_FILE `scripts/adr_guard/_guard/checks/_deploy_workflow_iam_drift.py` (`global-iam-drift-check` guard pinning the global/iam drift-check workflow (ADR-004-R26, #247))
 - TESTS → TEST `scripts/adr_guard/tests/test_global_iam_drift.py` (global/iam drift-check guard regression tests (#247))
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#247` (Audit and scope down OIDC IAM permissions)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#202` (Repository-wide quality ownership and expired-exception closure)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#247` (Audit and scope down OIDC IAM permissions)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#202` (Repository-wide quality ownership and expired-exception closure)
 - IMPLEMENTS → CONFIG `.github/quality-path-filters.yaml` (Blocking lint, security and test ownership for every prior production-path gap)
 - IMPLEMENTS → CONFIG `.github/workflows/_quality.yml` (ADR tooling, stack smoke, MCP, container, chart and CloudFormation blocking jobs)
 - IMPLEMENTS → CONFIG `.github/actions/install-shellcheck/action.yml` (Checksum-verified shared ShellCheck installation)

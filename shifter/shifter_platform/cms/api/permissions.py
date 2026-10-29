@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from django.contrib.auth.models import User
 from rest_framework import permissions
+from rest_framework.exceptions import PermissionDenied
 
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
-from shared.api.principals import active_actor_user
-from shared.api_tokens import scopes
-from shared.api_tokens.permissions import require_scope
-from shared.auth import can_edit_cms_authoring
+from shared.api.principals import authenticated_credential
+from shared.credentials import CredentialContext, resolve_current_credential
+from shared.principal_port import PrincipalResolutionError
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -20,38 +19,32 @@ if TYPE_CHECKING:
 PermissionClass = type[permissions.BasePermission]
 
 
-def cms_actor_user(request: Request) -> User | None:
-    """Return the session user or API-token owner for CMS authoring checks."""
-    return active_actor_user(request)
+def cms_actor_credential(request: Request) -> CredentialContext:
+    """Return the live proof admitted at HTTP ingress without substituting a user."""
+    try:
+        return resolve_current_credential(authenticated_credential(request))
+    except (ValueError, PrincipalResolutionError):
+        raise PermissionDenied("Content authority unavailable") from None
 
 
-class HasCMSAuthoringActor(permissions.BasePermission):
-    """Require the resolved actor to hold CMS authoring privileges."""
+class HasCurrentCMSCredential(permissions.BasePermission):
+    """Authenticate one live principal; owning content services enforce policy."""
 
     message = "Forbidden"
 
     def has_permission(self, request: Request, view: APIView) -> bool:
-        user = cms_actor_user(request)
-        return bool(user and can_edit_cms_authoring(user))
-
-
-def _cms_read_scope_permission() -> PermissionClass:
-    """Build the CMS authoring read-scope permission."""
-    return require_scope(scopes.CMS_AUTHORING_READ, scopes.CMS_AUTHORING_READ)
-
-
-def _cms_write_scope_permission() -> PermissionClass:
-    """Build the CMS authoring write-scope permission."""
-    return require_scope(scopes.CMS_AUTHORING_READ, scopes.CMS_AUTHORING_WRITE)
+        try:
+            cms_actor_credential(request)
+            return True
+        except ValueError:
+            return False
 
 
 CMS_READ_PERMISSIONS: list[PermissionClass] = [
     IsAuthenticatedSessionOrApiToken,
-    HasCMSAuthoringActor,
-    _cms_read_scope_permission(),
+    HasCurrentCMSCredential,
 ]
 CMS_WRITE_PERMISSIONS: list[PermissionClass] = [
     IsAuthenticatedSessionOrApiToken,
-    HasCMSAuthoringActor,
-    _cms_write_scope_permission(),
+    HasCurrentCMSCredential,
 ]

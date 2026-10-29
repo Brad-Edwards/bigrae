@@ -250,52 +250,26 @@ def test_membership_must_still_be_fresh_after_quota_lock_wait(django_user_model,
     assert not ModelAllocation.objects.exists()
 
 
-def test_composed_publication_holds_policy_mutex_before_projection(django_user_model, monkeypatch):
-    """Owner resolution precedes the policy lock, which precedes projection locks."""
-    from cms import services as cms_services
+def test_parked_composition_never_takes_a_publication_lock(django_user_model, settings):
+    from django.test.utils import CaptureQueriesContext
+
     from config.model_access_sharing import publish_model_access_binding
-    from engine.models import SharingAuthorityFence
-    from engine.services._model_allocation_authority import lock_policy_publication
     from shared.model_access import SharingPool
+    from shared.model_access.availability import ModelAccessParked
 
     from .test_model_admission import _catalog
     from .test_sharing import _binding_dto, _pool_dto
 
     catalog = _catalog()
-    actor = django_user_model.objects.create_superuser(username="publication-lock-operator")
-    with transaction.atomic():
-        fence = lock_policy_publication(catalog.deployment_id)
-    reached, proceed = Event(), Event()
-    project = cms_services.engine_project_selector_resolution
-
-    def pause_before_projection(**kwargs):
-        reached.set()
-        assert proceed.wait(10)
-        return project(**kwargs)
-
-    monkeypatch.setattr(cms_services, "engine_project_selector_resolution", pause_before_projection)
-
-    def publish():
-        try:
-            return publish_model_access_binding(
-                actor=actor,
-                deployment_id=catalog.deployment_id,
-                catalog=catalog,
-                binding=_binding_dto(),
-                pool=SharingPool.model_validate(_pool_dto()),
-                expected_definition_revision=0,
-            )
-        finally:
-            connection.close()
-
-    from django.db import OperationalError
-
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        future = executor.submit(publish)
-        try:
-            assert reached.wait(10)
-            with pytest.raises(OperationalError), transaction.atomic():
-                SharingAuthorityFence.objects.select_for_update(nowait=True).get(pk=fence.pk)
-        finally:
-            proceed.set()
-            future.result(timeout=15)
+    settings.MODEL_ACCESS_ENABLED = True
+    actor = django_user_model.objects.create_superuser(username="parked-publication-operator")
+    with CaptureQueriesContext(connection) as queries, pytest.raises(ModelAccessParked):
+        publish_model_access_binding(
+            actor=actor,
+            deployment_id=catalog.deployment_id,
+            catalog=catalog,
+            binding=_binding_dto(),
+            pool=SharingPool.model_validate(_pool_dto()),
+            expected_definition_revision=0,
+        )
+    assert len(queries) == 0

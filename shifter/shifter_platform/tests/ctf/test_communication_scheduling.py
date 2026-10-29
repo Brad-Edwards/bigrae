@@ -12,7 +12,6 @@ import pytest
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import ParticipantStatus, ScheduledTaskStatus, ScheduledTaskType
 from ctf.enums_communication import IntentStatus
 from ctf.exceptions import CTFCommunicationError
@@ -31,13 +30,28 @@ from ctf.services.communication import (
     run_release_communication_task,
     schedule_declaration,
 )
+from shared.api_tokens.models import ApiToken
+from shared.api_tokens.policy import personal_credential_for_token
+from shared.api_tokens.scopes import CTF_COMMUNICATION_WRITE
+from shared.principal_port import principal_for_user
+from workspaces.models import Account
 
 pytestmark = pytest.mark.django_db
 User = get_user_model()
 
 
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
+def _account_uuid(user):
+    principal = principal_for_user(user)
+    account, _ = Account.objects.get_or_create(
+        individual_principal_uuid=principal.uuid,
+        defaults={"kind": Account.Kind.INDIVIDUAL, "name": f"Test account {user.pk}"},
+    )
+    return str(account.uuid)
+
+
+def _credential(user):
+    token, _ = ApiToken.create_token(name="scheduled communication", created_by=user, scopes=[CTF_COMMUNICATION_WRITE])
+    return personal_credential_for_token(token)
 
 
 def _scheduled(organizer_user, ctf_event, *, due_at, occurrence="occ-sched"):
@@ -48,9 +62,10 @@ def _scheduled(organizer_user, ctf_event, *, due_at, occurrence="occ-sched"):
         status=ParticipantStatus.ACTIVE.value,
         registered_at=timezone.now(),
     )
+    credential = _credential(organizer_user)
     campaign = create_campaign(
-        organizer_user,
-        _workspace_uuid(organizer_user),
+        credential,
+        _account_uuid(organizer_user),
         CampaignDraft(
             title="Kickoff",
             origin="organizer_staff",
@@ -61,19 +76,20 @@ def _scheduled(organizer_user, ctf_event, *, due_at, occurrence="occ-sched"):
             subject="Welcome",
             body="Hello",
         ),
+        parent_type="account",
     )
     intent = schedule_declaration(
         campaign,
         due_at=due_at,
         occurrence_key=occurrence,
-        actor=AdmissionActor(user_id=organizer_user.id),
+        actor=AdmissionActor(credential=credential),
     )
-    return campaign, intent
+    return campaign, intent, credential
 
 
 def test_schedule_commits_a_scheduled_intent_and_task_without_materializing(organizer_user, ctf_event):
     due = timezone.now() + timezone.timedelta(hours=6)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, _credential_context = _scheduled(organizer_user, ctf_event, due_at=due)
 
     assert intent.status == IntentStatus.SCHEDULED.value
     assert intent.due_at == due
@@ -87,15 +103,15 @@ def test_schedule_commits_a_scheduled_intent_and_task_without_materializing(orga
 
 def test_due_release_materializes_and_is_idempotent(organizer_user, ctf_event):
     due = timezone.now() - timezone.timedelta(minutes=1)  # due, within grace
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, credential = _scheduled(organizer_user, ctf_event, due_at=due)
 
-    first = release_due_declaration(intent, actor=AdmissionActor(user_id=organizer_user.id))
+    first = release_due_declaration(intent, actor=AdmissionActor(credential=credential))
     assert first == "released"
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.RELEASED.value
     assert RecipientSnapshot.objects.filter(intent=intent).count() == 1
 
     # A repeated tick/restart observes the release; it does not re-materialize.
-    second = release_due_declaration(intent, actor=AdmissionActor(user_id=organizer_user.id))
+    second = release_due_declaration(intent, actor=AdmissionActor(credential=credential))
     assert second == "released"
     assert RecipientSnapshot.objects.filter(intent=intent).count() == 1
 
@@ -103,9 +119,9 @@ def test_due_release_materializes_and_is_idempotent(organizer_user, ctf_event):
 def test_release_expires_past_the_grace_window(organizer_user, ctf_event, settings):
     settings.CTF_COMMUNICATION_RELEASE_GRACE_MINUTES = 20
     due = timezone.now() - timezone.timedelta(minutes=45)  # well past grace
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, credential = _scheduled(organizer_user, ctf_event, due_at=due)
 
-    outcome = release_due_declaration(intent, actor=AdmissionActor(user_id=organizer_user.id))
+    outcome = release_due_declaration(intent, actor=AdmissionActor(credential=credential))
 
     assert outcome == "expired"
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.EXPIRED.value
@@ -114,20 +130,20 @@ def test_release_expires_past_the_grace_window(organizer_user, ctf_event, settin
 
 def test_due_release_revalidates_and_denies_a_revoked_actor(organizer_user, ctf_event):
     due = timezone.now() - timezone.timedelta(minutes=1)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, credential = _scheduled(organizer_user, ctf_event, due_at=due)
+    task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
 
-    User.objects.filter(pk=organizer_user.id).update(is_active=False)  # authority revoked before due
+    ApiToken.objects.get(credential_uuid=credential.credential_uuid).revoke()
 
-    actor = AdmissionActor(user_id=organizer_user.id)
-    with pytest.raises(CTFCommunicationError):
-        release_due_declaration(intent, actor=actor)
-    assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.SCHEDULED.value
+    result = run_release_communication_task(task)
+    assert result["outcome"] == "denied"
+    assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.EXPIRED.value
     assert not RecipientSnapshot.objects.filter(intent=intent).exists()
 
 
 def test_scheduler_handler_reschedules_when_not_yet_due(organizer_user, ctf_event):
     due = timezone.now() + timezone.timedelta(hours=6)  # future
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, _credential_context = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
 
     result = run_release_communication_task(task)
@@ -136,47 +152,65 @@ def test_scheduler_handler_reschedules_when_not_yet_due(organizer_user, ctf_even
     assert not RecipientSnapshot.objects.filter(intent=intent).exists()
 
 
-def test_run_task_now_early_releases_a_scheduled_communication(organizer_user, ctf_event):
+def test_run_task_now_early_releases_a_scheduled_communication(
+    organizer_user, ctf_event, organizer_credential, caplog, monkeypatch
+):
+    import logging
+
     from ctf.enums import ScheduledTaskStatus
     from ctf.services.event.scheduling import run_task_now
 
     due = timezone.now() + timezone.timedelta(hours=6)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, _declaration_credential = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
 
-    run_task_now(ctf_event.id, task.id, actor_id=organizer_user.id)
+    logger = logging.getLogger("ctf.services.event.scheduling")
+    monkeypatch.setattr(logger, "handlers", [*logger.handlers, caplog.handler])
+    with caplog.at_level(logging.INFO, logger="ctf.services.event.scheduling"):
+        run_task_now(ctf_event.id, task.id, actor_id=organizer_credential)
 
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.RELEASED.value
     assert RecipientSnapshot.objects.filter(intent=intent).count() == 1
     task.refresh_from_db()
     assert task.status == ScheduledTaskStatus.COMPLETED.value
+    records = [record for record in caplog.records if record.name == "ctf.services.event.scheduling"]
+    assert records[-1].getMessage() == (
+        f"Communication task {task.pk} early-released now by principal {organizer_credential.principal.uuid}"
+    )
+    assert str(organizer_credential.credential_uuid) not in records[-1].getMessage()
+    assert "CredentialContext" not in records[-1].getMessage()
 
 
-def test_run_task_now_denies_comm_early_release_without_notification_authority(organizer_user, ctf_event):
+def test_run_task_now_denies_comm_early_release_without_notification_authority(
+    organizer_user, ctf_event, live_session_credential
+):
     from ctf.services.event.scheduling import run_task_now
 
     due = timezone.now() + timezone.timedelta(hours=6)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, _credential_context = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
     outsider = User.objects.create_user(username="outsider", password="pw")  # nosec B106
 
+    outsider_credential = live_session_credential(outsider)
     with pytest.raises(CTFCommunicationError):
-        run_task_now(ctf_event.id, task.id, actor_id=outsider.id)
+        run_task_now(ctf_event.id, task.id, actor_id=outsider_credential)
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.SCHEDULED.value
 
 
-def test_early_release_before_due_requires_the_grant(organizer_user, ctf_event):
+def test_early_release_before_due_requires_the_grant(organizer_user, ctf_event, organizer_credential):
     due = timezone.now() + timezone.timedelta(hours=6)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, credential = _scheduled(organizer_user, ctf_event, due_at=due)
 
     # Without the explicit early-release grant, an early release is denied.
-    ungranted_actor = AdmissionActor(user_id=organizer_user.id)
+    ungranted_actor = AdmissionActor(credential=credential)
     with pytest.raises(CTFCommunicationError):
         request_early_release(intent, actor=ungranted_actor)
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.SCHEDULED.value
 
     # With the grant, an authorized organizer run-now releases before the due time.
-    outcome = request_early_release(intent, actor=AdmissionActor(user_id=organizer_user.id, allow_early_release=True))
+    outcome = request_early_release(
+        intent, actor=AdmissionActor(credential=organizer_credential, allow_early_release=True)
+    )
     assert outcome == "released"
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.RELEASED.value
     assert RecipientSnapshot.objects.filter(intent=intent).count() == 1
@@ -186,7 +220,7 @@ def test_transient_backpressure_reschedules_and_keeps_the_occurrence(organizer_u
     from ctf.services.communication import release as release_module
 
     due = timezone.now() - timezone.timedelta(minutes=1)  # due, within grace
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, _credential_context = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
 
     def _pressure(_request):
@@ -203,7 +237,7 @@ def test_transient_backpressure_reschedules_and_keeps_the_occurrence(organizer_u
 
 def test_permanent_denial_at_due_time_expires_the_declaration(organizer_user, ctf_event):
     due = timezone.now() - timezone.timedelta(minutes=1)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, _credential_context = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
     User.objects.filter(pk=organizer_user.id).update(is_active=False)  # authority permanently revoked
 
@@ -215,19 +249,45 @@ def test_permanent_denial_at_due_time_expires_the_declaration(organizer_user, ct
     assert not RecipientSnapshot.objects.filter(intent=intent).exists()
 
 
-def test_run_task_now_denies_token_authored_early_release(organizer_user, ctf_event):
+def test_run_task_now_accepts_exact_live_credential_for_early_release(organizer_user, ctf_event, organizer_credential):
     from ctf.services.event.scheduling import run_task_now
 
     due = timezone.now() + timezone.timedelta(hours=6)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, _declaration_credential = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
 
-    # A token-authenticated run-now (owner id + token id) must be denied: token
-    # communication is fail-closed, and its owner cannot enter the session path.
-    with pytest.raises(CTFCommunicationError):
-        run_task_now(ctf_event.id, task.id, actor_id=organizer_user.id, actor_token_id=4321)
-    assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.SCHEDULED.value
+    run_task_now(ctf_event.id, task.id, actor_id=organizer_credential)
+    assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.RELEASED.value
+    assert RecipientSnapshot.objects.filter(intent=intent).count() == 1
+
+
+def test_dependency_outage_preserves_scheduled_work_then_releases_once(organizer_user, ctf_event, monkeypatch):
+    from ctf.models import DeliveryAttempt
+    from shared.authorization import AuthorizationDecision, DecisionKind, configured_authorization_provider
+
+    due = timezone.now() - timezone.timedelta(minutes=1)
+    _, intent, _ = _scheduled(organizer_user, ctf_event, due_at=due)
+    task = CTFScheduledTask.objects.get(metadata__intent_id=str(intent.pk))
+    provider = configured_authorization_provider()
+    original = provider.check
+    unavailable = True
+
+    def check(request):
+        if unavailable:
+            return AuthorizationDecision(DecisionKind.EVALUATOR_ERROR, "synthetic_outage")
+        return original(request)
+
+    monkeypatch.setattr(provider, "check", check)
+    result = run_release_communication_task(task)
+    assert "reschedule_for" in result
+    intent.refresh_from_db()
+    assert intent.status == IntentStatus.SCHEDULED.value
     assert not RecipientSnapshot.objects.filter(intent=intent).exists()
+    unavailable = False
+    assert run_release_communication_task(task)["outcome"] == "released"
+    assert run_release_communication_task(task)["outcome"] == "released"
+    assert RecipientSnapshot.objects.filter(intent=intent).count() == 1
+    assert DeliveryAttempt.objects.filter(intent=intent).count() == 1
 
 
 def test_event_time_change_keeps_an_independent_scheduled_communication(organizer_user, ctf_event):
@@ -236,13 +296,13 @@ def test_event_time_change_keeps_an_independent_scheduled_communication(organize
     from ctf.services.event.scheduling import _reschedule_event_tasks
 
     due = timezone.now() + timezone.timedelta(hours=6)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, credential = _scheduled(organizer_user, ctf_event, due_at=due)
     ctf_event.status = EventStatus.REGISTRATION.value
     ctf_event.event_start = ctf_event.event_start + timezone.timedelta(days=1)
     ctf_event.event_end = ctf_event.event_end + timezone.timedelta(days=1)
     ctf_event.save()
 
-    _reschedule_event_tasks(ctf_event)
+    _reschedule_event_tasks(ctf_event, credential)
 
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
     assert task.status == ScheduledTaskStatus.PENDING.value
@@ -252,19 +312,31 @@ def test_event_time_change_keeps_an_independent_scheduled_communication(organize
     assert starts.filter(status=ScheduledTaskStatus.PENDING.value, scheduled_for=ctf_event.event_start).count() == 1
 
 
-def test_due_release_denies_an_author_demoted_from_organizer(organizer_user, ctf_event):
-    """A declaration made before demotion does not release on event ownership alone (#2617)."""
-    from django.contrib.auth.models import Group
-
-    from shared.auth import CTF_ORGANIZER_GROUP
+def test_due_release_denies_an_author_demoted_from_organizer(organizer_user, ctf_event, monkeypatch):
+    """A live owner cannot release after its native communication grant is withdrawn (#2617)."""
+    from shared.authorization import AuthorizationDecision, DecisionKind, configured_authorization_provider
 
     due = timezone.now() - timezone.timedelta(minutes=1)
-    _campaign, intent = _scheduled(organizer_user, ctf_event, due_at=due)
+    _campaign, intent, credential = _scheduled(organizer_user, ctf_event, due_at=due)
     task = CTFScheduledTask.objects.get(task_type=ScheduledTaskType.RELEASE_COMMUNICATION.value)
-    organizer_user.groups.remove(Group.objects.get(name=CTF_ORGANIZER_GROUP))  # still active, still owner
+    provider = configured_authorization_provider()
+    check = provider.check
+    checked = []
+
+    def deny_current_grant(request):
+        if request.action == "event.manage_communications":
+            checked.append(request)
+            return AuthorizationDecision(DecisionKind.DENIED, "policy_denied")
+        return check(request)
+
+    monkeypatch.setattr(provider, "check", deny_current_grant)
 
     result = run_release_communication_task(task)
 
+    assert checked and all(request.principal == credential.principal for request in checked)
+    assert ApiToken.objects.get(credential_uuid=credential.credential_uuid).is_active
+    ctf_event.refresh_from_db()
+    assert ctf_event.owner_principal_uuid == credential.principal.uuid
     assert result["outcome"] == "denied"
     assert CommunicationIntent.objects.get(pk=intent.pk).status == IntentStatus.EXPIRED.value
     assert not RecipientSnapshot.objects.filter(intent=intent).exists()

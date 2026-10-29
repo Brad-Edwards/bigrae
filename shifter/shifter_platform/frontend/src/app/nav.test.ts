@@ -15,11 +15,11 @@ function bootstrap(overrides: Partial<Bootstrap> = {}): Bootstrap {
   };
 }
 
-const STAFF_ENTRY: NavEntry = {
+const PLATFORM_ENTRY: NavEntry = {
   surface: "Users",
   audience: "organizer",
   routeName: "administer:users",
-  permissionPolicy: "staff",
+  permissionPolicy: "platform_admin",
   ownerApp: "management",
   purpose: "users",
   mode: "operator",
@@ -42,7 +42,8 @@ describe("permissionAllows", () => {
     expect(permissionAllows("threat_research", bs)).toBe(false);
     expect(permissionAllows("ctf_organizer", bs)).toBe(true);
     expect(permissionAllows("ctf_participant", bs)).toBe(false);
-    expect(permissionAllows("staff", bs)).toBe(true);
+    expect(permissionAllows("platform_admin", bs)).toBe(true);
+    expect(permissionAllows("account_admin", bs)).toBe(true);
   });
 
   it("admits the ctf_admin surface for an organizer or platform administrator", () => {
@@ -67,9 +68,9 @@ describe("permissionAllows", () => {
 describe("isNavEntryVisible", () => {
   it("hides an entry when its advisory permission is denied", () => {
     const bs = bootstrap({
-      principal: { ...STAFF_BOOTSTRAP.principal, is_staff: false },
+      permissions: { ...STAFF_BOOTSTRAP.permissions, can_administer_platform: false },
     });
-    expect(isNavEntryVisible(STAFF_ENTRY, bs)).toBe(false);
+    expect(isNavEntryVisible(PLATFORM_ENTRY, bs)).toBe(false);
   });
 });
 
@@ -124,11 +125,11 @@ describe("visibleNavGroups", () => {
     expect(participate.entries.every((e) => !e.external)).toBe(true);
   });
 
-  it("shows the Organization console entry for staff (#1938)", () => {
+  it("shows the account console from its action-derived decision", () => {
     const administer = visibleNavGroups("operator", bootstrap()).find((g) => g.group === "Administer");
-    const org = administer?.entries.find((e) => e.surface === "Organization");
-    expect(org?.routePath).toBe("/administer/organization");
-    expect(org?.permissionPolicy).toBe("staff");
+    const org = administer?.entries.find((e) => e.surface === "Accounts");
+    expect(org?.routePath).toBe("/administer/accounts");
+    expect(org?.permissionPolicy).toBe("account_admin");
     expect(org?.external).toBeFalsy();
   });
 
@@ -139,14 +140,14 @@ describe("visibleNavGroups", () => {
     expect(djangoAdmin?.routePath).toBe("/admin/");
   });
 
-  it("keeps Platform Settings as a single staff-owned Administer surface", () => {
+  it("keeps Platform Settings as a single policy-gated Administer surface", () => {
     const operate = NAV_GROUPS.find((group) => group.group === "Operate");
     const administer = NAV_GROUPS.find((group) => group.group === "Administer");
 
     expect(operate?.entries.some((entry) => entry.routeName === "mission_control:settings")).toBe(false);
     const settingsEntries = administer?.entries.filter((entry) => entry.routeName === "administer:settings") ?? [];
     expect(settingsEntries).toHaveLength(1);
-    expect(settingsEntries[0]).toMatchObject({ permissionPolicy: "staff", routePath: "/administer/settings" });
+    expect(settingsEntries[0]).toMatchObject({ permissionPolicy: "lease_admin", routePath: "/administer/settings" });
     expect(settingsEntries[0].external).toBeFalsy();
   });
 });

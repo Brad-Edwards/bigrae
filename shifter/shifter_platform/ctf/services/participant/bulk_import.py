@@ -11,12 +11,13 @@ from __future__ import annotations
 import csv
 import io
 import logging
+from contextlib import suppress
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 
-from ctf.exceptions import CTFNotFoundError, CTFValidationError
+from ctf.exceptions import CTFNotFoundError, CTFPermissionError, CTFValidationError
 from ctf.models import CTFEvent, CTFParticipant
 from ctf.services.participant.accounts import provision_participant_seat
 from ctf.services.range import request_event_provisioning
@@ -90,6 +91,8 @@ def _assert_event_accepts_import(event: CTFEvent, importing: int) -> None:
 def bulk_import_participants(
     event_id: UUID,
     csv_content: str,
+    *,
+    actor: object,
 ) -> dict[str, Any]:
     """Bulk import participants from CSV content (``name,email`` per line).
 
@@ -119,6 +122,10 @@ def bulk_import_participants(
 
     created: list[CTFParticipant] = []
     with transaction.atomic():
+        if participants_data:
+            with suppress(CTFPermissionError):
+                request_event_provisioning(event.pk, source="participant_accounts", actor_id=actor, defer_if_busy=True)
+                # Participant-only delegates may import without gaining range authority.
         # Lock the event so the capacity check and the inserts cannot race past
         # max_participants under concurrent imports (#1145).
         CTFEvent.objects.select_for_update().get(pk=event.pk)
@@ -138,9 +145,6 @@ def bulk_import_participants(
         # fresh isolated account); there is no transient INVITED state.
         for name, email in importable:
             created.append(provision_participant_seat(event, email=email, name=name))
-        if created:
-            transaction.on_commit(lambda: request_event_provisioning(event.pk, source="participant_accounts"))
-
     logger.info(
         "Bulk imported %d participants to event %s (%d rows skipped)",
         len(created),

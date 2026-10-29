@@ -3,7 +3,6 @@ import { Link } from "react-router";
 import { Plus } from "lucide-react";
 
 import { useCtfEvents } from "@/api/ctfAdmin";
-import type { CtfEventSummary } from "@/api/types";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -15,8 +14,6 @@ import { cn } from "@/lib/utils";
 
 import { formatDateTime, titleCase } from "../format";
 import { ctfAdminCommunicationsPath, ctfAdminEventCreatePath, ctfAdminEventPath, ctfAdminEventsPath } from "../routes";
-
-const ACTIVE_STATUSES = new Set(["registration", "active", "paused"]);
 
 function DashboardBody({ query }: Readonly<{ query: ReturnType<typeof useCtfEvents> }>) {
   if (query.isLoading) {
@@ -54,14 +51,12 @@ function DashboardBody({ query }: Readonly<{ query: ReturnType<typeof useCtfEven
     );
   }
 
-  const active = events.filter((event: CtfEventSummary) => ACTIVE_STATUSES.has(event.status));
-
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-3">
-        <SummaryTile label="Total events" value={events.length} />
-        <SummaryTile label="Active / open" value={active.length} />
-        <SummaryTile label="Team-mode events" value={events.filter((event) => event.team_mode).length} />
+        <SummaryTile label="Total events" value={query.data?.count ?? 0} />
+        <SummaryTile label="Active / open" value={query.data?.active_count ?? 0} />
+        <SummaryTile label="Team-mode events" value={query.data?.team_mode_count ?? 0} />
       </div>
       <Card className="overflow-hidden py-0">
         <Table>

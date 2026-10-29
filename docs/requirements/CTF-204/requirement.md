@@ -22,4 +22,4 @@ Awards enable organizers to recognize exceptional behavior (creative solutions, 
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/submission.py` (CTFAward award and bonus points model)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#642` (CTF-204: Awards/Bonus Points)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#642` (CTF-204: Awards/Bonus Points)

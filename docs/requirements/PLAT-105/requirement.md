@@ -21,17 +21,17 @@ Multiple platform features need real-time push to browsers, range status updates
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#679` (PLAT-105: WebSocket Notification Infrastructure)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#679` (PLAT-105: WebSocket Notification Infrastructure)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/notifications.py` (Shared WebSocket notification registry and publisher)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/consumers.py` (Shared authenticated notification WebSocket consumer)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/models.py` (Durable WebSocket notification queue model)
 - TESTS → TEST `shifter/shifter_platform/tests/shared/test_notifications.py` (Shared notification registry and queue tests)
 - TESTS → TEST `shifter/shifter_platform/tests/shared/test_notification_consumer.py` (Shared notification WebSocket consumer tests)
-- IMPLEMENTS → PULL_REQUEST `Brad-Edwards/shifter#861` (Add shared WebSocket notifications)
+- IMPLEMENTS → PULL_REQUEST `Brad-Edwards/bigrae#861` (Add shared WebSocket notifications)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/routing.py` (Shared notification WebSocket route)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/config/asgi.py` (ASGI WebSocket routing integration)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/management/commands/prune_notifications.py` (Notification queue pruning command)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/migrations/0001_initial.py` (WebSocket notification database migration)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/channels/groups.py` (Shared notification channel group helpers)
 - IMPLEMENTS → CONFIG `shifter/shifter_platform/config/settings.py` (Django Channels notification configuration)
-- VERIFIES → PULL_REQUEST `Brad-Edwards/shifter#866` (Follow up websocket notification Sonar coverage)
+- VERIFIES → PULL_REQUEST `Brad-Edwards/bigrae#866` (Follow up websocket notification Sonar coverage)

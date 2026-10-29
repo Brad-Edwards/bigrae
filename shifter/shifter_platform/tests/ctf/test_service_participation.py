@@ -7,18 +7,19 @@ import pytest
 
 from management.services import create_service_principal
 from shared.authorization import AuthorizationDecision, CredentialCeiling, DecisionKind
-from shared.credentials import CredentialContext
 
 
 @pytest.mark.django_db
-def test_temporary_resolver_confines_canonical_authorization_to_its_event(ctf_event_active, monkeypatch):
+def test_temporary_resolver_confines_canonical_authorization_to_its_event(
+    ctf_event_active, organizer_credential, monkeypatch
+):
     from config.credential_scope import temporary_participant_credential
     from ctf.services.participant.accounts import create_participant_accounts
     from shared.authorization import AuthorizationContractError, AuthorizationRequest, TargetRef
     from shared.identity_scope import ResourceScope
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.pk, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.pk, count=1, actor=organizer_credential)[0]
     credential = temporary_participant_credential(participant.user)
     target = TargetRef("event", participant.event_id)
     scope = ResourceScope("account", account_uuid=uuid4())
@@ -38,47 +39,43 @@ def test_temporary_resolver_confines_canonical_authorization_to_its_event(ctf_ev
 @pytest.mark.django_db
 @pytest.mark.parametrize("ineligible", [{"status": "banned"}, {"status": "disqualified"}, {"registered_at": None}])
 def test_service_participation_is_independent_and_obeys_live_event(
-    ctf_event_active, monkeypatch, django_user_model, ineligible
+    ctf_event_active, monkeypatch, django_user_model, ineligible, settings
 ):
-    from ctf.services import admit_service_participant, participant_for_credential
-    from management.services import principal_for_user
-    from shared.authorization import port
-    from workspaces.services import create_account
-
-    account = create_account(
-        kind="individual", name="Synthetic QA account", owner=principal_for_user(ctf_event_active.created_by)
-    )
     from ctf.models import CTFEvent
+    from ctf.services import admit_service_participant, participant_for_credential
+    from shared.authorization import port
 
     ctf_event_active = CTFEvent.objects.create(
         name="Synthetic QA event",
         created_by=ctf_event_active.created_by,
         scope_kind="account",
-        account_id=account.id,
+        account_id=ctf_event_active.account_id,
         status="active",
         scenario_id="synthetic",
         event_start=ctf_event_active.event_start,
         event_end=ctf_event_active.event_end,
     )
-    operator = create_service_principal("operator")
-    service = create_service_principal("qa")
-    actor = CredentialContext(
-        operator, "service", uuid4(), CredentialCeiling(frozenset({"event.manage_participants"})), frozenset()
+    from dataclasses import replace
+
+    from tests.cms._warm_pool_fixtures import service_credential
+
+    administrator_with_play_ceiling = service_credential(
+        settings,
+        scopes=[
+            "authorization:event.manage_participants",
+            "authorization:event.participate",
+        ],
     )
-    credential = CredentialContext(
-        service, "service", uuid4(), CredentialCeiling(frozenset({"event.participate"})), frozenset()
+    operator = administrator_with_play_ceiling.principal
+    actor = replace(
+        administrator_with_play_ceiling, ceiling=CredentialCeiling(frozenset({"event.manage_participants"}))
     )
+    credential = service_credential(settings, scopes=["authorization:event.participate"])
+    service = credential.principal
     monkeypatch.setattr(
         port,
         "_provider_factory",
         lambda: SimpleNamespace(check=lambda request: AuthorizationDecision(DecisionKind.ALLOWED, "policy_allowed")),
-    )
-    administrator_with_play_ceiling = CredentialContext(
-        operator,
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"event.manage_participants", "event.participate"})),
-        frozenset(),
     )
     with pytest.raises(ValueError, match="Participation denied"):
         participant_for_credential(administrator_with_play_ceiling, ctf_event_active.pk)
@@ -131,18 +128,13 @@ def test_native_service_can_be_admitted_and_read_its_participant_projection_via_
     from ctf.models import CTFEvent, CTFParticipant
     from management import services
     from management.models import Principal, ProviderBinding, ServiceCredentialAdmission
-    from management.services import principal_for_user
     from shared.authorization import port
-    from workspaces.services import create_account
 
-    account = create_account(
-        kind="individual", name="QA account", owner=principal_for_user(ctf_event_active.created_by)
-    )
     event = CTFEvent.objects.create(
         name="QA event",
         created_by=ctf_event_active.created_by,
         scope_kind="account",
-        account_id=account.id,
+        account_id=ctf_event_active.account_id,
         status="active",
         scenario_id="synthetic",
         event_start=ctf_event_active.event_start,
@@ -184,7 +176,7 @@ def test_native_service_can_be_admitted_and_read_its_participant_projection_via_
     ServiceCredentialAdmission.objects.create(
         binding=ProviderBinding.objects.get(principal__uuid=service.uuid),
         audience=settings.GCP_SERVICE_TOKEN_AUDIENCE,
-        scopes=["authorization:event.participate"],
+        scopes=["authorization:event.participate", "ctf:play:read"],
     )
     claims = {
         "iss": "https://accounts.google.com",
@@ -222,3 +214,54 @@ def test_native_service_can_be_admitted_and_read_its_participant_projection_via_
     assert client.get(path).status_code == 403
     Principal.objects.filter(uuid=service.uuid).update(is_active=False)
     assert client.get(path).status_code == 401
+
+
+@pytest.mark.parametrize("method", ["post", "delete"])
+def test_read_only_service_http_proof_cannot_mutate_webhooks(ctf_event, settings, monkeypatch, method):
+    from uuid import uuid4
+
+    from rest_framework.test import APIClient
+
+    from config import service_identity
+    from management.models import Principal, ProviderBinding, ServiceCredentialAdmission
+    from shared.authorization import (
+        AdministrativeRoleChange,
+        PolicyEffect,
+        RelationshipSubject,
+        TargetRef,
+        configured_authorization_provider,
+    )
+
+    settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+    principal = Principal.objects.create(kind="service", name="Synthetic communication reader")
+    subject = "123456789012345678902"
+    binding = ProviderBinding.objects.create(principal=principal, issuer="https://accounts.google.com", subject=subject)
+    ServiceCredentialAdmission.objects.create(
+        binding=binding,
+        audience=settings.GCP_SERVICE_TOKEN_AUDIENCE,
+        scopes=["ctf:communication:read", "authorization:event.manage_communications"],
+    )
+    configured_authorization_provider().write_relationships(
+        AdministrativeRoleChange(
+            RelationshipSubject("principal", principal.uuid),
+            "event_administrator",
+            TargetRef("event", ctf_event.pk),
+            PolicyEffect.GRANT,
+        )
+    )
+    monkeypatch.setattr(
+        service_identity.id_token,
+        "verify_oauth2_token",
+        lambda *args, **kwargs: {
+            "iss": "https://accounts.google.com",
+            "aud": settings.GCP_SERVICE_TOKEN_AUDIENCE,
+            "sub": subject,
+            "email": "synthetic-reader@project.iam.gserviceaccount.com",
+            "email_verified": True,
+        },
+    )
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION="Bearer header.payload.signature")
+    url = f"/api/v1/ctf/events/{ctf_event.pk}/webhooks/" if method == "post" else f"/api/v1/ctf/webhooks/{uuid4()}/"
+    response = getattr(client, method)(url, {}, format="json")
+    assert response.status_code == 403

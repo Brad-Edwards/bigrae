@@ -21,4 +21,4 @@ Event-scoped supporting services need an installation lifecycle alongside partic
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#669` (CTF-909: Event-Specific Asset Deployment)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#669` (CTF-909: Event-Specific Asset Deployment)

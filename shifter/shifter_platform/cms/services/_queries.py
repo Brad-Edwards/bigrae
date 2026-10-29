@@ -12,6 +12,8 @@ from cms.models import RangeInstance
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
 
+    from shared.credentials import CredentialContext
+
 
 def get_range_status_by_id(range_instance_id: int) -> str:
     """Get the current status of a RangeInstance by its PK.
@@ -112,6 +114,53 @@ def get_range_target_instances(user: User) -> list[dict[str, str]]:
     return targets
 
 
+def get_principal_range_target_instances(credential: CredentialContext, range_instance_id: int) -> list[dict[str, str]]:
+    """Return targets for the exact assigned, principal-owned ready CTF range."""
+    from engine.services import get_principal_ready_range_instances
+    from shared.credentials import resolve_current_credential
+    from shared.enums import RangeSource, ResourceStatus
+
+    from ._unified_authorization import _range_binding, require_range_action
+
+    current = resolve_current_credential(credential)
+    cms_range = (
+        RangeInstance.objects.filter(
+            pk=range_instance_id,
+            owner_principal_uuid=current.principal.uuid,
+            range_source=RangeSource.CTF.value,
+            status=ResourceStatus.READY.value,
+            request__isnull=False,
+        )
+        .select_related("request")
+        .first()
+    )
+    if cms_range is None or cms_range.request is None:
+        return []
+    if current.kind == "temporary":
+        from shared.range_workspace_aggregate import require_range_vpn_participation
+
+        # The aggregate-owned participation resolver proves the live exact
+        # assignment; it does not require a VPN channel or widen the ceiling.
+        try:
+            bound, _scope, parent = _range_binding(cms_range.uuid)
+            if bound.pk != cms_range.pk or parent.type != "event":
+                raise ValueError("Range unavailable")
+            require_range_vpn_participation(current, cms_range.request.request_id, parent.uuid)
+        except Exception:
+            raise CMSError("Range unavailable") from None
+    else:
+        require_range_action(current, cms_range.uuid, "range.access")
+    instances = list(
+        get_principal_ready_range_instances(
+            current.principal.uuid,
+            request_id=cms_range.request.request_id,
+            cms_range_uuid=cms_range.uuid,
+            workspace_id=cms_range.workspace_id,
+        )
+    )
+    return _select_participant_targets(instances)
+
+
 def _select_participant_targets(instances: list[dict[str, str]]) -> list[dict[str, str]]:
     """Select explicitly accessible targets, preserving legacy fallbacks."""
     declared_targets = [inst for inst in instances if _has_participant_access_channel(inst)]
@@ -144,3 +193,22 @@ def _is_aws_open_access_attacker(instance: Mapping[str, object]) -> bool:
         and instance["participant_access_channels"] is None
         and instance.get("role") == "attacker"
     )
+
+
+def is_event_range_cleanup_verified_absent(event_uuid: UUID, range_instance_id: int, request_id: UUID) -> bool:
+    """Read exact accepted old-generation cleanup, never a bare destroyed flag."""
+    from engine.services import is_range_generation_cleanup_verified_absent
+
+    from ._unified_authorization import _range_binding
+
+    candidate = RangeInstance.all_objects.filter(
+        pk=range_instance_id, event_uuid=event_uuid, request__request_id=request_id, status="destroyed"
+    ).first()
+    if candidate is None or candidate.range_id is None:
+        return False
+    try:
+        bound, _scope, parent = _range_binding(candidate.uuid, include_terminal=True)
+    except ValueError:
+        return False
+    exact_event = parent.type == "event" and parent.uuid == event_uuid and bound.pk == range_instance_id
+    return exact_event and is_range_generation_cleanup_verified_absent(request_id, candidate.uuid, candidate.range_id)

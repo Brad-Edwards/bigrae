@@ -39,7 +39,70 @@ def _clear_login_rate_limit_cache():
     caches["launch_rate_limit"].clear()
 
 
-def test_account_creation_never_reuses_platform_user_by_email(ctf_event, standard_user, monkeypatch):
+@pytest.mark.parametrize("failure", ["revoked", "read_only", "foreign"])
+def test_generated_seats_require_current_participant_management_authority(
+    ctf_event, organizer_credential, standard_user, live_session_credential, failure
+):
+    from dataclasses import replace
+
+    from ctf.exceptions import CTFPermissionError
+    from ctf.models import CTFParticipant
+    from management.models import PrincipalSession
+    from shared.authorization import CredentialCeiling
+
+    actor = organizer_credential
+    if failure == "revoked":
+        PrincipalSession.objects.filter(credential_uuid=actor.credential_uuid).delete()
+    elif failure == "read_only":
+        actor = replace(actor, ceiling=CredentialCeiling(frozenset({"event.read"})))
+    else:
+        actor = live_session_credential(standard_user)
+    users_before = User.objects.count()
+    with pytest.raises(CTFPermissionError):
+        create_participant_accounts(ctf_event.pk, count=1, actor=actor)
+    assert User.objects.count() == users_before
+    assert not CTFParticipant.objects.filter(event=ctf_event).exists()
+
+
+@pytest.mark.parametrize("task_status", ["pending", "running"])
+@pytest.mark.parametrize("admission", ["single", "bulk", "generated"])
+def test_admission_defers_provisioning_owned_by_another_credential(
+    ctf_event, organizer_credential, task_status, admission
+):
+    from uuid import uuid4
+
+    from ctf.enums import ScheduledTaskType
+    from ctf.models import CTFScheduledTask
+    from shared.operation_authority import credential_reference_fields
+
+    fields = credential_reference_fields(organizer_credential)
+    fields["credential_uuid"] = uuid4()
+    task = CTFScheduledTask.objects.create(
+        event=ctf_event,
+        task_type=ScheduledTaskType.SPIN_UP_RANGES.value,
+        status=task_status,
+        scheduled_for=timezone.now(),
+        **fields,
+    )
+    original = {key: getattr(task, key) for key in fields}
+    if admission == "single":
+        created = [add_participant(ctf_event.pk, "", "New seat", actor=organizer_credential)]
+    elif admission == "bulk":
+        created = bulk_import_participants(ctf_event.pk, "name,email\nNew seat,\n", actor=organizer_credential)[
+            "created"
+        ]
+    else:
+        created = create_participant_accounts(ctf_event.pk, count=1, actor=organizer_credential)
+    assert len(created) == 1
+    task.refresh_from_db()
+    assert {key: getattr(task, key) for key in fields} == original
+    assert task.status == task_status
+    assert CTFScheduledTask.objects.filter(event=ctf_event, task_type=task.task_type).count() == 1
+
+
+def test_account_creation_never_reuses_platform_user_by_email(
+    ctf_event, standard_user, organizer_credential, monkeypatch
+):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
 
     participants = create_participant_accounts(
@@ -47,6 +110,7 @@ def test_account_creation_never_reuses_platform_user_by_email(ctf_event, standar
         count=1,
         email=standard_user.email,
         display_name="CTF Seat",
+        actor=organizer_credential,
     )
 
     participant = participants[0]
@@ -56,10 +120,10 @@ def test_account_creation_never_reuses_platform_user_by_email(ctf_event, standar
     assert participant.user.check_password(TEST_CTF_BOOTSTRAP_PASSWORD)
 
 
-def test_account_creation_marks_low_privilege_force_change_account(ctf_event, monkeypatch):
+def test_account_creation_marks_low_privilege_force_change_account(ctf_event, organizer_credential, monkeypatch):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
 
-    participant = create_participant_accounts(ctf_event.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event.id, count=1, actor=organizer_credential)[0]
     profile = get_user_profile(participant.user)
 
     assert participant.email == ""
@@ -83,9 +147,9 @@ def test_ctf_login_rejects_platform_accounts(client, standard_user):
     assert "_auth_user_id" not in client.session
 
 
-def test_ctf_login_forces_password_change(client, ctf_event_active, monkeypatch):
+def test_ctf_login_forces_password_change(client, ctf_event_active, organizer_credential, monkeypatch):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
 
     response = client.post(
         reverse("ctf:ctf_login"),
@@ -97,22 +161,22 @@ def test_ctf_login_forces_password_change(client, ctf_event_active, monkeypatch)
     assert str(participant.user_id) == client.session["_auth_user_id"]
 
 
-def test_organizer_can_rename_participant_username(ctf_event, organizer_user, monkeypatch):
+def test_organizer_can_rename_participant_username(ctf_event, organizer_user, organizer_credential, monkeypatch):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event.id, count=1, actor=organizer_credential)[0]
 
-    rename_participant_username(participant.id, "range-blue-team", actor=organizer_user)
+    rename_participant_username(participant.id, "range-blue-team", actor=organizer_credential)
 
     participant.user.refresh_from_db()
     assert participant.user.username == "range-blue-team"
     assert not User.objects.filter(username__iexact="range-blue-team").exclude(pk=participant.user_id).exists()
 
 
-def test_ctf_account_boundary_denies_non_participant_surface(ctf_event_active, monkeypatch):
+def test_ctf_account_boundary_denies_non_participant_surface(ctf_event_active, organizer_credential, monkeypatch):
     from config.middleware import CTFAccountBoundaryMiddleware
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     request = RequestFactory().get("/mission-control/")
     request.user = participant.user
 
@@ -122,11 +186,11 @@ def test_ctf_account_boundary_denies_non_participant_surface(ctf_event_active, m
     assert response.content == b"Forbidden"
 
 
-def test_force_change_boundary_redirects_before_ctf_surface(ctf_event_active, monkeypatch):
+def test_force_change_boundary_redirects_before_ctf_surface(ctf_event_active, organizer_credential, monkeypatch):
     from config.middleware import CTFAccountBoundaryMiddleware
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     request = RequestFactory().get("/ctf/range/")
     request.user = participant.user
 
@@ -145,14 +209,16 @@ def _boundary_response(user, path):
     return CTFAccountBoundaryMiddleware(lambda _request: HttpResponse("escaped"))(request)
 
 
-def test_ctf_boundary_admits_live_participant_spa_bootstrap_and_range_access(ctf_event_active, monkeypatch):
+def test_ctf_boundary_admits_live_participant_spa_bootstrap_and_range_access(
+    ctf_event_active, organizer_credential, monkeypatch
+):
     # Issue #1740: a live participant must reach the Mission Control Guacamole
     # range-access surfaces (terminal page + RDP/SSH bootstrap + status/open)
     # for their own box.
     from management.services import set_ctf_password_change_required
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     # Simulate the post-first-login state so the boundary evaluates the surface
     # rule rather than the forced-password-change redirect.
     set_ctf_password_change_required(participant.user, False)
@@ -192,29 +258,70 @@ def _websocket_boundary_messages(user, path):
     return downstream_calls, messages
 
 
-def test_socket_revalidation_closes_a_banned_participants_open_socket(ctf_event_active, monkeypatch):
+@pytest.mark.django_db(transaction=True)
+def test_socket_revalidation_closes_a_banned_participants_open_socket(
+    ctf_event_active, organizer_credential, monkeypatch
+):
     """A ban ends authority on the next socket revalidation, not only on reconnect (#2617)."""
+    from channels.db import database_sync_to_async
+    from channels.testing import ApplicationCommunicator
+    from django.test import Client
+
+    from config.session_credentials import session_credential
     from config.socket_authority import authorize_socket_resource
+    from config.websocket_auth import CredentialSessionWebSocketBoundary
     from ctf.services.participant.moderation import ban_participant
     from management.services import set_ctf_password_change_required
+    from shared.enums import WebSocketCloseCode
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     set_ctf_password_change_required(participant.user, False)
-    scope = {"user": User.objects.get(pk=participant.user_id), "path": "/ws/notifications/"}
+    browser = Client()
+    response = browser.post(
+        reverse("ctf:ctf_login"),
+        {"username": participant.user.username, "password": TEST_CTF_BOOTSTRAP_PASSWORD},
+    )
+    assert response.status_code == 302
+    session = browser.session
+    user = User.objects.get(pk=participant.user_id)
+    credential = session_credential(user, session)
+    assert credential.kind == "temporary" and credential.event_uuid == ctf_event_active.pk
+    scope = {"user": user, "session": session, "credential_context": credential, "path": "/ws/notifications/"}
     assert authorize_socket_resource(scope) is True
+    disconnected = []
 
-    ban_participant(participant.id, reason="synthetic")
+    async def application(scope, receive, send):
+        assert (await receive())["type"] == "websocket.connect"
+        await send({"type": "websocket.accept"})
+        disconnected.append(await receive())
 
-    assert authorize_socket_resource({**scope, "user": User.objects.get(pk=participant.user_id)}) is False
+    async def open_and_ban():
+        boundary = CredentialSessionWebSocketBoundary(application, recheck_seconds=0.02)
+        communicator = ApplicationCommunicator(boundary, scope)
+        try:
+            await communicator.send_input({"type": "websocket.connect"})
+            assert await communicator.receive_output(timeout=5) == {"type": "websocket.accept"}
+            await database_sync_to_async(ban_participant)(participant.pk, reason="synthetic")
+            assert await communicator.receive_output(timeout=5) == {
+                "type": "websocket.close",
+                "code": WebSocketCloseCode.NOT_AUTHENTICATED,
+            }
+            await communicator.wait(timeout=5)
+        finally:
+            communicator.stop()
+
+    asyncio.run(open_and_ban())
+    assert disconnected == [{"type": "websocket.disconnect", "code": WebSocketCloseCode.NOT_AUTHENTICATED}]
+    assert authorize_socket_resource(scope) is False
 
 
 @pytest.mark.django_db(transaction=True)
-def test_ctf_websocket_boundary_admits_live_participant_terminal(ctf_event_active, monkeypatch):
+def test_ctf_websocket_boundary_admits_live_participant_terminal(ctf_event_active, organizer_credential, monkeypatch):
     from management.services import set_ctf_password_change_required
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     set_ctf_password_change_required(participant.user, False)
 
     calls, messages = _websocket_boundary_messages(
@@ -227,11 +334,13 @@ def test_ctf_websocket_boundary_admits_live_participant_terminal(ctf_event_activ
 
 
 @pytest.mark.django_db(transaction=True)
-def test_ctf_websocket_boundary_admits_live_participant_raes_terminal(ctf_event_active, monkeypatch):
+def test_ctf_websocket_boundary_admits_live_participant_raes_terminal(
+    ctf_event_active, organizer_credential, monkeypatch
+):
     from management.services import set_ctf_password_change_required
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     set_ctf_password_change_required(participant.user, False)
 
     path = "/ws/terminal/provision.node.attack-workstation#0/"
@@ -242,11 +351,11 @@ def test_ctf_websocket_boundary_admits_live_participant_raes_terminal(ctf_event_
 
 
 @pytest.mark.django_db(transaction=True)
-def test_ctf_websocket_boundary_denies_other_platform_socket(ctf_event_active, monkeypatch):
+def test_ctf_websocket_boundary_denies_other_platform_socket(ctf_event_active, organizer_credential, monkeypatch):
     from management.services import set_ctf_password_change_required
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     set_ctf_password_change_required(participant.user, False)
 
     calls, messages = _websocket_boundary_messages(
@@ -259,9 +368,11 @@ def test_ctf_websocket_boundary_denies_other_platform_socket(ctf_event_active, m
 
 
 @pytest.mark.django_db(transaction=True)
-def test_ctf_websocket_boundary_denies_terminal_before_password_change(ctf_event_active, monkeypatch):
+def test_ctf_websocket_boundary_denies_terminal_before_password_change(
+    ctf_event_active, organizer_credential, monkeypatch
+):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
 
     calls, messages = _websocket_boundary_messages(
         User.objects.get(pk=participant.user_id),
@@ -272,11 +383,11 @@ def test_ctf_websocket_boundary_denies_terminal_before_password_change(ctf_event
     assert messages == [{"type": "websocket.close", "code": 4403}]
 
 
-def test_live_participant_can_load_real_spa_bootstrap(client, ctf_event_active, monkeypatch):
+def test_live_participant_can_load_real_spa_bootstrap(client, ctf_event_active, organizer_credential, monkeypatch):
     from management.services import set_ctf_password_change_required
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     set_ctf_password_change_required(participant.user, False)
     client.force_login(participant.user)
 
@@ -289,13 +400,13 @@ def test_live_participant_can_load_real_spa_bootstrap(client, ctf_event_active, 
     assert payload["modes"] == {"participant": True, "operator": False, "default": "participant"}
 
 
-def test_ctf_boundary_still_denies_non_guacamole_mission_control(ctf_event_active, monkeypatch):
+def test_ctf_boundary_still_denies_non_guacamole_mission_control(ctf_event_active, organizer_credential, monkeypatch):
     # The exception is narrow: NGFW, range lifecycle, credentials, and the
     # rest of Mission Control stay blocked for temporary accounts (issue #1740).
     from management.services import set_ctf_password_change_required
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     set_ctf_password_change_required(participant.user, False)
     user = User.objects.get(pk=participant.user_id)
 
@@ -309,30 +420,33 @@ def test_ctf_boundary_still_denies_non_guacamole_mission_control(ctf_event_activ
     ):
         response = _boundary_response(user, path)
         assert response.status_code == 403, path
-        assert response.content == b"Forbidden", path
+        if path.startswith("/api/"):
+            assert response.content == b'{"error": {"code": "permission_denied", "message": "Permission denied"}}', path
+        else:
+            assert response.content == b"Forbidden", path
 
 
-def test_ctf_boundary_denies_guacamole_for_non_live_participant(ctf_event, monkeypatch):
+def test_ctf_boundary_denies_guacamole_for_non_live_participant(ctf_event, organizer_credential, monkeypatch):
     # The live-participant gate still applies to the guacamole prefix: a temporary
     # account with no live participation (event not active) is denied (issue #1740).
     from management.services import set_ctf_password_change_required
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event.id, count=1, actor=organizer_credential)[0]
     set_ctf_password_change_required(participant.user, False)
     user = User.objects.get(pk=participant.user_id)
 
     response = _boundary_response(user, "/api/v1/mission-control/guacamole/rdp-url/")
 
     assert response.status_code == 403
-    assert response.content == b"Forbidden"
+    assert response.content == b'{"error": {"code": "permission_denied", "message": "Permission denied"}}'
 
 
-def test_platform_password_backend_rejects_ctf_credentials(ctf_event_active, monkeypatch):
+def test_platform_password_backend_rejects_ctf_credentials(ctf_event_active, organizer_credential, monkeypatch):
     from config.auth import PlatformModelBackend
 
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
 
     authenticated = PlatformModelBackend().authenticate(
         None,
@@ -343,7 +457,7 @@ def test_platform_password_backend_rejects_ctf_credentials(ctf_event_active, mon
     assert authenticated is None
 
 
-def test_single_invite_accepts_no_email_and_creates_isolated_account(ctf_event, monkeypatch):
+def test_single_invite_accepts_no_email_and_creates_isolated_account(ctf_event, organizer_credential, monkeypatch):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
     ctf_event.participant_password_override = ""
     ctf_event.save(update_fields=["participant_password_override", "updated_at"])
@@ -352,7 +466,7 @@ def test_single_invite_accepts_no_email_and_creates_isolated_account(ctf_event, 
         lambda *, user=None: "Generated-Invite-Password-42",
     )
 
-    participant = add_participant(ctf_event.id, "", "Walk-in")
+    participant = add_participant(ctf_event.id, "", "Walk-in", actor=organizer_credential)
 
     assert participant.email == ""
     assert participant.user is not None
@@ -370,11 +484,11 @@ class TestImmediateSeatProvisioning:
             lambda *_a, **_kw: None,
         )
 
-    def test_single_add_lands_registered_with_account(self, ctf_event, monkeypatch):
+    def test_single_add_lands_registered_with_account(self, ctf_event, organizer_credential, monkeypatch):
         """A single organizer add returns a registered participation with a linked isolated account."""
         self._stub_provisioning(monkeypatch)
 
-        participant = add_participant(ctf_event.id, "solo@example.test", "Solo")
+        participant = add_participant(ctf_event.id, "solo@example.test", "Solo", actor=organizer_credential)
 
         assert participant.status == ParticipantStatus.REGISTERED.value
         assert participant.user is not None
@@ -382,11 +496,15 @@ class TestImmediateSeatProvisioning:
         # Provisioned, not invited: login-info delivery does not happen at creation.
         assert participant.login_info_sent_at is None
 
-    def test_bulk_import_lands_registered_with_accounts(self, ctf_event, monkeypatch):
+    def test_bulk_import_lands_registered_with_accounts(self, ctf_event, organizer_credential, monkeypatch):
         """Every CSV-imported row is provisioned and registered, never left invited."""
         self._stub_provisioning(monkeypatch)
 
-        result = bulk_import_participants(ctf_event.id, "Ann,ann@example.test\nBob,bob@example.test")
+        result = bulk_import_participants(
+            ctf_event.id,
+            "Ann,ann@example.test\nBob,bob@example.test",
+            actor=organizer_credential,
+        )
 
         assert len(result["created"]) == 2
         for participant in result["created"]:
@@ -394,42 +512,42 @@ class TestImmediateSeatProvisioning:
             assert participant.user is not None
             assert participant.registered_at is not None
 
-    def test_generated_seats_land_registered_with_accounts(self, ctf_event, monkeypatch):
+    def test_generated_seats_land_registered_with_accounts(self, ctf_event, organizer_credential, monkeypatch):
         """Count-provisioned seats are registered with isolated accounts."""
         self._stub_provisioning(monkeypatch)
 
-        created = create_participant_accounts(ctf_event.id, count=3)
+        created = create_participant_accounts(ctf_event.id, count=3, actor=organizer_credential)
 
         assert len(created) == 3
         for participant in created:
             assert participant.status == ParticipantStatus.REGISTERED.value
             assert participant.user is not None
 
-    def test_every_organizer_path_lands_registered(self, ctf_event, monkeypatch):
+    def test_every_organizer_path_lands_registered(self, ctf_event, organizer_credential, monkeypatch):
         """Every organizer creation path yields a registered participation and no other status."""
         self._stub_provisioning(monkeypatch)
 
-        add_participant(ctf_event.id, "a@example.test", "A")
-        bulk_import_participants(ctf_event.id, "B,b@example.test")
-        create_participant_accounts(ctf_event.id, count=1)
+        add_participant(ctf_event.id, "a@example.test", "A", actor=organizer_credential)
+        bulk_import_participants(ctf_event.id, "B,b@example.test", actor=organizer_credential)
+        create_participant_accounts(ctf_event.id, count=1, actor=organizer_credential)
 
         statuses = set(ctf_event.participants.values_list("status", flat=True))
         assert statuses == {ParticipantStatus.REGISTERED.value}
 
 
-def test_delivery_email_unique_per_event_not_global(ctf_event, ctf_event_active, monkeypatch):
+def test_delivery_email_unique_per_event_not_global(ctf_event, ctf_event_active, organizer_credential, monkeypatch):
     """CTF-601: one email per event; email still isn't a global identity key."""
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
 
-    first = add_participant(ctf_event.id, "shared@example.test", "First")
+    first = add_participant(ctf_event.id, "shared@example.test", "First", actor=organizer_credential)
     with pytest.raises(CTFValidationError):
-        add_participant(ctf_event.id, "shared@example.test", "Second")
-    other_event = add_participant(ctf_event_active.id, "shared@example.test", "Elsewhere")
+        add_participant(ctf_event.id, "shared@example.test", "Second", actor=organizer_credential)
+    other_event = add_participant(ctf_event_active.id, "shared@example.test", "Elsewhere", actor=organizer_credential)
 
     assert first.user_id != other_event.user_id
 
 
-def test_legacy_resend_is_retired_without_mutating_password(ctf_event, monkeypatch):
+def test_legacy_resend_is_retired_without_mutating_password(ctf_event, organizer_credential, monkeypatch):
     from ctf.exceptions import CTFCommunicationError
     from ctf.models import CommunicationIntent, MessageRevision
 
@@ -438,6 +556,7 @@ def test_legacy_resend_is_retired_without_mutating_password(ctf_event, monkeypat
         ctf_event.id,
         count=1,
         email="delivery@example.test",
+        actor=organizer_credential,
     )[0]
     participant.user.set_password("PrivateChangedPassword-42")
     participant.user.save(update_fields=["password"])
@@ -457,10 +576,12 @@ def test_legacy_resend_is_retired_without_mutating_password(ctf_event, monkeypat
     assert not MessageRevision.objects.exists()
 
 
-def test_disqualification_keeps_account_live_for_view_access(ctf_event, monkeypatch):
+def test_disqualification_keeps_account_live_for_view_access(ctf_event, organizer_credential, monkeypatch):
     """CTF-609: disqualification records a reason and keeps login intact (view-only access)."""
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event.id, count=1, email="private@example.test")[0]
+    participant = create_participant_accounts(
+        ctf_event.id, count=1, email="private@example.test", actor=organizer_credential
+    )[0]
 
     disqualify_participant(participant.id, "rules")
 
@@ -474,9 +595,9 @@ def test_disqualification_keeps_account_live_for_view_access(ctf_event, monkeypa
     assert profile.anonymized_at is None
 
 
-def test_post_event_retention_purge_anonymizes_accounts(ctf_event_active, monkeypatch, settings):
+def test_post_event_retention_purge_anonymizes_accounts(ctf_event_active, organizer_credential, monkeypatch, settings):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
-    participant = create_participant_accounts(ctf_event_active.id, count=1)[0]
+    participant = create_participant_accounts(ctf_event_active.id, count=1, actor=organizer_credential)[0]
     ctf_event_active.event_start = timezone.now() - timedelta(hours=2)
     ctf_event_active.event_end = timezone.now() - timedelta(hours=1)
     ctf_event_active.save(update_fields=["event_start", "event_end", "updated_at"])
@@ -559,10 +680,16 @@ def test_live_temporary_account_notification_socket_is_exact_and_password_gated(
 
 
 @pytest.mark.parametrize("handle", ["blue-team", "red01", "ctf-operator", "player-7", "team_01"])
-def test_user_chosen_username_without_range_prefix_is_accepted(ctf_event, monkeypatch, handle):
+def test_user_chosen_username_without_range_prefix_is_accepted(ctf_event, organizer_credential, monkeypatch, handle):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
 
-    participant = add_participant(ctf_event.id, email="", name="ignored display", username=handle)
+    participant = add_participant(
+        ctf_event.id,
+        email="",
+        name="ignored display",
+        username=handle,
+        actor=organizer_credential,
+    )
 
     # The chosen handle is both the login username and the display name (one field).
     assert participant.user.username == handle
@@ -572,10 +699,10 @@ def test_user_chosen_username_without_range_prefix_is_accepted(ctf_event, monkey
     assert get_user_profile(participant.user).is_ctf_account is True
 
 
-def test_user_chosen_username_is_normalized_lowercase(ctf_event, monkeypatch):
+def test_user_chosen_username_is_normalized_lowercase(ctf_event, organizer_credential, monkeypatch):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
 
-    participant = add_participant(ctf_event.id, email="", name="x", username="MixedCase")
+    participant = add_participant(ctf_event.id, email="", name="x", username="MixedCase", actor=organizer_credential)
 
     assert participant.user.username == "mixedcase"
 
@@ -591,12 +718,18 @@ def test_email_disjoint_username_rejects_at_symbol():
         normalize_participant_username("someone@example.com")
 
 
-def test_duplicate_user_chosen_username_is_rejected(ctf_event, monkeypatch):
+def test_duplicate_user_chosen_username_is_rejected(ctf_event, organizer_credential, monkeypatch):
     monkeypatch.setattr("ctf.services.participant.accounts.request_event_provisioning", lambda *_a, **_kw: None)
 
-    add_participant(ctf_event.id, email="", name="x", username="duplicate-handle")
+    add_participant(ctf_event.id, email="", name="x", username="duplicate-handle", actor=organizer_credential)
     with pytest.raises(CTFValidationError) as exc:
-        add_participant(ctf_event.id, email="", name="y", username="duplicate-handle")
+        add_participant(
+            ctf_event.id,
+            email="",
+            name="y",
+            username="duplicate-handle",
+            actor=organizer_credential,
+        )
     assert exc.value.code == "CTF_DUPLICATE_USERNAME"
 
 

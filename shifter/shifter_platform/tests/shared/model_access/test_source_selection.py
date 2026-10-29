@@ -26,7 +26,6 @@ def source(project="models-example"):
             "input_price_per_million": 3_000_000,
             "output_price_per_million": 15_000_000,
             "price_valid_until": "2027-10-01T00:00:00Z",
-            "allow_organization_members": True,
         }
     )
 

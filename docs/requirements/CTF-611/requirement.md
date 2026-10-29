@@ -21,4 +21,4 @@ Extensible profile fields are a platform data model capability. CTF uses PLAT-10
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#659` (CTF-611: Custom Profile Fields)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#659` (CTF-611: Custom Profile Fields)

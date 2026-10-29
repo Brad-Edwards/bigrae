@@ -21,4 +21,4 @@ Organizers need a single pane of glass for managing CTF events. Without a dashbo
 
 ## Traceability
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#570` (CTF-1301: Organizer Dashboard)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#570` (CTF-1301: Organizer Dashboard)

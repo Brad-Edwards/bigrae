@@ -6,7 +6,7 @@ architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-26 against integration revision `5e3b4a470` and the deployment configuration cleanup.
+**Reviewed:** 2026-10-28 for the identity cutover and current development-branch integration.
 This describes source behavior, not a certificate of a live deployment.
 
 BigRAE is the current product name. Public BigRAE config, SDK, client and plugin
@@ -20,6 +20,9 @@ deployments exist, so no live cloud trust or workload migration is required. Plu
 remain isolated and receive one Secret-backed invocation input under either
 exact supported name. The source preparation does not change deployed resource
 names, authorization, internal imports, historical provenance or metric identity.
+The [identity and lifecycle contracts](shifter_platform/identity-lifecycle-contracts.md)
+define the DFDs, state transitions, failure recovery and lock order.
+The S8 proposal records integration corrections and verification limits.
 
 ## System context and trust boundaries
 
@@ -49,14 +52,49 @@ CMS services. Event membership, organization/workspace membership, range
 ownership, application administration and cloud administration remain distinct.
 
 [ADR-066](../adr/066-account-principal-resource-scope.md) defines Accounts,
-independent Principals and explicit ResourceScope. Its S1–S7 adapters are staged;
-S8 is the coordinated runtime cutover. Current human entry points retain their
-incumbent authority until activation; principal-owned entry points require live
-credentials. Do not infer multi-customer isolation or S8 activation from prepared
-code. [Content/range authority](shifter_platform/content-range-authority.md) and
+independent Principals and explicit ResourceScope. Issue #2321 implements S8 as
+one coordinated hard cut: referenced credentials and the pinned OpenFGA model
+become mandatory, retained SQL state is converted through owning-domain service
+facades, and runtime admission remains closed until the cutover journal reaches
+its verified terminal state. There is no legacy authorization fallback or mixed
+runtime mode. The one-time converter preserves stable resource identifiers,
+stops on ambiguous ownership/provider facts, verifies relationship readback,
+bootstraps one exact provider-bound administrator, and invalidates pre-cutover
+sessions and API tokens before activation. No live deployment currently exists,
+so repository and clean/legacy fixture evidence is not live-cloud acceptance.
+[Content/range authority](shifter_platform/content-range-authority.md) and
 [account administration](shifter_platform/account-administration.md) explain the
 implemented slices. ADR-054's dedicated-customer model is superseded by ADR-066;
 it is not the current target for all installations.
+
+Workspaces persists each new hierarchy parent edge before policy publication.
+Its bounded recovery command resumes the recorded intent without rebuilding
+objects. Integration discovery uses exact organization or installation actions
+and credential ceilings, independently of parent account-read permission.
+Management translates principal ownership into the stable user-selector
+references that Engine invalidates when a range moves. CTF keeps new events
+unavailable until their recorded model/content initialization commits; recovery
+revalidates the original credential and pinned content before completing it.
+Permanent event deletion commits native cleanup for each retained range before
+removing its aggregate records. Failed cleanup admission preserves those records.
+Owner-handoff recovery can read back its exact admitted revoke after the source
+loses administrative authority; it requires the original live credential and
+does not replay a provider write.
+
+CMS validates the complete event owner/action/target tuple before reserving a
+launch; non-event sources reject those fields. Engine separates current policy
+admission from local credential, ancestry and generation checks. Prepared first
+dispatch and replay lock ancestry before the native range, then recheck exact
+membership, custody and the retained creation receipt under the final locks.
+The domain authority boundaries remain stable while focused modules own policy reads, durable
+receipts, locked projections and cleanup. See the lifecycle contracts for their
+module responsibilities and recovery invariants.
+
+Private content images follow the same native policy boundary. Staff collection
+access requires exact challenge-management permission; participant access also
+requires current eligible participation and visible content. Provider failure
+cannot become a membership fallback, and normal HTTP caches must not retain
+protected image responses after permission changes.
 
 ## Deployables and cloud boundaries
 
@@ -124,10 +162,14 @@ profile. The admission policies pin that identity for the provisioner,
 preparation, and acquisition Jobs. The Cloud SQL proxy keeps its own 65532
 identity. The provisioner Job policy inlines the platform-runtime values as its
 parameters, because GKE 1.36 and EKS do not resolve ConfigMap parameters (#2633).
-The repository tests evaluate the admission policies with a Python
-CEL interpreter. For the provisioner Job policy, they evaluate the default inline
-parameters and the ConfigMap opt-out. They do not prove that a policy compiles on
-the Kubernetes API server. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
+The repository tests render deployment-owned runtime values into each supported
+policy form, then evaluate the unchanged CEL against valid and tampered Jobs.
+The expected configuration is independent of the submitted Job. The inline map
+must equal the runtime ConfigMap; the optional parameter reference must retain
+its namespace and deny-on-missing behavior. Tests cover both delivery forms,
+image-pin changes and native database sidecar restrictions. These Python CEL
+checks follow the [Kubernetes parameter and variable contracts](https://kubernetes.io/docs/reference/access-authn-authz/validating-admission-policy/).
+They do not prove that a policy compiles on the Kubernetes API server. Kubernetes Checkov is a blocking gate for the rendered Helm chart of
 each supported values file. A scoped waiver uses a chart template annotation
 with a matching `docs/adr/exceptions.yaml` entry (ADR-004-R11).
 
@@ -151,7 +193,7 @@ sequenceDiagram
     M->>E: Validated immutable intent through public facade
     E->>DB: Reserve generation, OperationInput and launch intent
     E->>P: Dispatch pinned command for operation UUID
-    P->>DB: Read exact input; append bounded result
+    P->>DB: Read exact input and append bounded result
     E->>DB: Validate result and atomically apply state, audit, outbox
     E->>Q: Drain committed outbox
     Q->>W: At-least-once event delivery
@@ -227,6 +269,13 @@ Cross-domain access uses public service facades and validated scalar identifiers
 not another app's model or a private split-package module. Concrete per-symbol
 allowlists remain authoritative when a table entry is broader.
 
+The identity-cutover command composes the tenancy-owned hierarchy verifier
+directly through `workspaces.services.verify_identity_cutover_hierarchy`.
+The same sanctioned facade supplies the typed `IdentityCutoverStateView` for
+the command's bounded state response.
+ADR-001's exact composition allowlist sanctions this import; CMS does not forward
+tenancy verification through its own service facade.
+
 ## API and extension contracts
 
 The versioned application API is `/api/v1/`, composed by `config/api_urls.py`.
@@ -275,6 +324,16 @@ Mapped dependency, wire, authority, persistence, backend, deployable and extensi
 changes must include review/update of the associated handbook page. Record a
 review date and the inspected source revision when wording remains accurate.
 Internal changes outside those declared interfaces do not force prose edits.
+
+CI owns the full application and service verification. Six PostgreSQL shards
+feed one coverage gate; separate jobs prove Redis, released OpenFGA, browser
+and built-image behavior. Local changed-line checks use Git's changed paths
+to select owned Python files without walking installed dependencies. The same
+pinned quality checker, rule set and zero-violation threshold still apply.
+The wrapper owns this fixed policy and rejects command-line arguments before
+running Git or the checker.
+See the [test contract](../dev/testing.md) and
+[enforcement details](dev/adr-enforcement.md) for each gate's scope.
 
 The guard checks structure and paired changes; maintainers review accuracy and
 support claims. New boundaries extend the manifest. Run the

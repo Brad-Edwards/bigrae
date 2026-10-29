@@ -18,7 +18,8 @@ from uuid import UUID, uuid4
 
 from django.utils import timezone
 
-from engine.models import Instance, Range, Request
+from engine.launch_target import lock_provisioner_target
+from engine.models import Instance, Range
 
 PROVISIONER_DISPATCH_FAILED = "Provisioner dispatch failed"
 
@@ -30,22 +31,6 @@ def clear_provisioner_operation_after_failure(row: Range | Instance) -> list[str
     row.provisioner_operation = ""
     row.provisioner_operation_id = None
     return ["provisioner_operation", "provisioner_operation_id"]
-
-
-def _resolve_failure_target(payload: dict[str, object]) -> Range | Instance | None:
-    """Lock the domain row named by a validated failure payload."""
-    target: Range | Instance | None
-    if "request_id" not in payload:
-        target = Range.objects.select_for_update().filter(pk=int(str(payload["range_id"]))).first()
-    else:
-        request = Request.objects.filter(request_id=UUID(str(payload["request_id"]))).first()
-        if request is None:
-            target = None
-        elif payload.get("resource") in {"range", "raes-range"}:
-            target = Range.objects.select_for_update().filter(request=request).first()
-        else:
-            target = Instance.objects.select_for_update().filter(request=request, role=Instance.Role.NGFW).first()
-    return target
 
 
 def _generation_still_authorizes_failure(
@@ -131,8 +116,10 @@ def fail_current_provisioner_operation(
         command_from_payload(payload)
     except (KeyError, TypeError, ValueError):
         return False
-    target = _resolve_failure_target(payload)
-    if target is None or not _generation_still_authorizes_failure(payload, target, expected_operation_id):
+    target = lock_provisioner_target(payload)
+    if not isinstance(target, (Range, Instance)) or not _generation_still_authorizes_failure(
+        payload, target, expected_operation_id
+    ):
         return False
     _apply_dispatch_failure(payload, target)
     return True

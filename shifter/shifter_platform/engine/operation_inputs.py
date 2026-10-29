@@ -104,11 +104,16 @@ def _raes_image_candidates(plan: dict[str, object], target: Range | None = None)
     rows = RaesImageMapping.objects.filter(source_name__in=list(keys), enabled=True)
     if target is not None and target.owner_principal_uuid is not None:
         from engine.services._inventory_scope import inventory_scope_filter
-        from engine.services._range_authority import project_range_authority
+        from shared.identity_scope import ResourceScope
 
         if target.request is None:
             raise ValueError("Range request unavailable")
-        scope = project_range_authority(target.request.request_id).scope
+        if target.scope_kind == "installation":
+            scope = ResourceScope("installation")
+        else:
+            from engine.services._range_authority import project_range_authority
+
+            scope = project_range_authority(target.request.request_id).scope
         rows = rows.filter(inventory_scope_filter(scope))
     else:
         rows = rows.filter(scope_kind="")
@@ -282,19 +287,23 @@ def _activation_input_payload(target: Range, request: Request) -> dict[str, obje
     )
     if gen is None:
         raise ValueError("activation requires a claimed warm generation for the request")
-    claimant = target.user
-    if claimant is None:
-        raise ValueError("Warm activation requires a human claimant")
+    if target.owner_principal_uuid is None:
+        raise ValueError("Warm activation requires a principal claimant")
+    from shared.principal_port import resolve_principal_uuid
+    from workspaces.services import resource_scope_from_ids
+
+    claimant = resolve_principal_uuid(target.owner_principal_uuid)
+    scope = resource_scope_from_ids(
+        kind=target.scope_kind,
+        account_id=target.account_id,
+        organization_id=target.organization_id,
+        workspace_id=target.workspace_id,
+    )
+    if scope.kind != "account":
+        raise ValueError("Warm activation requires a customer-scoped range")
     purpose = target.instantiation_purpose or "live_fire"
-    workspace_id = target.workspace_id
-    if workspace_id is None:
-        raise ValueError("activation requires a workspace-scoped range")
     return build_activation_input(
-        claimant=ActivationClaimant(
-            user_id=int(target.cms_user_id or claimant.id),
-            username=str(claimant.username),
-            workspace_id=workspace_id,
-        ),
+        claimant=ActivationClaimant(principal=claimant, scope=scope),
         generation=ActivationGeneration(
             range_source=gen.range_source,
             instantiation_purpose=str(purpose),

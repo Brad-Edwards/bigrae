@@ -21,8 +21,8 @@ Experiment management was implemented as a first-class CMS subsystem. It was rem
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#399` (Add Research VPC and Experiment Management)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#466` (Experiment creation bypasses staff_only and disabled scenario restrictions)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#1195` (Legacy experiments removal decision, ADR-027)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#399` (Add Research VPC and Experiment Management)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#466` (Experiment creation bypasses staff_only and disabled scenario restrictions)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#1195` (Legacy experiments removal decision, ADR-027)
 - IMPLEMENTS → PULL_REQUEST `780` (Experiment creation enforces staff only and disabled restrictions)
 - IMPLEMENTS → ADR `docs/architecture/experiments-removal-adr.md` (ADR-027: legacy experiments removed in favor of a future RAES-backed design)

@@ -8,7 +8,7 @@ import pytest
 import yaml
 from rest_framework.test import APIClient
 
-from cms.models import RaesPackageSource, ScenarioMetadata
+from cms.models import RaesPackageSource
 from engine.models import PreparationAttempt
 from tests.engine.services.test_preparation_operations import administrator, grant, installed, operator
 from tests.shared.raes.test_preparation_contract import requirement_payload
@@ -44,7 +44,9 @@ def registered_pack(operator, tmp_path, monkeypatch):
         package_version="1",
         package_digest="sha256:" + "3" * 64,
         conformance_status="passed",
-        registered_by=operator,
+        registered_by=None,
+        owner_principal_uuid=operator.principal.uuid,
+        scope_kind="installation",
     )
 
     @contextmanager
@@ -67,7 +69,7 @@ def request_body(installed, registered_pack):
 
 def test_registered_private_pack_uses_authored_requirement_and_optional_lock(operator, installed, registered_pack):
     client = APIClient()
-    client.force_authenticate(user=operator)
+    client.force_authenticate(user=None, token=operator)
     response = client.post(URL, request_body(installed, registered_pack), format="json")
     assert response.status_code == 202, response.json()
     attempt = PreparationAttempt.objects.get()
@@ -82,8 +84,10 @@ def test_registered_private_pack_uses_authored_requirement_and_optional_lock(ope
     assert client.post(f"{URL}{identity}/retry/", {}, format="json").status_code == 400
 
 
-@pytest.mark.parametrize("failure", ["pending", "no-digest", "foreign-address", "staff-only", "override"])
-def test_untrusted_or_inaccessible_pack_never_creates_worker(operator, installed, registered_pack, failure):
+@pytest.mark.parametrize("failure", ["pending", "no-digest", "foreign-address", "policy-denied", "override"])
+def test_untrusted_or_inaccessible_pack_never_creates_worker(
+    operator, installed, registered_pack, failure, monkeypatch
+):
     source, _ = registered_pack
     body = request_body(installed, registered_pack)
     if failure == "pending":
@@ -91,14 +95,24 @@ def test_untrusted_or_inaccessible_pack_never_creates_worker(operator, installed
         source.save()
     elif failure == "no-digest":
         RaesPackageSource.objects.filter(pk=source.pk).update(package_digest="")
-    elif failure == "staff-only":
-        ScenarioMetadata.objects.create(scenario_id=source.scenario_id, staff_only=True, updated_by=operator)
+    elif failure == "policy-denied":
+        from types import SimpleNamespace
+
+        from shared.authorization import AuthorizationDecision, DecisionKind, port
+
+        monkeypatch.setattr(
+            port,
+            "_provider_factory",
+            lambda: SimpleNamespace(
+                check=lambda request: AuthorizationDecision(DecisionKind.DENIED, "policy_denied"),
+            ),
+        )
     elif failure == "foreign-address":
         body["requirement_address"] = "private-image"
     else:
         body["requirement"] = requirement_payload()
     client = APIClient()
-    client.force_authenticate(user=operator)
+    client.force_authenticate(user=None, token=operator)
     response = client.post(URL, body, format="json")
     assert response.status_code in {400, 403}, response.json()
     assert not PreparationAttempt.objects.exists()

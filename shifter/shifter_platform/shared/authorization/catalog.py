@@ -72,6 +72,7 @@ ACTION_CATALOG: tuple[ActionDefinition, ...] = (
     _action("installation.manage_model_sources", "installation"),
     _action("installation.manage_cloud_authority", "installation"),
     _action("installation.manage_lease_policy", "installation"),
+    _action("installation.launch_range", "installation"),
     _action("account.read", "account"),
     _action("account.launch_range", "account"),
     _action("account.update", "account"),

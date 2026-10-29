@@ -21,11 +21,11 @@ The RAES contract is the scenario authoring authority. Shared expressiveness gap
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#620` (Scenario expressiveness dependency)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#620` (Scenario expressiveness dependency)
 - IMPLEMENTS → POLICY `docs/architecture/aces-migration-parity-inventory.yaml` (ACES parity inventory: governance block (record-before-production-reliance) and the three PLAT-007 expressiveness-gap rows)
 - IMPLEMENTS → CODE_FILE `scripts/adr_guard/adr_guard.py` (aces-parity-inventory-row-schema check (ADR-024-R2): closed-set category/surface/next_issue_kind, required fields, unique row ids)
 - IMPLEMENTS → ADR `docs/adr/index.yaml` (ADR-024-R2 wired to the aces-parity-inventory-row-schema check)
 - IMPLEMENTS → DOCUMENTATION `docs/architecture/aces-cyberscript-issue-triage.md` (PLAT-007 requirement posture, pointing at the parity inventory governance block)
 - TESTS → TEST `scripts/adr_guard/tests/test_adr_guard.py` (AcesParityInventoryRowSchemaTests: closed-set membership, required fields, duplicate ids, shrunken required_fields header, and the five fail-closed structural branches)
 - DOCUMENTS → DOCUMENTATION `docs/architecture/scenario-expressiveness-gap-tracking-preflight-676.md` (Scenario expressiveness gap tracking architecture preflight (#676))
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#676` (PLAT-007: Scenario Expressiveness Gap Tracking)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#676` (PLAT-007: Scenario Expressiveness Gap Tracking)

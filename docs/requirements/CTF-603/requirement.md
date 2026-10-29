@@ -21,4 +21,4 @@ Bulk import eliminates the need to individually invite dozens of participants. F
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#652` (CTF-603: Bulk Participant Import)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#652` (CTF-603: Bulk Participant Import)

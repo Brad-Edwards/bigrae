@@ -1,10 +1,4 @@
-"""Django admin cannot raise a non-superuser staff account to superuser (#2617).
-
-The Administer API keeps the ``auth.change_user`` tier below superuser. The
-stock Django admin would let that tier edit ``is_superuser``, group
-permissions, profile identity bindings, and passwords, so the admin writes for
-users, groups, and profiles require an active superuser.
-"""
+"""Native Django admin exposes policy-authorized reads and no identity writes (#2617)."""
 
 from __future__ import annotations
 
@@ -13,65 +7,63 @@ from django.contrib.auth.models import Group, Permission
 from django.test import Client
 
 from management.services import get_user_profile
+from tests.workspaces.test_account_policy_admin import Provider
 
 pytestmark = pytest.mark.django_db
 
 
-@pytest.fixture
-def user_administrator(django_user_model):
-    """A staff account in the Administer user-admin tier, not a superuser."""
+@pytest.fixture(params=[False, True], ids=["staff", "superuser"])
+def administrator(request, django_user_model):
+    """Legacy flags and model permissions cannot reopen the native write boundary."""
     user = django_user_model.objects.create_user(
-        username="user-admin@example.com", email="user-admin@example.com", password="Synthetic-pass-12345"
+        username="user-admin@example.com",
+        email="user-admin@example.com",
+        password="Synthetic-pass-12345",
+        is_staff=True,
+        is_superuser=request.param,
     )
-    user.is_staff = True
-    user.save(update_fields=["is_staff"])
     codenames = ["view_user", "change_user", "view_group", "change_group", "view_userprofile", "change_userprofile"]
     user.user_permissions.add(*Permission.objects.filter(codename__in=codenames))
     return user
 
 
-@pytest.fixture
-def superuser(django_user_model):
-    return django_user_model.objects.create_superuser(
-        username="root@example.com", email="root@example.com", password="Synthetic-pass-12345"
-    )
-
-
-def test_user_administrator_cannot_write_identity_or_privilege_records(user_administrator, superuser):
+def test_admin_cannot_write_identity_or_privilege_records(administrator, monkeypatch):
+    monkeypatch.setattr("shared.authorization.port._provider_factory", Provider)
     group = Group.objects.create(name="Synthetic Operators")
-    profile = get_user_profile(user_administrator)
+    profile = get_user_profile(administrator)
+    original_superuser = administrator.is_superuser
     client = Client()
-    client.force_login(user_administrator, backend="config.auth.PlatformModelBackend")
+    client.force_login(administrator, backend="config.auth.PlatformModelBackend")
 
-    own_change = f"/admin/auth/user/{user_administrator.pk}/change/"
-    assert client.get(own_change).status_code == 200  # read access stays
+    own_change = f"/admin/auth/user/{administrator.pk}/change/"
+    assert client.get(own_change).status_code == 200
     escalation = client.post(
         own_change,
-        {
-            "username": user_administrator.username,
-            "email": user_administrator.email,
-            "is_active": "on",
-            "is_staff": "on",
-            "is_superuser": "on",
-            "date_joined_0": "2026-01-01",
-            "date_joined_1": "00:00:00",
-        },
+        {"username": administrator.username, "is_active": "on", "is_staff": "on", "is_superuser": "on"},
     )
     assert escalation.status_code == 403
-    user_administrator.refresh_from_db()
-    assert user_administrator.is_superuser is False
-
-    assert client.get(f"/admin/auth/user/{superuser.pk}/password/").status_code == 403
-    assert client.post(f"/admin/auth/group/{group.pk}/change/", {"name": "x"}).status_code == 403
+    administrator.refresh_from_db()
+    assert administrator.is_superuser is original_superuser
+    original_password = administrator.password
+    password_path = f"/admin/auth/user/{administrator.pk}/password/"
+    # ModelAdmin's generic object redirect exists; no password-change view is mounted.
+    assert client.get(password_path)["Location"] == f"{password_path}change/"
+    password_attempt = client.post(password_path, {"password1": "Changed-pass-12345"})
+    assert password_attempt.status_code == 302
+    assert password_attempt["Location"] == f"{password_path}change/"
+    assert client.post(password_attempt["Location"], {"password1": "Changed-pass-12345"}).status_code == 403
+    administrator.refresh_from_db()
+    assert administrator.password == original_password
+    assert client.post(f"/admin/auth/group/{group.pk}/change/", {"name": "changed"}).status_code == 404
     assert client.post(f"/admin/management/userprofile/{profile.pk}/change/", {}).status_code == 403
     assert client.get("/admin/auth/user/add/").status_code == 403
+    group.refresh_from_db()
+    assert group.name == "Synthetic Operators"
 
 
-def test_superuser_keeps_django_admin_user_writes(user_administrator, superuser):
+def test_legacy_admin_flags_do_not_bypass_read_policy(administrator, monkeypatch):
+    monkeypatch.setattr("shared.authorization.port._provider_factory", lambda: Provider(allowed=False))
     client = Client()
-    client.force_login(superuser, backend="config.auth.PlatformModelBackend")
+    client.force_login(administrator, backend="config.auth.PlatformModelBackend")
 
-    assert client.get(f"/admin/auth/user/{user_administrator.pk}/password/").status_code == 200
-    renamed = client.post(f"/admin/auth/group/{Group.objects.create(name='g').pk}/change/", {"name": "renamed"})
-    assert renamed.status_code == 302
-    assert Group.objects.filter(name="renamed").exists()
+    assert client.get(f"/admin/auth/user/{administrator.pk}/change/").status_code == 403

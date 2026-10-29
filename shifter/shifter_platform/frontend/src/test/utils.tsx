@@ -24,6 +24,10 @@ export const STAFF_BOOTSTRAP: Bootstrap = {
     can_view_users: true,
     can_change_users: true,
     can_delete_users: true,
+    can_administer_accounts: true,
+    can_administer_platform: true,
+    can_read_audit: true,
+    can_manage_lease_policy: true,
   },
   modes: { participant: false, operator: true, default: "operator" },
 };

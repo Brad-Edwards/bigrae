@@ -18,9 +18,8 @@ from botocore.exceptions import ClientError
 from django.test import Client, override_settings
 from django.urls import reverse
 
-from cms.assets.upload_token import generate_upload_token
-from cms.models import OperatingSystem
-from mission_control.upload_session import set_upload_in_progress
+from cms.models import AgentUpload, OperatingSystem
+from mission_control.upload_session import set_upload_in_progress, upload_lock_matches_token
 
 pytestmark = pytest.mark.django_db
 
@@ -29,9 +28,9 @@ COMPLETE = reverse("v1:mission_control:upload-complete")
 CANCEL = reverse("v1:mission_control:upload-cancel")
 
 
-def _post(client, url, payload):
+def _post(client, url, payload, **headers):
     body = payload if isinstance(payload, str) else json.dumps(payload)
-    return client.post(url, data=body, content_type="application/json")
+    return client.post(url, data=body, content_type="application/json", **headers)
 
 
 def _body(resp):
@@ -53,15 +52,13 @@ def _client_error(code="500"):
     return ClientError({"Error": {"Code": code, "Message": "boom"}}, "DeleteObject")
 
 
-def _upload_token(user, *, s3_key=None):
-    return generate_upload_token(
-        user_id=user.id,
-        s3_key=s3_key or f"agents/{user.id}/agent.msi",
-        name="Agent",
-        filename="agent.msi",
-        os_slug="windows",
-        file_size=100,
-    )
+def _upload_token(client, *, filename="agent.msi", csrf_token=None):
+    """Initiate a real native upload and retain only its signed server reference."""
+    headers = {"HTTP_X_CSRFTOKEN": csrf_token} if csrf_token else {}
+    with override_settings(AWS_S3_BUCKET_NAME="test-bucket"), patch("boto3.client", return_value=_s3_mock()):
+        response = _post(client, INITIATE, {"name": "Agent", "filename": filename, "file_size": 100}, **headers)
+    assert response.status_code == 200
+    return _body(response)["upload_token"]
 
 
 def _set_upload_lock(client, upload_token):
@@ -71,6 +68,9 @@ def _set_upload_lock(client, upload_token):
 
 
 def _csrf_client(user):
+    from tests._mission_control_fixtures import individual_account
+
+    individual_account(user)
     client = Client(enforce_csrf_checks=True)
     client.force_login(user)
     session = client.session
@@ -130,7 +130,7 @@ class TestInitiateUpload:
         resp = _post(client, INITIATE, {"name": "n", "filename": "agent.msi", "file_size": 10})
         assert resp.status_code == 400
         body = _body(resp)
-        assert body["error"]["message"] == "Upload could not be initiated"
+        assert body["error"]["message"] == "Service is unavailable"
         assert "\n" not in body["error"]["message"]
         assert "\r" not in body["error"]["message"]
 
@@ -163,24 +163,22 @@ class TestCompleteUpload:
         client, _ = authenticated_client(email="comp-json@example.com")
         assert _post(client, COMPLETE, "not json").status_code == 400
 
-    def test_invalid_token_is_rejected_and_clears_lock(self, authenticated_client):
+    def test_invalid_token_is_rejected_and_preserves_current_lock(self, authenticated_client):
         client, _ = authenticated_client(email="comp-bad@example.com")
-        session = client.session
-        session["upload_lock"] = {"started_at": time.time()}
-        session.save()
+        token = _upload_token(client)
         resp = _post(client, COMPLETE, {"upload_token": "not-a-real-token"})
         assert resp.status_code == 400
-        # Lock is cleared even on failure.
-        assert "upload_lock" not in client.session
+        assert upload_lock_matches_token(client.session, token)
+        assert AgentUpload.objects.get().state == "issued"
 
     @override_settings(AWS_S3_BUCKET_NAME="test-bucket", AGENT_UPLOAD_URL_EXPIRES=900)
     def test_success_clears_lock(self, authenticated_client):
-        client, user = authenticated_client(email="comp-ok@example.com")
+        client, _ = authenticated_client(email="comp-ok@example.com")
         OperatingSystem.objects.get_or_create(
             slug="windows",
             defaults={"name": "Windows", "extensions": [".msi"]},
         )
-        token = _upload_token(user)
+        token = _upload_token(client)
         _set_upload_lock(client, token)
 
         with patch("boto3.client", return_value=_s3_mock()):
@@ -196,12 +194,27 @@ class TestCompleteUpload:
     # The complete success path above drives the real service with only the S3
     # boundary mocked, so response formatting and lock clearing stay pinned.
 
+    @override_settings(AWS_S3_BUCKET_NAME="test-bucket", AGENT_UPLOAD_URL_EXPIRES=900)
+    def test_repeated_completion_preserves_another_current_upload_marker(self, authenticated_client):
+        client, _ = authenticated_client(email="comp-repeated@example.com")
+        OperatingSystem.objects.get_or_create(slug="windows", defaults={"name": "Windows", "extensions": [".msi"]})
+        old_token = _upload_token(client, filename="completed.msi")
+        with patch("boto3.client", return_value=_s3_mock()):
+            assert _post(client, COMPLETE, {"upload_token": old_token}).status_code == 200
+        current_token = _upload_token(client, filename="current.msi")
+        with patch("boto3.client", return_value=_s3_mock()):
+            response = _post(client, COMPLETE, {"upload_token": old_token})
+        assert response.status_code == 200
+        assert upload_lock_matches_token(client.session, current_token)
+        assert AgentUpload.objects.get(filename="completed.msi").state == "completed"
+        assert AgentUpload.objects.get(filename="current.msi").state == "issued"
+
 
 class TestCancelUpload:
     @override_settings(AWS_S3_BUCKET_NAME="test-bucket", AGENT_UPLOAD_URL_EXPIRES=900)
     def test_cancel_with_token_clears_matching_lock(self, authenticated_client):
-        client, user = authenticated_client(email="cancel-ok@example.com")
-        token = _upload_token(user)
+        client, _ = authenticated_client(email="cancel-ok@example.com")
+        token = _upload_token(client)
         _set_upload_lock(client, token)
         with patch("boto3.client", return_value=_s3_mock()):
             resp = _post(client, CANCEL, {"upload_token": token})
@@ -209,9 +222,9 @@ class TestCancelUpload:
         assert "upload_lock" not in client.session
 
     @override_settings(AWS_S3_BUCKET_NAME="test-bucket", AGENT_UPLOAD_URL_EXPIRES=900)
-    def test_cancel_with_token_clears_lock_when_storage_cleanup_fails(self, authenticated_client):
-        client, user = authenticated_client(email="cancel-cleanup@example.com")
-        token = _upload_token(user)
+    def test_cancel_clears_matching_marker_and_retains_deferred_cleanup(self, authenticated_client):
+        client, _ = authenticated_client(email="cancel-cleanup@example.com")
+        token = _upload_token(client)
         _set_upload_lock(client, token)
         s3 = _s3_mock()
         s3.delete_object.side_effect = _client_error()
@@ -219,37 +232,43 @@ class TestCancelUpload:
             resp = _post(client, CANCEL, {"upload_token": token})
         assert resp.status_code == 200
         assert "upload_lock" not in client.session
+        assert AgentUpload.objects.get().cleanup_pending
+        s3.delete_object.assert_not_called()
 
     def test_cancel_without_token_is_rejected_and_keeps_lock(self, authenticated_client):
-        client, user = authenticated_client(email="cancel-notoken@example.com")
-        token = _upload_token(user)
+        client, _ = authenticated_client(email="cancel-notoken@example.com")
+        token = _upload_token(client)
         _set_upload_lock(client, token)
         resp = _post(client, CANCEL, {})
         assert resp.status_code == 400
         assert "upload_lock" in client.session
 
     def test_cancel_invalid_token_is_rejected_and_keeps_lock(self, authenticated_client):
-        client, user = authenticated_client(email="cancel-invalid@example.com")
-        token = _upload_token(user)
+        client, _ = authenticated_client(email="cancel-invalid@example.com")
+        token = _upload_token(client)
         _set_upload_lock(client, token)
         resp = _post(client, CANCEL, {"upload_token": "not-a-real-token"})
         assert resp.status_code == 400
         assert "upload_lock" in client.session
 
     @override_settings(AWS_S3_BUCKET_NAME="test-bucket", AGENT_UPLOAD_URL_EXPIRES=900)
-    def test_cancel_stale_valid_token_is_rejected_and_keeps_current_lock(self, authenticated_client):
-        client, user = authenticated_client(email="cancel-stale@example.com")
-        current_token = _upload_token(user, s3_key=f"agents/{user.id}/current.msi")
-        stale_token = _upload_token(user, s3_key=f"agents/{user.id}/old.msi")
-        _set_upload_lock(client, current_token)
+    def test_cancel_older_valid_upload_preserves_current_lock(self, authenticated_client):
+        client, _ = authenticated_client(email="cancel-stale@example.com")
+        stale_token = _upload_token(client, filename="old.msi")
+        session = client.session
+        session["upload_lock"]["started_at"] = time.time() - 60
+        session.save()
+        current_token = _upload_token(client, filename="current.msi")
         with patch("boto3.client", return_value=_s3_mock()):
             resp = _post(client, CANCEL, {"upload_token": stale_token})
-        assert resp.status_code == 400
-        assert "upload_lock" in client.session
+        assert resp.status_code == 200
+        assert upload_lock_matches_token(client.session, current_token)
+        assert AgentUpload.objects.get(filename="old.msi").state == "cancelled"
+        assert AgentUpload.objects.get(filename="current.msi").state == "issued"
 
     def test_cancel_rejects_invalid_json_and_keeps_lock(self, authenticated_client):
-        client, user = authenticated_client(email="cancel-json@example.com")
-        token = _upload_token(user)
+        client, _ = authenticated_client(email="cancel-json@example.com")
+        token = _upload_token(client)
         _set_upload_lock(client, token)
         resp = _post(client, CANCEL, "not json")
         assert resp.status_code == 400
@@ -258,24 +277,19 @@ class TestCancelUpload:
     @override_settings(AWS_S3_BUCKET_NAME="test-bucket", AGENT_UPLOAD_URL_EXPIRES=900)
     def test_cancel_requires_csrf_for_session_auth(self, django_user_model):
         user = django_user_model.objects.create_user(username="cancel-csrf@example.com")
-        client = Client(enforce_csrf_checks=True)
-        client.force_login(user)
-        session = client.session
-        session["oidc_id_token_expiration"] = time.time() + 3600
-        session.save()
-        token = _upload_token(user)
-        _set_upload_lock(client, token)
+        client, csrf_token = _csrf_client(user)
+        token = _upload_token(client, csrf_token=csrf_token)
         with patch("boto3.client", return_value=_s3_mock()):
             resp = _post(client, CANCEL, {"upload_token": token})
         assert resp.status_code == 403
-        assert "upload_lock" in client.session
+        assert upload_lock_matches_token(client.session, token)
+        assert AgentUpload.objects.get().state == "issued"
 
     @override_settings(AWS_S3_BUCKET_NAME="test-bucket", AGENT_UPLOAD_URL_EXPIRES=900)
     def test_cancel_accepts_form_encoded_beacon_with_csrf_token(self, django_user_model):
         user = django_user_model.objects.create_user(username="cancel-beacon@example.com")
         client, csrf_token = _csrf_client(user)
-        token = _upload_token(user)
-        _set_upload_lock(client, token)
+        token = _upload_token(client, csrf_token=csrf_token)
         body = urlencode({"upload_token": token, "csrfmiddlewaretoken": csrf_token})
         with patch("boto3.client", return_value=_s3_mock()):
             resp = client.post(CANCEL, data=body, content_type="application/x-www-form-urlencoded")

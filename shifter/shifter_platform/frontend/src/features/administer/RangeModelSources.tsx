@@ -76,7 +76,7 @@ function PolicyForm({ policy, onClose }: Readonly<{ policy: RangePolicy; onClose
     <output>{runtimeMessages[policy.runtime.state]}</output>
     {policy.error && <p role="alert">The selected policy could not be admitted. Correct the sources or their limits and retry. The old grant remains revoked.</p>}
     {policy.runtime.assignments.map((item) => <p key={`${item.workload}-${item.logical_alias}`} className="text-sm">{item.workload} / {item.logical_alias}: {item.provider} · {item.model} · {item.region}</p>)}
-    <ModelSourcePicker scenario={policy.scenario} workspace={policy.workspace} purpose="admin" value={selection} onChange={setSelection} disabled={pending} />
+    <ModelSourcePicker scenario={policy.scenario} workspace={policy.workspace ?? undefined} purpose="admin" value={selection} onChange={setSelection} disabled={pending} />
     <div className="flex gap-2">
       <Button type="submit" disabled={pending}>{pending ? "Applying…" : "Apply source policy"}</Button>
       <Button type="button" variant="destructive" disabled={pending} onClick={() => void revoke()}>Revoke model access</Button>

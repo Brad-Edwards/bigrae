@@ -52,7 +52,25 @@ The current enforcement stack has six parts:
 
 4. `.pre-commit-config.yaml`
    Fast local hygiene and secrets checks. Full architecture checks run in CI;
-   changed-file cloud identifier checks remain local.
+   changed-file cloud identifier checks remain local. The
+   `sonar-rules-changed-lines` hook runs pinned Ruff rules through `diff-quality`
+   for Python lines changed against `origin/dev`. It reports complexity,
+   argument/return counts, documentation, type annotations and line length
+   within the configured production source paths. It does not run tests or
+   measure coverage, and does not replace the blocking SonarCloud gate.
+   Its repository wrapper reads committed, staged and unstaged Git paths with
+   NUL delimiters and supplies escaped literal paths to `diff-quality`. Source
+   roots, exclusions and the 100% threshold remain unchanged. This avoids the
+   tool's repeated recursive include expansion through ignored `node_modules`
+   trees; those directories are not application quality inputs.
+   The source roots, exclusions, Ruff rules and 100% threshold are one fixed
+   policy in `scripts/adr_guard/changed_python_quality.py`. The wrapper accepts
+   no external arguments: attempts to change refs, linter flags or scope fail
+   before any subprocess. Its Git and quality commands use the literal
+   `origin/dev` reference and argument vectors, with explicit Git option/path
+   boundaries; no CLI text is forwarded into either command.
+   The wrapper's regression tests use standard-library `unittest`, as required
+   by the Python 3.11 ADR test lane; they need no pytest dependency.
 
 5. `.github/workflows/_quality.yml`
    CI enforcement. ADR conformance runs as its own architecture gate.
@@ -89,11 +107,19 @@ MCP lint jobs reject security warnings, and the shared package has a test-matrix
 entry. The existing kube-linter job supplies blocking Kubernetes security policy.
 Checkov's separate Kubernetes checks are a blocking gate under ADR-004-R11 (#2558).
 Helm lint and rendered kube-linter checks run together, including when optional
-tests are skipped. BuildKit and Trivy validate container build inputs. A local guacd
-container proves non-root execution, drive permissions and listener readiness.
+tests are skipped. BuildKit and Trivy validate container build inputs. The hosted
+guacd job proves non-root execution, drive permissions and listener readiness.
 The unused root branding assets have been removed after a consumer search.
 The user also retired the two unused vendor CloudFormation installers.
 Their quality owner and identifier exception have been removed.
+
+The `provisioner-locks` hook and provisioner CI job check that the image's Python
+requirements match `uv.lock`. The default export must match the frozen uv export;
+GCP packages present in `uv.lock` must have the same versions. The image keeps
+its existing pip-based install from these hash-pinned exports. Use the documented
+[uv export command](https://docs.astral.sh/uv/concepts/projects/export/) when
+regenerating them. The Guacamole image job also tests direct and nested jar
+replacement, including rejection when an expected archive or dependency is absent.
 
 Bootstrap regression tests use process boundaries for the affected CLI and GDC
 flows. Their legacy mock allowance decreases from 256 to 175. No new allowance
@@ -140,7 +166,8 @@ prove a live repository, publisher or workload-identity cutover.
   the pinned local Vale binary when it is not already installed.
 - Local commits run file hygiene, secret scanning, changed-file cloud identifier
   checks, commit-message policy, Ruff, ShellCheck, actionlint, and Terraform
-  formatting. Full tests and coverage, type checks, Django checks, import and ADR
+  formatting, plus the changed-line Ruff/Sonar rule check above. Full tests and
+  coverage, type checks, Django checks, import and ADR
   checks, package-wide JavaScript/CSS lint, Checkov, Bandit, Terraform validation
   and TFLint, and Kubernetes/chart validation run in CI. These checks are removed
   from the commit hook, not moved to push hooks. This supersedes older references
@@ -162,6 +189,19 @@ prove a live repository, publisher or workload-identity cutover.
   bounds peak memory (each worker loads the Django app), so it is raised only
   with headroom in mind given the suite's documented OOM history at high worker
   counts.
+- CI runs the broad platform suite once against PostgreSQL, split into six
+  `shifter-platform-tests` shards. Each shard publishes coverage data and its
+  PostgreSQL marker evidence. `shifter-platform-coverage` requires all shards,
+  rejects missing or duplicate shard evidence and skipped PostgreSQL-marked
+  tests, and requires at least one PostgreSQL-marked test to have run across
+  the shards. It combines the data, enforces the unchanged 87% package floor,
+  and publishes `coverage.xml` for SonarCloud. Redis integration and adapter SDK
+  packaging retain their own blocking jobs. Released OpenFGA/PostgreSQL tests
+  still run in the dedicated mandatory job and contribute
+  `coverage-openfga.xml`; native browser and built-image smoke gates retain
+  their real service and image entrypoints. Sharding changes execution cost,
+  not the required evidence or coverage thresholds. Full suites and image
+  smoke run in CI; local development uses focused regressions.
 - `.github/workflows/_gcp-dev.yml` and `gcp-dev-destroy.yml` are thin wrappers
   over the GCP deploy commands (ADR-070). The deploy renders each image by its
   exact digest from the release manifest, so a mutable tag never selects a

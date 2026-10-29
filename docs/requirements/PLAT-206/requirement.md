@@ -21,9 +21,9 @@ NGFW provisioning, views, Terraform support, and operator tooling exist but were
 
 ## Traceability
 
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#244` (NGFW Database Models & Migrations)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#613` (Implement GCP VM-Series / NGFW support)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#426` (Add NGFW web GUI access button to detail page)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#244` (NGFW Database Models & Migrations)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#613` (Implement GCP VM-Series / NGFW support)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#426` (Add NGFW web GUI access button to detail page)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/mission_control/views/` (Mission Control NGFW views and APIs)
 - IMPLEMENTS → CONFIG `shifter/shifter_platform/mission_control/urls.py` (NGFW route registration)
 - IMPLEMENTS → CODE_FILE `shifter/engine/provisioner/config/` (Provider-neutral NGFW attachment resolution)

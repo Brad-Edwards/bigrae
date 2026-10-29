@@ -25,7 +25,6 @@ Programmatic API access enables scripts, integrations, and automation workflows 
 
 ## Traceability
 
-- TESTS → TEST `shifter/shifter_platform/tests/workspaces/test_authorization_api.py` (Personal credential issuance-target confinement at the HTTP boundary)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/authorization/contracts.py` (Independent immutable action and target ceilings)
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/management/personal_credentials.py` (Live-granted personal issuance, rotation and owner revocation)
@@ -40,7 +39,7 @@ Programmatic API access enables scripts, integrations, and automation workflows 
 - DOCUMENTS → DOCUMENTATION `docs/technical/shifter_platform/access-credentials.md`
 
 - TESTS → TEST `shifter/shifter_platform/tests/cms/test_preparation_api.py` (Preparation session and scoped-token authentication with independent administrative authority)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#677` (PLAT-102: API Token Authentication)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#677` (PLAT-102: API Token Authentication)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/api_tokens/models.py`
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/api_tokens/authentication.py`
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/shared/api_tokens/scopes.py`

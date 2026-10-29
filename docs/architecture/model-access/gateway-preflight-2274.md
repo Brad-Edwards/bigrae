@@ -4,7 +4,7 @@
 
 
 Architecture guidance, 2026-10-12; inspected baseline `4f2272731`. The maintainer's
-[replacement-evaluation clarification](https://github.com/Brad-Edwards/shifter/issues/2274#issuecomment-6131352734)
+[replacement-evaluation clarification](https://github.com/Brad-Edwards/bigrae/issues/2274#issuecomment-6131352734)
 supersedes #2274's conditional deferral and broker-improvement outcome. This run
 has no formal requirement. The
 [replacement evaluation](gateway-replacement-evaluation-2274.md) records product

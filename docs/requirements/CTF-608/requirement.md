@@ -28,4 +28,4 @@ Authentication is a platform capability. CTF composes with PLAT-101 for particip
 
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/migrations/0033_isolated_participant_accounts.py` (Retirement of invite-token authentication and fields)
 - DOCUMENTS → DOCUMENTATION `docs/features/access-credentials.md` (Current login/recovery and explicit retirement)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#584` (Historical magic-link implementation)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#584` (Historical magic-link implementation)

@@ -23,6 +23,7 @@ from workspaces.services import (
     WorkspaceQuotaRejected,
     assert_scope_principal_member,
     hierarchy_target_scope,
+    lock_resource_scope_bindings,
     move_workspace_range_reservation,
     record_workspace_quota_rejection,
     resolve_resource_scope,
@@ -57,6 +58,7 @@ def rebind_scoped_range_workspace(
             assert_scope_principal_member(target, owner)
         prepared = prepare_range_scope_move(current, request_id, target)
         with transaction.atomic():
+            lock_resource_scope_bindings((source, prepared.source.scope, target))
             row = RangeInstance.objects.select_for_update().get(pk=instance.pk)
             request = Request.objects.select_for_update().get(pk=instance.request_id)
             if row.status != instance.status or range_authorization_binding(row.uuid)[1] != source:

@@ -17,6 +17,10 @@ from collections.abc import Iterable
 
 from shared.authorization import ACTION_CATALOG, CredentialCeiling, TargetRef
 
+_EVENT_MANAGE_COMMUNICATIONS = "event.manage_communications"
+_EVENT_PARTICIPATE = "event.participate"
+_RANGE_ACCESS = "range.access"
+
 # --- Mission Control API (PLAT-106 / issue #1120) -----------------------------
 # Wired by subsurface instead of overloading a single coarse Mission Control
 # token audience.
@@ -145,10 +149,48 @@ def has_scope(granted_scopes: Iterable[str], required_scope: str) -> bool:
     return required_scope in set(granted_scopes)
 
 
+_CTF_EVENT_WRITE_ACTIONS = frozenset(
+    {
+        "account.create_event",
+        "organization.create_event",
+        "workspace.create_event",
+        "event.manage",
+        "event.manage_config",
+        "event.manage_participants",
+        "event.manage_challenges",
+        "event.manage_teams",
+        "event.manage_ranges",
+        "event.manage_scoring",
+        "event.manage_awards",
+        "event.manage_submissions",
+        "event.manage_content",
+        "event.manage_lifecycle",
+        _EVENT_MANAGE_COMMUNICATIONS,
+        "event.delete",
+        "event.manage_staff",
+        "event.transfer_ownership",
+        "event.delegate_authorization",
+    }
+)
+
+
 def credential_ceiling(scopes: Iterable[str], *, target: TargetRef | None = None) -> CredentialCeiling:
-    """Project registered action scopes without inferring broad legacy authority."""
-    by_scope = {scope: action for action, scope in AUTHORIZATION_ACTION_SCOPES.items()}
-    # Exact incumbent CTF operation correspondence. Other legacy scopes remain
-    # HTTP limits until their owning S4-S6 action mapping is delivered.
-    by_scope.update({CTF_EVENT_READ: "event.read", CTF_EVENT_WRITE: "event.manage"})
-    return CredentialCeiling(frozenset(by_scope[scope] for scope in scopes if scope in by_scope), target)
+    """Project each API scope to the exact application actions it admits."""
+    actions: set[str] = set()
+    authorization_by_scope = {scope: action for action, scope in AUTHORIZATION_ACTION_SCOPES.items()}
+    legacy_by_scope = {
+        CTF_EVENT_READ: frozenset({"event.read"}),
+        CTF_EVENT_WRITE: _CTF_EVENT_WRITE_ACTIONS,
+        CTF_PLAY_READ: frozenset({_EVENT_PARTICIPATE, _RANGE_ACCESS}),
+        CTF_PLAY_WRITE: frozenset({_EVENT_PARTICIPATE}),
+        CTF_COMMUNICATION_READ: frozenset({_EVENT_MANAGE_COMMUNICATIONS}),
+        CTF_COMMUNICATION_WRITE: frozenset({_EVENT_MANAGE_COMMUNICATIONS}),
+        CTF_VPN_PROFILE_READ: frozenset({_EVENT_PARTICIPATE, _RANGE_ACCESS}),
+        MISSION_CONTROL_VPN_PROFILE_READ: frozenset({_RANGE_ACCESS}),
+    }
+    for scope in scopes:
+        action = authorization_by_scope.get(scope)
+        if action is not None:
+            actions.add(action)
+        actions.update(legacy_by_scope.get(scope, ()))
+    return CredentialCeiling(frozenset(actions), target)

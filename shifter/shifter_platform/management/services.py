@@ -23,6 +23,7 @@ from shared.log_sanitize import safe_log_fingerprint, safe_log_value
 from shared.model_access import AuthorityInvalidation, AuthorityState, OwnedReference
 from shared.model_access.authority_port import invalidate_authority, suppress_authority_invalidation_signals
 
+from . import identity_cutover as _identity_cutover
 from . import model_access_authority as _model_access_authority
 from . import policy as _policy
 from . import principals as _principals
@@ -30,6 +31,13 @@ from . import session_backend as _session_backend
 from . import temporary_accounts as _temporary_accounts
 from .audit_context import AuditContext
 from .models import ActivityLog, UserProfile
+
+apply_identity_provider_bindings = _identity_cutover.apply_identity_provider_bindings
+bootstrap_principal_uuid = _identity_cutover.bootstrap_principal_uuid
+identity_cutover_disposition = _identity_cutover.identity_cutover_disposition
+identity_cutover_principals = _identity_cutover.identity_cutover_principals
+identity_cutover_token_count = _identity_cutover.identity_cutover_token_count
+invalidate_pre_cutover_admission = _identity_cutover.invalidate_pre_cutover_admission
 
 save_session_assurance = _session_backend.save_session_assurance
 session_for_credential = _session_backend.session_for_credential
@@ -42,9 +50,12 @@ delete_managed_pool_user = _principals.delete_managed_pool_user
 ensure_human_principal = _principals.ensure_human_principal
 principal_for_user = _principals.principal_for_user
 principal_identity_for_user = _principals.principal_identity_for_user
+principal_identity_for_uuid = _principals.principal_identity_for_uuid
+human_principal_identity_user_id = _principals.human_principal_identity_user_id
 resolve_principal = _principals.resolve_principal
 resolve_principal_uuid = _principals.resolve_principal_uuid
 human_principal_user_id = _principals.human_principal_user_id
+active_human_user_ids = _principals.active_human_user_ids
 resolve_verified_principal = _principals.resolve_verified_principal
 resolve_service_credential = _principals.resolve_service_credential
 resolve_service_credential_reference = _principals.resolve_service_credential_reference
@@ -54,6 +65,8 @@ ModelAccessGroupEligibilityView = _model_access_authority.ModelAccessGroupEligib
 ModelAccessGroupScope = _model_access_authority.ModelAccessGroupScope
 ModelAccessIdentityAuthorityError = _model_access_authority.ModelAccessIdentityAuthorityError
 is_platform_operator = _model_access_authority.is_platform_operator
+model_access_principals_for_users = _model_access_authority.model_access_principals_for_users
+model_access_user_references_for_principals = _model_access_authority.model_access_user_references_for_principals
 resolve_model_access_group = _model_access_authority.resolve_model_access_group
 resolve_model_access_users = _model_access_authority.resolve_model_access_users
 resolve_model_preparation_user = _model_access_authority.resolve_model_preparation_user
@@ -61,10 +74,22 @@ set_model_access_group_eligibility = _model_access_authority.set_model_access_gr
 
 USER_PK_REQUIRED_MSG = "user must have a primary key"
 if TYPE_CHECKING:
+    from django.contrib.admin import ModelAdmin
     from django.contrib.auth.models import User
-    from django.db.models import QuerySet
+    from django.db.models import Model, QuerySet
 
 logger = logging.getLogger(__name__)
+
+
+def policy_admin_registrations() -> tuple[tuple[type[Model], type[ModelAdmin]], ...]:
+    """Return management-owned read-only admin registrations to the composition root."""
+    from management.policy_admin import PolicyActivityLogAdmin, PolicyUserAdmin, PolicyUserProfileAdmin
+
+    return (
+        (get_user_model(), PolicyUserAdmin),
+        (UserProfile, PolicyUserProfileAdmin),
+        (ActivityLog, PolicyActivityLogAdmin),
+    )
 
 
 def log_activity(action: str, user: User | None, **metadata: Any) -> None:

@@ -28,4 +28,4 @@ Range lifecycle must be tightly coupled to event lifecycle to prevent orphaned r
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/bridges.py` (CTF bridges - stop/start range operations via CMS services)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (Organizer notification on provisioning failure)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (Range service tests - provision, destroy, status, cleanup)
-- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#542` (CTF-902: Range Lifecycle Management)
+- IMPLEMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#542` (CTF-902: Range Lifecycle Management)

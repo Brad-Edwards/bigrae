@@ -181,6 +181,7 @@ class AuthorizationOperation(models.Model):
         choices=RelationshipKind.choices,
         default=RelationshipKind.ACTION,
     )
+    trusted_context = models.CharField(max_length=32, blank=True, default="")
     subject_kind = models.CharField(max_length=16)
     subject_uuid = models.UUIDField()
     action = models.CharField(max_length=120)

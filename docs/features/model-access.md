@@ -8,6 +8,11 @@ available supported service. The
 records the selected LiteLLM OSS replacement with deployment-owned rotation;
 it does not enable these controls.
 
+The retained sharing API reports that the feature is unavailable before reading
+membership or publishing changes. An enabled runtime setting does not override
+the parked status. Independently supported source administration and the
+keyless-direct model path retain their existing behavior.
+
 A model source connects an approved model to an account that pays for its use.
 It is independent of where the range or BigRAE runs. A Vertex source may use
 BigRAE's own GCP project, another GCP project, or a model account elsewhere.

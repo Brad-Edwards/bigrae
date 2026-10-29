@@ -21,6 +21,7 @@ from ctf.services.submission import get_participant_submissions
 
 if TYPE_CHECKING:
     from ctf.models import CTFChallenge, CTFEvent, CTFParticipant
+    from shared.credentials import CredentialContext
 
 
 def participant_current_event(participant: CTFParticipant) -> dict[str, Any]:
@@ -133,7 +134,9 @@ def participant_team(participant: CTFParticipant) -> dict[str, Any] | None:
     }
 
 
-def participant_challenge_detail(participant: CTFParticipant, challenge: CTFChallenge) -> dict[str, Any]:
+def participant_challenge_detail(
+    participant: CTFParticipant, challenge: CTFChallenge, *, credential: CredentialContext
+) -> dict[str, Any]:
     """Return the participant-safe detail projection for one challenge.
 
     Composes the canonical challenge / hint / submission / scoring services and
@@ -210,7 +213,7 @@ def participant_challenge_detail(participant: CTFParticipant, challenge: CTFChal
         ],
         "prerequisites_met": prereqs_met,
         "unmet_prerequisites": [{"id": str(required.id), "name": required.name} for required in unmet],
-        "connection_info": resolve_target_connection_info(challenge, participant),
+        "connection_info": resolve_target_connection_info(challenge, participant, credential=credential),
         # CTF-110: a LOCKED challenge is readable but not submittable; the SPA
         # uses this to replace the submit form with a locked notice.
         "locked": challenge.is_visibility_locked,

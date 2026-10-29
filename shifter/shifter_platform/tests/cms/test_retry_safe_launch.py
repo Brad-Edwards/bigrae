@@ -29,11 +29,33 @@ class _FakeCtx:
 
 @pytest.fixture
 def actor(db):
-    return User.objects.create_user(username="launcher@example.com", email="launcher@example.com")
+    user = User.objects.create_user(username="launcher@example.com", email="launcher@example.com")
+    from shared.principal_port import principal_for_user
+    from workspaces.models import Account
+    from workspaces.services import create_account
+
+    create_account(
+        kind=Account.Kind.INDIVIDUAL,
+        name="Individual account",
+        owner=principal_for_user(user),
+    )
+    return user
+
+
+def _credential(actor):
+    from shared.api.principals import human_session_credential
+
+    return human_session_credential(actor)
+
+
+def _scope(actor):
+    from workspaces.services import individual_account_scope
+
+    return individual_account_scope(_credential(actor).principal)
 
 
 def _patch_mint(monkeypatch, *, calls):
-    def _dispatch(user, scenario, workspace_uuid=None):
+    def _dispatch(credential, scenario, workspace_uuid=None, scope=None):
         # RAES packages own topology post-PLAT-202; create_range_dispatch no
         # longer takes agents_by_os (see cms.services._retry_safe_launch).
         calls.append(scenario)
@@ -45,12 +67,12 @@ def _patch_mint(monkeypatch, *, calls):
 
 def _bind(actor, scenario, caller_key):
     return bind_first_use_launch(
-        actor,
+        _credential(actor),
         scenario=scenario,
         agents_selection=SELECTION,
-        agents_by_os={"linux": 5},
         workspace_uuid=None,
         caller_key=caller_key,
+        scope=_scope(actor),
     )
 
 
@@ -59,7 +81,12 @@ def test_unbound_key_has_no_recovery(actor, monkeypatch):
     _patch_mint(monkeypatch, calls=calls)
     assert (
         resolve_retry_recovery(
-            actor, scenario="basic", agents_selection=SELECTION, workspace_uuid=None, caller_key="k1"
+            _credential(actor),
+            scenario="basic",
+            agents_selection=SELECTION,
+            workspace_uuid=None,
+            caller_key="k1",
+            scope=_scope(actor),
         )
         is None
     )
@@ -72,7 +99,12 @@ def test_first_use_dispatches_and_binds(actor, monkeypatch):
     outcome = _bind(actor, "basic", "k1")
     assert outcome.created is True
     assert calls == ["basic"]
-    assert PublicOperationRetryBinding.objects.filter(actor_key=str(actor.id), caller_key="k1").count() == 1
+    assert (
+        PublicOperationRetryBinding.objects.filter(
+            actor_key=str(_credential(actor).principal.uuid), caller_key="k1"
+        ).count()
+        == 1
+    )
 
 
 def test_replay_same_intent_recovers_without_redispatch(actor, monkeypatch):
@@ -81,7 +113,12 @@ def test_replay_same_intent_recovers_without_redispatch(actor, monkeypatch):
     first = _bind(actor, "basic", "k1")
 
     recovered = resolve_retry_recovery(
-        actor, scenario="basic", agents_selection=SELECTION, workspace_uuid=None, caller_key="k1"
+        _credential(actor),
+        scenario="basic",
+        agents_selection=SELECTION,
+        workspace_uuid=None,
+        caller_key="k1",
+        scope=_scope(actor),
     )
 
     assert recovered is not None
@@ -97,7 +134,12 @@ def test_replay_different_intent_conflicts_without_dispatch(actor, monkeypatch):
 
     with pytest.raises(RetryKeyConflict):
         resolve_retry_recovery(
-            actor, scenario="advanced", agents_selection=SELECTION, workspace_uuid=None, caller_key="k1"
+            _credential(actor),
+            scenario="advanced",
+            agents_selection=SELECTION,
+            workspace_uuid=None,
+            caller_key="k1",
+            scope=_scope(actor),
         )
 
     assert calls == ["basic"]
@@ -105,6 +147,11 @@ def test_replay_different_intent_conflicts_without_dispatch(actor, monkeypatch):
 
 def test_distinct_actors_do_not_share_a_key(actor, monkeypatch):
     other = User.objects.create_user(username="other@example.com", email="other@example.com")
+    from shared.principal_port import principal_for_user
+    from workspaces.models import Account
+    from workspaces.services import create_account
+
+    create_account(kind=Account.Kind.INDIVIDUAL, name="Individual account", owner=principal_for_user(other))
     calls: list = []
     _patch_mint(monkeypatch, calls=calls)
 
@@ -114,3 +161,38 @@ def test_distinct_actors_do_not_share_a_key(actor, monkeypatch):
     assert a.created is True
     assert b.created is True
     assert a.request_id != b.request_id
+
+
+@pytest.mark.parametrize("changed", ["kind", "account", "organization", "workspace"])
+def test_explicit_scope_change_conflicts_on_recovery_and_first_use(actor, monkeypatch, changed):
+    """An omitted legacy workspace selector cannot erase explicit placement."""
+    from shared.identity_scope import ResourceScope
+
+    calls = []
+    _patch_mint(monkeypatch, calls=calls)
+    original = _scope(actor)
+    first = _bind(actor, "basic", "scope-bound")
+    account = original.account_uuid
+    organization = uuid4()
+    alternate = {
+        "kind": ResourceScope("installation"),
+        "account": ResourceScope("account", uuid4()),
+        "organization": ResourceScope("account", account, organization),
+        "workspace": ResourceScope("account", account, organization, uuid4()),
+    }[changed]
+    declaration = {
+        "scenario": "basic",
+        "agents_selection": SELECTION,
+        "workspace_uuid": None,
+        "caller_key": "scope-bound",
+        "scope": alternate,
+    }
+    with pytest.raises(RetryKeyConflict):
+        resolve_retry_recovery(_credential(actor), **declaration)
+    with pytest.raises(RetryKeyConflict):
+        bind_first_use_launch(_credential(actor), **declaration)
+    assert calls == ["basic"]
+    recovered = resolve_retry_recovery(_credential(actor), **(declaration | {"scope": original}))
+    assert recovered.request_id == first.request_id
+    assert recovered.created is False
+    assert PublicOperationRetryBinding.objects.filter(caller_key="scope-bound").count() == 1

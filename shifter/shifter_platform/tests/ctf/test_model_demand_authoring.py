@@ -53,9 +53,8 @@ def test_write_serializer_rejects_malformed_model_demand():
     assert "model_demand" in serializer.errors
 
 
-def test_create_event_persists_model_demand(django_user_model):
-    user = django_user_model.objects.create_user(username="organizer", email="o@test.com")
-    event = create_event(user, _event_body(model_demand=[_demand()]))
+def test_create_event_persists_model_demand(organizer_user):
+    event = create_event(organizer_user, _event_body(model_demand=[_demand()]))
 
     event.refresh_from_db()
     parsed = parse_event_model_demand(event)

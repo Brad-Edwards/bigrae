@@ -1,16 +1,15 @@
-"""S8 account administration HTTP adapter, prepared without production routing."""
+"""S8 account administration HTTP adapter mounted in production routing."""
 
 from __future__ import annotations
 
 from uuid import UUID
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from shared.api.closed_serializer import ClosedSerializer
 from shared.api.errors import api_error_response
 from shared.api.permissions import IsAuthenticatedSessionOrApiToken
 from shared.api.principals import authenticated_credential
@@ -21,140 +20,88 @@ from shared.identity_scope import PrincipalRef
 from shared.principal_port import PrincipalResolutionError
 from workspaces import services
 from workspaces.api.serializers import WorkspaceQuotaResourceSerializer, WorkspaceSerializer
-from workspaces.models import EGRESS_POLICY_CHOICES, QUOTA_MODE_CHOICES, QUOTA_RESOURCE_CHOICES
 
+from .account_admin_serializers import (
+    AccountCommandSerializer,
+    AccountMemberCommandSerializer,
+    AccountMemberPageSerializer,
+    AccountMemberViewSerializer,
+    AccountPageQuerySerializer,
+    AccountPageSerializer,
+    AccountSearchQuerySerializer,
+    AccountViewSerializer,
+    EmptyAccountCommandSerializer,
+    HierarchyPendingReceiptSerializer,
+    IntegrationOrganizationQuerySerializer,
+    OrganizationPageSerializer,
+    OrganizationViewSerializer,
+    SubdivisionCommandSerializer,
+    SubdivisionCreationCommandSerializer,
+    WorkspaceEgressPolicyCommandSerializer,
+    WorkspacePageQuerySerializer,
+    WorkspacePageSerializer,
+    WorkspaceQuotaPolicyCommandSerializer,
+    WorkspaceViewSerializer,
+)
 
-class AccountCommandSerializer(ClosedSerializer):
-    """Closed account declaration with an explicit individual principal."""
-
-    kind = serializers.ChoiceField(choices=("individual", "team", "enterprise"))
-    name = serializers.CharField(max_length=200, trim_whitespace=True)
-    individual_principal_uuid = serializers.UUIDField(required=False)
-
-    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
-        if (attrs.get("kind") == "individual") != ("individual_principal_uuid" in attrs):
-            raise serializers.ValidationError({"individual_principal_uuid": "Invalid account declaration."})
-        return attrs
-
-
-class AccountPageQuerySerializer(serializers.Serializer):
-    """Bounded public collection pagination."""
-
-    offset = serializers.IntegerField(required=False, default=0, min_value=0)
-    limit = serializers.IntegerField(required=False, default=50, min_value=1, max_value=100)
-
-
-class AccountSearchQuerySerializer(AccountPageQuerySerializer):
-    """Search is applied to the policy-visible account count/page."""
-
-    search = serializers.CharField(required=False, default="", allow_blank=True, max_length=200)
-
-
-class WorkspacePageQuerySerializer(AccountSearchQuerySerializer):
-    """Archived discovery is explicit, not a widening of ordinary lists."""
-
-    include_archived = serializers.BooleanField(required=False, default=False)
-
-
-class AccountViewSerializer(serializers.Serializer):
-    """Public account fields; internal database IDs never cross the API."""
-
-    uuid = serializers.UUIDField(read_only=True)
-    kind = serializers.CharField(read_only=True)
-    name = serializers.CharField(read_only=True)
-
-
-class AccountPageSerializer(serializers.Serializer):
-    """Filtered count and one authorized page."""
-
-    count = serializers.IntegerField(read_only=True)
-    results = AccountViewSerializer(many=True, read_only=True)
-
-
-class SubdivisionCommandSerializer(ClosedSerializer):
-    """One bounded display name for a real business-account subdivision."""
-
-    name = serializers.CharField(max_length=200, trim_whitespace=True)
-
-
-class OrganizationViewSerializer(serializers.Serializer):
-    """Public organization identity and default marker."""
-
-    uuid = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(read_only=True)
-    is_default = serializers.BooleanField(read_only=True)
-
-
-class WorkspaceViewSerializer(serializers.Serializer):
-    """Public workspace identity and default marker."""
-
-    uuid = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(read_only=True)
-    is_default = serializers.BooleanField(read_only=True)
-    archived_at = serializers.DateTimeField(read_only=True, allow_null=True)
-    egress_policy = serializers.CharField(read_only=True)
-    owner_principal_uuids = serializers.ListField(child=serializers.UUIDField(), read_only=True)
-
-
-class OrganizationPageSerializer(serializers.Serializer):
-    """A bounded page counted after organization policy filtering."""
-
-    count = serializers.IntegerField(read_only=True)
-    results = OrganizationViewSerializer(many=True, read_only=True)
-
-
-class WorkspacePageSerializer(serializers.Serializer):
-    """A bounded page counted after workspace policy filtering."""
-
-    count = serializers.IntegerField(read_only=True)
-    results = WorkspaceViewSerializer(many=True, read_only=True)
-
-
-class AccountMemberCommandSerializer(ClosedSerializer):
-    """Add one active principal without inferring a group or role."""
-
-    principal_uuid = serializers.UUIDField()
-    principal_kind = serializers.ChoiceField(choices=("human", "service"))
-
-
-class AccountMemberViewSerializer(serializers.Serializer):
-    """Public membership identity without contact or policy fields."""
-
-    principal_uuid = serializers.UUIDField(read_only=True)
-
-
-class AccountMemberPageSerializer(serializers.Serializer):
-    """Membership collection counted after the parent policy check."""
-
-    count = serializers.IntegerField(read_only=True)
-    results = AccountMemberViewSerializer(many=True, read_only=True)
-
-
-class WorkspaceQuotaPolicyCommandSerializer(ClosedSerializer):
-    """One closed workspace quota update."""
-
-    resource = serializers.ChoiceField(choices=QUOTA_RESOURCE_CHOICES)
-    limit = serializers.IntegerField(min_value=0)
-    mode = serializers.ChoiceField(choices=QUOTA_MODE_CHOICES)
-
-
-class WorkspaceEgressPolicyCommandSerializer(ClosedSerializer):
-    """One closed workspace egress selection."""
-
-    egress_policy = serializers.ChoiceField(choices=EGRESS_POLICY_CHOICES)
-
-
-class EmptyAccountCommandSerializer(ClosedSerializer):
-    """Closed body for lifecycle commands without client-owned fields."""
+__all__ = [
+    "AccountCollectionView",
+    "AccountCommandSerializer",
+    "AccountCurrentView",
+    "AccountDetailView",
+    "AccountMemberCollectionView",
+    "AccountMemberCommandSerializer",
+    "AccountMemberDetailView",
+    "AccountMemberPageSerializer",
+    "AccountMemberViewSerializer",
+    "AccountOrganizationCollectionView",
+    "AccountOrganizationDetailView",
+    "AccountPageQuerySerializer",
+    "AccountPageSerializer",
+    "AccountSearchQuerySerializer",
+    "AccountViewSerializer",
+    "AccountWorkspaceArchiveView",
+    "AccountWorkspaceCollectionView",
+    "AccountWorkspaceDetailView",
+    "AccountWorkspaceEgressPolicyView",
+    "AccountWorkspaceQuotaPolicyView",
+    "AccountWorkspaceRenameView",
+    "AccountWorkspaceRestoreView",
+    "EmptyAccountCommandSerializer",
+    "HierarchyPendingReceiptSerializer",
+    "IntegrationOrganizationCollectionView",
+    "IntegrationOrganizationQuerySerializer",
+    "OrganizationPageSerializer",
+    "OrganizationViewSerializer",
+    "SubdivisionCommandSerializer",
+    "SubdivisionCreationCommandSerializer",
+    "WorkspaceEgressPolicyCommandSerializer",
+    "WorkspacePageQuerySerializer",
+    "WorkspacePageSerializer",
+    "WorkspaceQuotaPolicyCommandSerializer",
+    "WorkspaceViewSerializer",
+]
 
 
 class _AccountAPIView(APIView):
     """Apply canonical credential admission, closed parsing, and safe errors."""
 
     permission_classes = [IsAuthenticatedSessionOrApiToken]
-    parser_classes = [ClosedJSONParser]
+    parser_classes = [ClosedJSONParser, FormParser, MultiPartParser]
 
     def handle_exception(self, exc: Exception) -> Response:
+        """Map known administration failures while preserving unexpected DRF exceptions."""
+        if isinstance(exc, services.HierarchyPublicationPending):
+            return Response(
+                HierarchyPendingReceiptSerializer(
+                    {
+                        "uuid": exc.object_uuid,
+                        "publication_receipt": exc.publication_receipt,
+                        "publication_state": "pending",
+                    }
+                ).data,
+                status=202,
+            )
         if isinstance(exc, (services.AccountScopeError, PrincipalResolutionError, ValueError)):
             code, message, status_code = "account_access_denied", "Account access denied", 403
         elif isinstance(exc, AuthorizationProviderBindingError):
@@ -177,6 +124,24 @@ class _AccountAPIView(APIView):
         return api_error_response(code=code, message=message, status_code=status_code, request=self.request)
 
 
+class IntegrationOrganizationCollectionView(_AccountAPIView):
+    """Discover organizations authorized for one integration administration action."""
+
+    @extend_schema(
+        parameters=[IntegrationOrganizationQuerySerializer],
+        responses=OrganizationPageSerializer,
+        operation_id="prepared_integration_organizations_list",
+    )
+    def get(self, request: Request) -> Response:
+        """Page organizations admitted for the requested integration action."""
+        query = IntegrationOrganizationQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        page = services.admin_list_integration_organizations(
+            authenticated_credential(request), configured_authorization_provider(), **query.validated_data
+        )
+        return Response(OrganizationPageSerializer(page).data)
+
+
 class AccountCollectionView(_AccountAPIView):
     """List authorized accounts or create one under installation authority."""
 
@@ -186,6 +151,7 @@ class AccountCollectionView(_AccountAPIView):
         operation_id="prepared_accounts_list",
     )
     def get(self, request: Request) -> Response:
+        """Page accounts visible to the current native administration credential."""
         query = AccountSearchQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         page = services.admin_list_accounts(
@@ -193,8 +159,11 @@ class AccountCollectionView(_AccountAPIView):
         )
         return Response(AccountPageSerializer(page).data)
 
-    @extend_schema(request=AccountCommandSerializer, responses={201: AccountViewSerializer})
+    @extend_schema(
+        request=AccountCommandSerializer, responses={201: AccountViewSerializer, 202: HierarchyPendingReceiptSerializer}
+    )
     def post(self, request: Request) -> Response:
+        """Create or resume an account declaration under installation authority."""
         command = AccountCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         values = command.validated_data
@@ -206,6 +175,7 @@ class AccountCollectionView(_AccountAPIView):
             kind=values["kind"],
             name=values["name"],
             owner=PrincipalRef(owner_uuid, "human") if owner_uuid else None,
+            publication_receipt=values.get("publication_receipt"),
             audit=request_audit(request, credential=actor),
         )
         return Response(
@@ -219,6 +189,7 @@ class AccountCurrentView(_AccountAPIView):
 
     @extend_schema(responses=AccountViewSerializer)
     def get(self, request: Request) -> Response:
+        """Resolve the admitted human principal's individual account."""
         account = services.admin_individual_account(
             authenticated_credential(request), configured_authorization_provider()
         )
@@ -230,6 +201,7 @@ class AccountDetailView(_AccountAPIView):
 
     @extend_schema(responses=AccountViewSerializer)
     def get(self, request: Request, account_uuid: UUID) -> Response:
+        """Read the exact account after its current policy decision."""
         item = services.admin_get_account(
             authenticated_credential(request), configured_authorization_provider(), account_uuid
         )
@@ -245,6 +217,7 @@ class AccountOrganizationCollectionView(_AccountAPIView):
         operation_id="prepared_organizations_list",
     )
     def get(self, request: Request, account_uuid: UUID) -> Response:
+        """Page organizations under the authorized account."""
         query = AccountPageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         page = services.admin_list_organizations(
@@ -252,9 +225,13 @@ class AccountOrganizationCollectionView(_AccountAPIView):
         )
         return Response(OrganizationPageSerializer(page).data)
 
-    @extend_schema(request=SubdivisionCommandSerializer, responses={201: OrganizationViewSerializer})
+    @extend_schema(
+        request=SubdivisionCreationCommandSerializer,
+        responses={201: OrganizationViewSerializer, 202: HierarchyPendingReceiptSerializer},
+    )
     def post(self, request: Request, account_uuid: UUID) -> Response:
-        command = SubdivisionCommandSerializer(data=request.data)
+        """Create or resume one organization under the admitted business account."""
+        command = SubdivisionCreationCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         name = command.validated_data["name"]
         actor = authenticated_credential(request)
@@ -263,6 +240,7 @@ class AccountOrganizationCollectionView(_AccountAPIView):
             configured_authorization_provider(),
             account_uuid,
             name=name,
+            publication_receipt=command.validated_data.get("publication_receipt"),
             audit=request_audit(request, credential=actor),
         )
         return Response(
@@ -282,6 +260,7 @@ class AccountWorkspaceCollectionView(_AccountAPIView):
         operation_id="prepared_workspaces_list",
     )
     def get(self, request: Request, account_uuid: UUID, organization_uuid: UUID) -> Response:
+        """Page authorized workspaces with validated search and archive filters."""
         query = WorkspacePageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         page = services.admin_list_workspaces(
@@ -298,9 +277,13 @@ class AccountWorkspaceCollectionView(_AccountAPIView):
         )
         return Response(WorkspacePageSerializer(page).data)
 
-    @extend_schema(request=SubdivisionCommandSerializer, responses={201: WorkspaceViewSerializer})
+    @extend_schema(
+        request=SubdivisionCreationCommandSerializer,
+        responses={201: WorkspaceViewSerializer, 202: HierarchyPendingReceiptSerializer},
+    )
     def post(self, request: Request, account_uuid: UUID, organization_uuid: UUID) -> Response:
-        command = SubdivisionCommandSerializer(data=request.data)
+        """Create or resume a workspace beneath its exact account and organization."""
+        command = SubdivisionCreationCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         name = command.validated_data["name"]
         actor = authenticated_credential(request)
@@ -310,6 +293,7 @@ class AccountWorkspaceCollectionView(_AccountAPIView):
             account_uuid,
             organization_uuid,
             name=name,
+            publication_receipt=command.validated_data.get("publication_receipt"),
             audit=request_audit(request, credential=actor),
         )
         return Response(
@@ -332,6 +316,7 @@ class AccountOrganizationDetailView(_AccountAPIView):
 
     @extend_schema(responses=OrganizationViewSerializer)
     def get(self, request: Request, account_uuid: UUID, organization_uuid: UUID) -> Response:
+        """Read an organization only beneath its persisted account ancestry."""
         item = services.admin_get_organization(
             authenticated_credential(request), configured_authorization_provider(), account_uuid, organization_uuid
         )
@@ -343,6 +328,7 @@ class AccountWorkspaceDetailView(_AccountAPIView):
 
     @extend_schema(parameters=[WorkspacePageQuerySerializer], responses=WorkspaceViewSerializer)
     def get(self, request: Request, account_uuid: UUID, organization_uuid: UUID, workspace_uuid: UUID) -> Response:
+        """Read the exact workspace beneath the selected account and organization."""
         query = WorkspacePageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         item = services.admin_get_workspace(
@@ -361,6 +347,7 @@ class AccountMemberCollectionView(_AccountAPIView):
 
     @extend_schema(parameters=[AccountPageQuerySerializer], responses=AccountMemberPageSerializer)
     def get(self, request: Request, account_uuid: UUID) -> Response:
+        """Page explicit principal memberships after current account authority."""
         query = AccountPageQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         page = services.admin_list_account_members(
@@ -370,6 +357,7 @@ class AccountMemberCollectionView(_AccountAPIView):
 
     @extend_schema(request=AccountMemberCommandSerializer, responses={204: None})
     def post(self, request: Request, account_uuid: UUID) -> Response:
+        """Add one explicit principal membership through the owning native service."""
         command = AccountMemberCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
@@ -388,6 +376,7 @@ class AccountMemberDetailView(_AccountAPIView):
 
     @extend_schema(responses={204: None})
     def delete(self, request: Request, account_uuid: UUID, principal_uuid: UUID) -> Response:
+        """Remove the exact principal membership under current account authority."""
         actor = authenticated_credential(request)
         services.admin_remove_account_member(
             actor,
@@ -404,6 +393,7 @@ class AccountWorkspaceQuotaPolicyView(_AccountAPIView):
 
     @extend_schema(request=WorkspaceQuotaPolicyCommandSerializer, responses=WorkspaceQuotaResourceSerializer)
     def put(self, request: Request, workspace_uuid: UUID) -> Response:
+        """Apply a validated quota policy under current workspace administration authority."""
         command = WorkspaceQuotaPolicyCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
@@ -420,8 +410,13 @@ class AccountWorkspaceQuotaPolicyView(_AccountAPIView):
 class AccountWorkspaceEgressPolicyView(_AccountAPIView):
     """Policy-authorized egress authoring for human and service administrators."""
 
-    @extend_schema(request=WorkspaceEgressPolicyCommandSerializer, responses=WorkspaceSerializer)
+    @extend_schema(
+        request=WorkspaceEgressPolicyCommandSerializer,
+        responses=WorkspaceSerializer,
+        operation_id="api_v1_workspace_set_egress_policy",
+    )
     def put(self, request: Request, workspace_uuid: UUID) -> Response:
+        """Apply the validated egress policy through the owning workspace service."""
         command = WorkspaceEgressPolicyCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
@@ -440,6 +435,7 @@ class AccountWorkspaceRenameView(_AccountAPIView):
 
     @extend_schema(request=SubdivisionCommandSerializer, responses=WorkspaceSerializer)
     def post(self, request: Request, workspace_uuid: UUID) -> Response:
+        """Rename the admitted workspace with the validated declaration and request audit."""
         command = SubdivisionCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
@@ -456,8 +452,13 @@ class AccountWorkspaceRenameView(_AccountAPIView):
 class AccountWorkspaceArchiveView(_AccountAPIView):
     """Archive one non-default workspace after exact policy checks."""
 
-    @extend_schema(request=EmptyAccountCommandSerializer, responses=WorkspaceSerializer)
+    @extend_schema(
+        request=EmptyAccountCommandSerializer,
+        responses=WorkspaceSerializer,
+        operation_id="api_v1_workspace_archive",
+    )
     def post(self, request: Request, workspace_uuid: UUID) -> Response:
+        """Archive the exact workspace while retaining the owning lifecycle safeguards."""
         command = EmptyAccountCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)
@@ -470,8 +471,13 @@ class AccountWorkspaceArchiveView(_AccountAPIView):
 class AccountWorkspaceRestoreView(_AccountAPIView):
     """Restore one workspace under its persisted account ancestry."""
 
-    @extend_schema(request=EmptyAccountCommandSerializer, responses=WorkspaceSerializer)
+    @extend_schema(
+        request=EmptyAccountCommandSerializer,
+        responses=WorkspaceSerializer,
+        operation_id="api_v1_workspace_restore",
+    )
     def post(self, request: Request, workspace_uuid: UUID) -> Response:
+        """Restore the exact workspace under its persisted account ancestry."""
         command = EmptyAccountCommandSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         actor = authenticated_credential(request)

@@ -140,10 +140,11 @@ def test_shared_memberships_map_to_one_principal_at_each_existing_scope():
 
     assert plan.blockers == ()
     assert {
-        (member.scope_kind, member.scope_id, member.principal_uuid, member.role) for member in plan.memberships
+        (member.scope_kind, member.scope_id, member.user_id, member.principal_uuid, member.role)
+        for member in plan.memberships
     } == {
-        ("organization", organization.id, principal_id, "admin"),
-        ("workspace", workspace.id, principal_id, "owner"),
+        ("organization", organization.id, user.id, principal_id, "admin"),
+        ("workspace", workspace.id, user.id, principal_id, "owner"),
     }
 
 
@@ -173,3 +174,45 @@ def test_prepared_membership_fact_is_not_remapped_as_a_legacy_user():
     assert not plan.blockers
     assert not plan.memberships
     assert WorkspaceMembership.objects.get(workspace=workspace).principal_uuid == prepared
+
+
+def test_memberships_are_inventoried_under_an_already_account_bound_organization():
+    from workspaces.models import Account
+
+    user = User.objects.create_user(username="prepared-legacy-owner")
+    principal_uuid = uuid4()
+    account = Account.objects.create(kind="team", name="Prepared account")
+    organization = Organization.objects.create(account=account, name="Prepared organization", is_default=True)
+    workspace = Workspace.objects.create(organization=organization, name="Prepared workspace", is_default=True)
+    OrganizationMembership.objects.create(organization=organization, user=user, role="admin")
+    WorkspaceMembership.objects.create(workspace=workspace, user=user, role="owner")
+
+    plan = plan_legacy_account_mapping(
+        principal_by_user={user.pk: principal_uuid}, owner_ids_by_workspace={}, account_types_by_organization={}
+    )
+    assert not plan.organizations
+    assert not plan.blockers
+    assert {(item.scope_kind, item.scope_id, item.principal_uuid, item.role) for item in plan.memberships} == {
+        ("organization", organization.pk, principal_uuid, "admin"),
+        ("workspace", workspace.pk, principal_uuid, "owner"),
+    }
+    assert WorkspaceMembership.objects.get(workspace=workspace).user_id == user.pk
+
+
+@pytest.mark.parametrize("bound", [False, True])
+def test_workspace_admin_requires_explicit_policy_disposition(bound):
+    from workspaces.models import Account
+
+    user = User.objects.create_user(username="legacy-workspace-admin")
+    account = Account.objects.create(kind="team", name="Prepared account") if bound else None
+    organization = Organization.objects.create(account=account, name="Mixed organization")
+    workspace = Workspace.objects.create(organization=organization, name="Workspace")
+    WorkspaceMembership.objects.create(workspace=workspace, user=user, role="admin")
+    plan = plan_legacy_account_mapping(
+        principal_by_user={user.pk: uuid4()},
+        owner_ids_by_workspace={workspace.pk: set()},
+        account_types_by_organization={organization.uuid: "team"},
+    )
+    assert {item.reason for item in plan.blockers} == {"workspace_admin_policy_disposition_required"}
+    assert not plan.memberships
+    assert WorkspaceMembership.objects.get(workspace=workspace).role == "admin"

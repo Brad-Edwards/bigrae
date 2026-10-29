@@ -420,20 +420,41 @@ The deployer image embeds its source revision, so the check omits `git` there.
 
 ## First install
 
-1. Run the first deploy with `--first-install`:
+The fresh-install personal catalog credential requires an explicit
+`"bootstrap_personal_token_eligibility": true` in the private cutover facts
+before planning. The retained plan binds this choice; the default is false.
+Bootstrap grants only that separate eligibility to the exact first administrator,
+then activation verifies provider readback. Sign in after activation to issue
+the credential through the ordinary service. Other administrators gain no
+implicit eligibility, and ordinary delegation cannot bypass the self-grant or
+grantor-possession checks.
+
+1. Run the first deploy with `--first-install` and the reviewed identity facts:
 
    ```bash
-   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket> --first-install
+   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket> --first-install \
+     --identity-cutover-facts /run/operator/cutover.json \
+     --identity-bootstrap-facts /run/operator/bootstrap.json
    ```
 
 2. Read the ingress address in the command output.
 3. Create a DNS A record for `deployment.domain` at that address. Do not proxy
    the record.
-4. Run the deploy again without `--first-install`. The command then waits up to
-   60 minutes for the managed certificate to become Active.
+4. After DNS and the managed certificate are ready, sign in as the explicitly
+   granted native administrator and issue a current credential for catalog setup.
+   Keep its bearer value in an owner-only file.
+5. Run the deploy again without `--first-install`, adding
+   `--catalog-credential-file /run/operator/catalog-token`. The command waits up
+   to 60 minutes for the managed certificate to become Active and completes the
+   native catalog setup.
 
 In `--first-install` mode, the command accepts a certificate that covers the
-hostname but is not Active yet. It prints a DNS instruction and finishes.
+hostname but is not Active yet. It prints a DNS instruction. Missing catalog
+proof leaves the native application active but returns an explicit incomplete
+catalog result. The first-administrator grant does not create a credential.
+Cutover revokes pre-existing personal proofs. An already admitted service can
+supply a current proof through the same private-file option. See
+[native identity operations](../../ops/gcp-native-identity.md) for prerequisites.
 
 ## Update and roll back
 
@@ -443,7 +464,8 @@ hostname but is not Active yet. It prints a DNS instruction and finishes.
 3. Run the deploy:
 
    ```bash
-   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket>
+   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket> \
+     --catalog-credential-file /run/operator/catalog-token
    ```
 
 To roll back, deploy the deployer image of an earlier verified release. Do not
@@ -456,12 +478,13 @@ The command runs these stages in order:
 | Stage | Identity | Steps |
 | --- | --- | --- |
 | Inputs | Your identity, then deploy | Load and validate the bundle, check the tooling revision, verify the provenance of the release images, and take the lock. |
-| Infrastructure | Deploy | Initialize Identity Platform, harden the state bucket, apply Terraform, verify range audit telemetry, and create the first operator. |
+| Infrastructure | Deploy | Initialize Identity Platform, harden the state bucket, apply Terraform, verify range audit telemetry, and seed the provider account without an application grant. |
 | Preconditions | Deploy | Check the GCE range inputs and images. |
 | Images | Deploy | Copy each release image and its attestations into the deployment registry by digest. |
 | Scan | Release scan | Scan each exact digest with Trivy for HIGH and CRITICAL findings. |
 | Verify | Deploy | Verify the provenance of each image. There is no bypass. |
-| Rollout | Deploy | Install or upgrade the Helm release, run migrations, sync secrets, wait for rollouts, roll out the OpenVPN pool, record the running images, and wait for the ingress and the certificate. |
+| Rollout | Deploy | Probe and drain when required, migrate storage, verify native activation, restore the Helm release, wait for readiness, roll out the OpenVPN pool, record the running images, and wait for the ingress and certificate. |
+| Catalog | Native application proof | Initialize the declared installation catalog after readiness through ordinary registration, conformance and publication. Missing or denied proof leaves this phase incomplete. |
 | Smoke | Deploy | Run the advisory range smoke. |
 
 `--stage infrastructure` and `--stage rollout` run one stage. Each still

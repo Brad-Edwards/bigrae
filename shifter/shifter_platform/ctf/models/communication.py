@@ -36,6 +36,7 @@ from ctf.enums_communication import (
     IntentStatus,
     TriggerKind,
 )
+from shared.db.operation_authority import RecordedAuthorityFields
 from shared.field_encryption import EncryptedStringField
 
 from ._base import CTFBaseModel, ImmutableFieldsMixin
@@ -75,10 +76,13 @@ class CommunicationCampaign(CTFBaseModel):
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="ctf_communication_campaigns",
-        help_text="Session actor who authored the campaign",
+        help_text="Optional legacy human author projection; never application authority",
     )
+    creator_principal_uuid = models.UUIDField(db_index=True, editable=False)
     actor_token_id = models.IntegerField(
         null=True,
         blank=True,
@@ -104,6 +108,7 @@ class CommunicationCampaign(CTFBaseModel):
     cancelled_by_user_id = models.IntegerField(
         null=True, blank=True, help_text="Non-secret user identity that cancelled the campaign"
     )
+    cancelled_by_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
     cancelled_by_token_id = models.IntegerField(
         null=True, blank=True, help_text="Non-secret API-token row identity that cancelled the campaign"
     )
@@ -156,6 +161,17 @@ class CommunicationCampaign(CTFBaseModel):
                 name="ctf_comm_campaign_origin_valid",
             ),
         ]
+
+    def save(self, *args: object, **kwargs: object) -> None:
+        """Project retained human attribution to its stable principal on create."""
+        if self._state.adding and self.created_by_id is not None and not self.creator_principal_uuid:
+            creator = self.created_by
+            if creator is None:
+                raise ValueError("Human attribution unavailable")
+            from shared.principal_port import principal_for_user
+
+            self.creator_principal_uuid = principal_for_user(creator).uuid
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         """Return the campaign title."""
@@ -229,6 +245,7 @@ class MessageRevision(ImmutableFieldsMixin, CTFBaseModel):
     content_digest = models.CharField(max_length=71, help_text="sha256: digest of the normalized content")
     actor_user_id = models.IntegerField(null=True, blank=True, help_text="Non-secret authoring user identity")
     actor_token_id = models.IntegerField(null=True, blank=True, help_text="Non-secret authoring token-row identity")
+    actor_principal_uuid = models.UUIDField(null=True, blank=True, editable=False)
 
     class Meta:
         """Django model metadata."""
@@ -255,6 +272,7 @@ class MessageRevision(ImmutableFieldsMixin, CTFBaseModel):
         "revision_number",
         "actor_user_id",
         "actor_token_id",
+        "actor_principal_uuid",
     )
 
     def clean(self) -> None:
@@ -265,7 +283,7 @@ class MessageRevision(ImmutableFieldsMixin, CTFBaseModel):
             raise ValidationError(errors)
 
 
-class CommunicationIntent(CTFBaseModel):
+class CommunicationIntent(RecordedAuthorityFields, CTFBaseModel):
     """Immutable normalized occurrence produced at release (ADR-051).
 
     Static, manual, timed, and RAES/range sources converge here. It pins campaign,

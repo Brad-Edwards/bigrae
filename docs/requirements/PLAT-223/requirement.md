@@ -21,4 +21,4 @@ Egress allowlists are a security control. Without RBAC any scenario author or op
 
 ## Traceability
 
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#778` (PLAT-223: RBAC for Egress Allowlist Management)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#778` (PLAT-223: RBAC for Egress Allowlist Management)

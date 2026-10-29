@@ -10,10 +10,10 @@ afterEach(() => vi.unstubAllGlobals());
 type Reply = [number, unknown];
 
 const TARGETS = {
-  workspaces: [{ id: "w1", name: "Ops" }],
+  parents: [{ kind: "workspace", id: "w1", name: "Ops" }],
   events: [
-    { id: "e1", name: "Alpha", status: "registration", event_timezone: "UTC", event_start: "", event_end: "", workspace_id: "w1" },
-    { id: "e2", name: "Bravo", status: "active", event_timezone: "America/New_York", event_start: "", event_end: "", workspace_id: "w1" },
+    { id: "e1", name: "Alpha", status: "registration", event_timezone: "UTC", event_start: "", event_end: "", parent: { kind: "workspace", id: "w1" } },
+    { id: "e2", name: "Bravo", status: "active", event_timezone: "America/New_York", event_start: "", event_end: "", parent: { kind: "workspace", id: "w1" } },
   ],
   next_offset: null,
 };
@@ -48,10 +48,53 @@ function stubApi(route: (url: string, method: string) => Reply | undefined) {
 const posts = (fetch: ReturnType<typeof vi.fn>, suffix: string) =>
   fetch.mock.calls.filter(([url, init]) => init?.method === "POST" && String(url).endsWith(suffix));
 
+it("clears the draft and isolates cached targets when the parent kind changes", async () => {
+  const parents = [
+    { kind: "account", id: "same-id", name: "Personal" },
+    { kind: "organization", id: "same-id", name: "Team" },
+  ];
+  const fetch = stubApi((url, method) => {
+    const query = new URL(url, "http://localhost").searchParams;
+    if (url.startsWith("/api/v1/ctf/communications/target-options/")) {
+      const organization = query.has("organization");
+      return [200, { parents, events: [{ ...TARGETS.events[0],
+        id: organization ? "organization-event" : "account-event",
+        name: organization ? "Team event" : "Personal event",
+        parent: { kind: organization ? "organization" : "account", id: "same-id" },
+      }], next_offset: null }];
+    }
+    if (url.startsWith("/api/v1/ctf/communications/?")) return [200, { results: [], next_offset: null }];
+    if (url === "/api/v1/ctf/communications/" && method === "POST") return [201, CAMPAIGN];
+    if (url.startsWith("/api/v1/ctf/communications/c1/preview/")) return [200, PREVIEW];
+    return undefined;
+  });
+  const user = setupUser();
+  renderRoute(<CommunicationsPage />, { path: "/ctf/admin/communications", initialEntries: ["/ctf/admin/communications"] });
+  const picker = await screen.findByLabelText("Account, organization or workspace");
+  await user.selectOptions(picker, "account:same-id");
+  await user.click(await screen.findByRole("checkbox", { name: /Personal event/ }));
+  await user.type(screen.getByLabelText("Title (organizers only)"), "Personal draft");
+  await user.selectOptions(picker, "organization:same-id");
+  const target = await screen.findByRole("checkbox", { name: /Team event/ });
+  expect(target).not.toBeChecked();
+  expect(screen.queryByRole("checkbox", { name: /Personal event/ })).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Title (organizers only)")).toHaveValue("");
+  await user.click(target);
+  await user.type(screen.getByLabelText("Title (organizers only)"), "Team draft");
+  await user.type(screen.getByLabelText("Subject"), "Welcome");
+  await user.type(screen.getByLabelText("Message (Markdown)"), "Rules");
+  await user.click(screen.getByRole("button", { name: "Save draft and preview" }));
+  await screen.findByRole("region", { name: "Preview" });
+  const body = JSON.parse(posts(fetch, "/communications/")[0][1].body);
+  expect(body).toMatchObject({ organization: "same-id", target_event_ids: ["organization-event"] });
+  expect(body).not.toHaveProperty("account");
+  expect(body).not.toHaveProperty("workspace_id");
+});
+
 it("composes with the keyboard, previews, and retries the same reviewed release", async () => {
   let releaseAttempts = 0;
   const fetch = stubApi((url, method) => {
-    if (url.startsWith("/api/v1/ctf/communications/targets/")) return [200, TARGETS];
+    if (url.startsWith("/api/v1/ctf/communications/target-options/")) return [200, TARGETS];
     if (url === "/api/v1/ctf/communications/" && method === "POST") return [201, CAMPAIGN];
     if (url.startsWith("/api/v1/ctf/communications/?")) return [200, { results: [], next_offset: null }];
     if (url.startsWith("/api/v1/ctf/communications/c1/preview/")) return [200, PREVIEW];
@@ -100,7 +143,7 @@ it("composes with the keyboard, previews, and retries the same reviewed release"
 
 it("refuses a scheduled time that a clock change skips", async () => {
   stubApi((url) => {
-    if (url.startsWith("/api/v1/ctf/communications/targets/")) return [200, TARGETS];
+    if (url.startsWith("/api/v1/ctf/communications/target-options/")) return [200, TARGETS];
     if (url.startsWith("/api/v1/ctf/communications/?")) return [200, { results: [], next_offset: null }];
     return undefined;
   });
@@ -182,7 +225,7 @@ async function composeDraft(user: ReturnType<typeof setupUser>) {
 it("keeps release disabled until the preview of the same revision succeeds", async () => {
   let previewCalls = 0;
   stubApi((url, method) => {
-    if (url.startsWith("/api/v1/ctf/communications/targets/")) return [200, TARGETS];
+    if (url.startsWith("/api/v1/ctf/communications/target-options/")) return [200, TARGETS];
     if (url === "/api/v1/ctf/communications/" && method === "POST") return [201, CAMPAIGN];
     if (url.startsWith("/api/v1/ctf/communications/?")) return [200, { results: [], next_offset: null }];
     if (url.startsWith("/api/v1/ctf/communications/c1/preview/")) {
@@ -204,7 +247,7 @@ it("keeps release disabled until the preview of the same revision succeeds", asy
 it("loads further pages of events and keeps the selection", async () => {
   const fetch = stubApi((url) => {
     const query = new URL(url, "http://localhost").searchParams;
-    if (url.startsWith("/api/v1/ctf/communications/targets/")) {
+    if (url.startsWith("/api/v1/ctf/communications/target-options/")) {
       return query.get("offset") === "100"
         ? [200, { ...TARGETS, events: [{ ...TARGETS.events[0], id: "e3", name: "Charlie" }], next_offset: null }]
         : [200, { ...TARGETS, next_offset: 100 }];

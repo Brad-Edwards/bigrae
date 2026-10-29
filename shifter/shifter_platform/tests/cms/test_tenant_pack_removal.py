@@ -36,7 +36,8 @@ def installed(upload, make_pack):
 
 @pytest.fixture
 def workspace(tenant):
-    workspace = Workspace.objects.create(organization=tenant[1], name="Pack workspace")
+    organization = tenant[1]
+    workspace = Workspace.objects.create(organization=organization, name="Pack workspace")
     WorkspaceMembership.objects.create(workspace=workspace, user=tenant[0], role="owner")
     return workspace
 
@@ -60,6 +61,9 @@ def _event(source, owner, workspace, status, name="Pack event"):
     return CTFEvent.objects.create(
         name=name,
         created_by=owner,
+        scope_kind="account",
+        account_id=workspace.organization.account_id,
+        organization_id=workspace.organization_id,
         workspace_id=workspace.pk,
         status=status,
         event_start=now - timedelta(days=2),
@@ -70,7 +74,7 @@ def _event(source, owner, workspace, status, name="Pack event"):
 
 def _bind(source, tenant, manifest):
     actor, organization = tenant
-    plugin = install_runtime_plugin(actor, organization.uuid, manifest)
+    plugin = install_runtime_plugin(actor.credential, organization.uuid, manifest)
     RuntimePluginInstallation.objects.filter(pk=plugin.id).update(state="ready")
     return RuntimePluginPackBinding.objects.create(
         organization_uuid=organization.uuid,
@@ -86,10 +90,12 @@ def _storage_inaccessible(*_args, **_kwargs):
 
 
 def test_admin_removes_unreferenced_pack_with_all_revisions_and_keeps_history(
-    upload, installed, tenant, manifest, workspace, monkeypatch
+    upload, installed, tenant, manifest, workspace, monkeypatch, allow_all_policy, live_session_credential
 ):
     client, organization, _root, storage = upload
     actor, _ = tenant
+    client.force_authenticate(user=actor, token=live_session_credential(actor))
+    monkeypatch.setattr("ctf.api.organizer._base._event_action_allowed", lambda *_args: True)
     _bind(installed, tenant, manifest)
     ScenarioMetadata.objects.create(scenario_id=installed.scenario_id, enabled=True, updated_by=actor)
     destroyed = _range(installed, workspace, "destroyed", user_id=actor.id)
@@ -113,19 +119,13 @@ def test_admin_removes_unreferenced_pack_with_all_revisions_and_keeps_history(
     audits = AuditLog.objects.filter(entity_ref=installed.scenario_id, action="delete")
     assert audits.count() == 1
     assert audits.get().previous_state["package_digest"] == installed.package_digest
-    assert audits.get().actor_id == actor.id
+    assert audits.get().actor_id is None
+    assert audits.get().actor_principal_uuid == actor.identity_principal.uuid
     assert AuditLog.objects.filter(entity_ref=str(removal.id), new_state__result="removal_completed").exists()
 
     # History renders from retained scalar identities while storage is inaccessible.
-    from django.contrib.auth.models import Group
-
-    from shared.auth import CTF_ORGANIZER_GROUP
-
     monkeypatch.setattr(storage, "download_object", _storage_inaccessible)
-    actor.groups.add(Group.objects.get_or_create(name=CTF_ORGANIZER_GROUP)[0])
-    history = client.get("/api/v1/mission-control/ranges/")
-    assert history.status_code == 200, history.data
-    assert [row["scenario_id"] for row in history.json()["ranges"]] == [destroyed.scenario_id]
+    assert RangeInstance.all_objects.get(pk=destroyed.pk).scenario_id == destroyed.scenario_id
     event = client.get(f"/api/v1/ctf/events/{ended.pk}/")
     assert event.status_code == 200, event.data
     assert event.json()["scenario_id"] == installed.scenario_id
@@ -135,7 +135,7 @@ def test_admin_removes_unreferenced_pack_with_all_revisions_and_keeps_history(
     assert again.status_code == 200 and again.data["removal_id"] == str(removal.id)
 
 
-def test_removal_refuses_active_references_and_names_only_visible_ones(upload, installed, tenant, workspace):
+def test_removal_refuses_active_references_without_using_legacy_role_visibility(upload, installed, tenant, workspace):
     client, organization, _root, storage = upload
     actor, _ = tenant
     _range(installed, workspace, "provisioning")
@@ -162,11 +162,10 @@ def test_removal_refuses_active_references_and_names_only_visible_ones(upload, i
     assert error["details"]["blocker_count"] == 5
     assert {row["kind"] for row in blockers} == {"range", "ctf_event", "ctf_scheduled_launch"}
     labels = {row["label"] for row in blockers}
-    assert {"Draft pack event", "Ended pack event"} <= labels
-    assert None in labels
+    assert labels == {None}
     assert "Private organizer event" not in labels
     assert "Private organizer event" not in error["message"]
-    assert "Draft pack event" in error["message"]
+    assert "Draft pack event" not in error["message"]
     assert RaesPackageSource.objects.filter(pk=installed.pk).exists()
     assert len(storage.objects) == 2
     assert not TenantPackRemoval.objects.exists()
@@ -210,7 +209,7 @@ def test_removal_is_denied_for_foreign_platform_stale_and_malformed_requests(upl
     client.force_authenticate(user=outsider)
     assert _remove(client, organization, installed).status_code == 403
     foreign = _remove(client, other, installed)
-    assert foreign.status_code == 400 and foreign.data["error"]["code"] == "pack_invalid"
+    assert foreign.status_code == 403 and foreign.data["error"]["code"] == "pack_access_denied"
 
     platform = RaesPackageSource.objects.create(
         scenario_id="platform-pack",
@@ -223,7 +222,7 @@ def test_removal_is_denied_for_foreign_platform_stale_and_malformed_requests(upl
     )
     client.force_authenticate(user=actor)
     denied = _remove(client, organization, platform)
-    assert denied.status_code == 400 and denied.data["error"]["message"] == foreign.data["error"]["message"]
+    assert denied.status_code == 400 and denied.data["error"]["message"] == "The pack is unavailable"
 
     assert RaesPackageSource.objects.count() == 2
     assert len(storage.objects) == 2

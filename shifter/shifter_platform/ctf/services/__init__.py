@@ -66,6 +66,7 @@ from ctf.services.event import (
     cancel_event,
     complete_event,
     create_event,
+    create_event_for_credential,
     delete_event,
     end_event,
     event_pk_if_exists,
@@ -88,6 +89,21 @@ from ctf.services.hint import (
     remove_hint,
     update_hint,
     use_hint,
+)
+from ctf.services.identity_cutover import (
+    apply_identity_cutover_resources as apply_identity_cutover_resources,
+)
+from ctf.services.identity_cutover import (
+    confirm_identity_cutover_publication as confirm_identity_cutover_publication,
+)
+from ctf.services.identity_cutover import (
+    identity_cutover_disposition as identity_cutover_disposition,
+)
+from ctf.services.identity_cutover import (
+    identity_cutover_relationships as identity_cutover_relationships,
+)
+from ctf.services.identity_cutover import (
+    pending_identity_cutover_work as pending_identity_cutover_work,
 )
 from ctf.services.model_access_sharing import (
     ModelAccessSelectorError,
@@ -174,6 +190,7 @@ __all__ = [
     "create_bracket",
     "create_challenge",
     "create_event",
+    "create_event_for_credential",
     "delete_bracket",
     "delete_challenge",
     "delete_event",

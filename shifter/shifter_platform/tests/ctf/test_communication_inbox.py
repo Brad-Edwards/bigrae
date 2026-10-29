@@ -4,12 +4,12 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-import workspaces.services as ws
 from ctf.models import CTFParticipant, ParticipantReceipt
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
 from shared.api_tokens.models import ApiToken
+from tests.ctf._account_scope import individual_account_uuid
 
-pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
+pytestmark = pytest.mark.django_db
 
 
 @pytest.fixture
@@ -25,7 +25,7 @@ def inbox(organizer_user, ctf_event, django_user_model):
     )
     campaign = create_campaign(
         organizer_user,
-        ws.resolve_personal_workspace(organizer_user).workspace_uuid,
+        individual_account_uuid(organizer_user),
         CampaignDraft(
             title="Notice",
             origin="organizer_staff",
@@ -37,6 +37,7 @@ def inbox(organizer_user, ctf_event, django_user_model):
             body="Read this",
             acknowledgement_policy="explicit",
         ),
+        parent_type="account",
     )
     intent = release_campaign(campaign, occurrence_key="inbox-1", actor_user_id=organizer_user.pk)
     snapshot = intent.recipient_snapshots.get()
@@ -96,7 +97,7 @@ def test_receipt_write_requires_csrf(inbox):
 def _release(organizer, event, *, policy="none", key, title="Notice", body="Read this"):
     campaign = create_campaign(
         organizer,
-        ws.resolve_personal_workspace(organizer).workspace_uuid,
+        individual_account_uuid(organizer),
         CampaignDraft(
             title=title,
             origin="organizer_staff",
@@ -108,6 +109,7 @@ def _release(organizer, event, *, policy="none", key, title="Notice", body="Read
             body=body,
             acknowledgement_policy=policy,
         ),
+        parent_type="account",
     )
     return campaign, release_campaign(campaign, occurrence_key=key, actor_user_id=organizer.pk)
 
@@ -122,11 +124,12 @@ def _second_event(organizer):
 
     from ctf.enums import EventStatus
     from ctf.models import CTFEvent
+    from tests.ctf._account_scope import individual_account_scope_fields
 
     return CTFEvent.objects.create(
         name="Second CTF Event",
         created_by=organizer,
-        workspace_id=ws.resolve_personal_workspace(organizer).workspace_id,
+        **individual_account_scope_fields(organizer),
         status=EventStatus.REGISTRATION.value,
         event_start=timezone.now() + timedelta(days=2),
         event_end=timezone.now() + timedelta(days=2, hours=8),

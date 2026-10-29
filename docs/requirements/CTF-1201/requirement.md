@@ -22,4 +22,4 @@ A REST API enables programmatic access for custom tooling, automation scripts, e
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (CTF URL patterns - API route definitions)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#633` (CTF-1201: REST API)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#633` (CTF-1201: REST API)

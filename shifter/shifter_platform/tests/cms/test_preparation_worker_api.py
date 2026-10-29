@@ -4,8 +4,8 @@ import pytest
 from rest_framework.test import APIClient
 
 from engine.models import PreparationAttempt
-from engine.services import request_artifact_preparation
 from engine.services._preparation_worker import attempt_token
+from tests.engine.services._preparation_fixtures import request_artifact_preparation
 from tests.engine.services.test_preparation_operations import administrator, grant, installed, operator, package_input
 from tests.engine.services.test_preparation_worker_boundary import result_for
 

@@ -13,7 +13,7 @@ it("confirms a range move using its correlation and a public destination UUID", 
   renderRoute(<RangeScopePanel workspaceUuid="source" />);
   await user.click(await screen.findByRole("button", { name: "Move synthetic" }));
   await user.type(screen.getByLabelText("Destination workspace UUID"), destination);
-  expect(apiFetch).not.toHaveBeenCalledWith(`/cms/ranges/${request}/workspace/`, expect.objectContaining({ method: "POST" }));
+  expect(apiFetch).not.toHaveBeenCalledWith(`/cms/ranges/${request}/scope/`, expect.objectContaining({ method: "POST" }));
   await user.click(screen.getByRole("button", { name: "Confirm range move" }));
-  await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(`/cms/ranges/${request}/workspace/`, expect.objectContaining({ method: "POST", body: { target_workspace_uuid: destination } })));
+  await waitFor(() => expect(apiFetch).toHaveBeenCalledWith(`/cms/ranges/${request}/scope/`, expect.objectContaining({ method: "POST", body: { target_workspace_uuid: destination } })));
 });

@@ -3,13 +3,15 @@
 DEV/TEST ONLY. Like ``seed_e2e``, this command refuses to run unless ``DEBUG`` is
 true or ``ENVIRONMENT`` is ``development``/``test``.
 
-It seeds what ``dev_login`` cannot establish: one event owned by the E2E
-organizer, a live participation and active event for the E2E inbox participant,
-and two released communications (#2053). The first goes through the real
-authoring and admission services. The second carries a stored hostile body
-written below the admission validator, as a row admitted before a validator
-change would be; the browser journey proves the renderer and the enforced CSP
-keep it inert. Idempotent: safe to re-run.
+Run it after ``seed_e2e``, which gives the E2E organizer its individual account
+and native account administration. It seeds what ``dev_login`` cannot establish:
+one event in that account, owned by the organizer, with its authorization
+relationships published; a live participation and active event for the E2E
+inbox participant; and two released communications (#2053). The first goes
+through the real authoring and admission services. The second carries a stored
+hostile body written below the admission validator, as a row admitted before a
+validator change would be; the browser journey proves the renderer and the
+enforced CSP keep it inert. Idempotent: safe to re-run.
 """
 
 from __future__ import annotations
@@ -28,8 +30,10 @@ from ctf.communication_contracts import CONTENT_PROFILE_V1, canonical_digest
 from ctf.enums import EventStatus
 from ctf.models import CommunicationCampaign, CTFEvent, CTFParticipant, MessageRevision
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
-from management.services import get_user_profile, set_active_ctf_event
-from shared.auth import CTF_ORGANIZER_GROUP, CTF_PARTICIPANT_GROUP
+from ctf.services.event import publish_event_relationships
+from management.services import set_active_ctf_event
+from shared.auth import CTF_PARTICIPANT_GROUP
+from shared.principal_port import principal_for_user
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User as DjangoUser
@@ -75,23 +79,33 @@ class Command(BaseCommand):
             raise CommandError("seed_e2e_ctf is disabled outside development/test (refusing production posture).")
 
         organizer = _ensure_user(ORGANIZER_EMAIL)
-        organizer.groups.add(Group.objects.get_or_create(name=CTF_ORGANIZER_GROUP)[0])
-        profile = get_user_profile(organizer)
-        profile.user_type = "ctf_organizer"
-        profile.save(update_fields=["user_type"])
+        principal = principal_for_user(organizer)
+        try:
+            scope = ws.individual_account_scope(principal)
+            binding = ws.resolve_resource_scope(scope)
+        except ws.AccountScopeError:
+            raise CommandError("Run seed_e2e first: the E2E organizer needs its individual account.") from None
 
         now = timezone.now()
         event, _ = CTFEvent.objects.get_or_create(
             name=EVENT_NAME,
             created_by=organizer,
             defaults={
-                "workspace_id": ws.resolve_personal_workspace(organizer).workspace_id,
+                "creator_principal_uuid": principal.uuid,
+                "owner_principal_uuid": principal.uuid,
+                "scope_kind": "account",
+                "account_id": binding.account_id,
+                # As the event service does: publication writes the provider
+                # relationships and confirms only after readback.
+                "authorization_publication_state": "requested",
                 "status": EventStatus.ACTIVE.value,
                 "event_start": now - timedelta(hours=1),
                 "event_end": now + timedelta(days=30),
                 "scenario_id": "basic",
             },
         )
+        publish_event_relationships(event.pk)
+        account_uuid = str(scope.account_uuid)
 
         participant_user = _ensure_user(INBOX_PARTICIPANT_EMAIL)
         CTFParticipant.objects.get_or_create(
@@ -102,10 +116,12 @@ class Command(BaseCommand):
         participant_user.groups.add(Group.objects.get_or_create(name=CTF_PARTICIPANT_GROUP)[0])
         set_active_ctf_event(participant_user, event.pk)
 
-        safe = self._campaign(organizer, event, SAFE_SUBJECT, "Read the **rules** on the [help page](/ctf/help/).")
+        safe = self._campaign(
+            organizer, account_uuid, event, SAFE_SUBJECT, "Read the **rules** on the [help page](/ctf/help/)."
+        )
         release_campaign(safe, occurrence_key="e2e-safe", actor_user_id=organizer.pk)
 
-        hostile = self._campaign(organizer, event, HOSTILE_SUBJECT, "Placeholder.", policy="none")
+        hostile = self._campaign(organizer, account_uuid, event, HOSTILE_SUBJECT, "Placeholder.", policy="none")
         revision, _ = MessageRevision.objects.get_or_create(
             campaign=hostile,
             revision_number=2,
@@ -117,6 +133,7 @@ class Command(BaseCommand):
                     {"subject": HOSTILE_SUBJECT, "body": HOSTILE_BODY, "profile": CONTENT_PROFILE_V1}
                 ),
                 "actor_user_id": organizer.pk,
+                "actor_principal_uuid": principal.uuid,
             },
         )
         release_campaign(hostile, occurrence_key="e2e-hostile", actor_user_id=organizer.pk, revision=revision)
@@ -125,14 +142,14 @@ class Command(BaseCommand):
 
     @staticmethod
     def _campaign(
-        organizer: DjangoUser, event: CTFEvent, subject: str, body: str, *, policy: str = "explicit"
+        organizer: DjangoUser, account_uuid: str, event: CTFEvent, subject: str, body: str, *, policy: str = "explicit"
     ) -> CommunicationCampaign:
         existing = CommunicationCampaign.objects.filter(created_by=organizer, title=subject).first()
         if existing is not None:
             return existing
         return create_campaign(
             organizer,
-            ws.resolve_personal_workspace(organizer).workspace_uuid,
+            account_uuid,
             CampaignDraft(
                 title=subject,
                 origin="organizer_staff",
@@ -144,4 +161,5 @@ class Command(BaseCommand):
                 body=body,
                 acknowledgement_policy=policy,
             ),
+            parent_type="account",
         )

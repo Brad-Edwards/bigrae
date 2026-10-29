@@ -26,6 +26,10 @@ class CtfConfig(AppConfig):
         from shared.range_workspace_aggregate import register_range_vpn_participation
 
         register_range_vpn_participation(admit_assigned_range_vpn)
+        from ctf.services.range.participation import admit_owned_range_remote_participation
+        from shared.range_workspace_aggregate import register_range_remote_participation
+
+        register_range_remote_participation(admit_owned_range_remote_participation)
         from ctf.services.authorization_inventory import register_authorization_event_inventory
 
         register_authorization_event_inventory()

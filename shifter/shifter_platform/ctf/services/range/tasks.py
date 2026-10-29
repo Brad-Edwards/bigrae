@@ -9,7 +9,8 @@ progress for the organizer UI. The work itself lives in
 from __future__ import annotations
 
 import logging
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal, overload
 from uuid import UUID
 
 from django.db import transaction
@@ -23,9 +24,25 @@ from shared.log_sanitize import safe_log_value
 logger = logging.getLogger(__name__)
 
 
+@overload
 def request_event_provisioning(
-    event_id: UUID, *, source: str = "manual", actor_id: int | None = None
+    event_id: UUID, *, source: str = "manual", actor_id: object | None = None, defer_if_busy: Literal[False] = False
 ) -> CTFScheduledTask:
+    """Request event provisioning, optionally returning no task while another runs."""
+    ...
+
+
+@overload
+def request_event_provisioning(
+    event_id: UUID, *, source: str = "manual", actor_id: object | None = None, defer_if_busy: bool
+) -> CTFScheduledTask | None:
+    """Request event provisioning, optionally returning no task while another runs."""
+    ...
+
+
+def request_event_provisioning(
+    event_id: UUID, *, source: str = "manual", actor_id: object | None = None, defer_if_busy: bool = False
+) -> CTFScheduledTask | None:
     """Enqueue (or coalesce onto) a due-now SPIN_UP_RANGES task for an event.
 
     The organizer "provision all" action runs the throttled provisioning loop
@@ -44,18 +61,34 @@ def request_event_provisioning(
     Args:
         event_id: UUID of the event.
         source: Audit hint recorded in task metadata (e.g. "manual").
-        actor_id: When an interactive caller (the organizer "provision all"
-            action) supplies it, the service asserts the ``ranges`` capability
-            under the event lock (defense in depth, #1922). System callers such
-            as the participant-account post-commit enqueue omit it.
+        actor_id: The initiating native actor or prepared event admission. Every
+            caller must supply current range-management authority; the event
+            lock fences that exact admission before any queue mutation.
 
     Returns:
-        The active CTFScheduledTask (created or coalesced).
+        The active task, or None when participant admission defers a conflicting wave.
 
     Raises:
         CTFNotFoundError: If event doesn't exist.
         CTFPermissionError: If ``actor_id`` lacks the ``ranges`` capability.
     """
+    if actor_id is None:
+        raise ValueError("Range provisioning authority unavailable")
+    try:
+        admitted_event = CTFEvent.objects.get(pk=event_id)
+    except CTFEvent.DoesNotExist:
+        raise CTFNotFoundError(
+            f"Event {event_id} not found",
+            details={"event_id": str(event_id)},
+        ) from None
+    from ctf.enums import EventCapability
+    from ctf.services.actors import event_actor_credential
+    from ctf.services.authorization import admit_event_actions, assert_event_capability
+    from shared.operation_authority import credential_reference_fields
+
+    admission = admit_event_actions(actor_id, admitted_event, "event.manage_ranges")
+    credential = event_actor_credential(admission)
+    authority_fields = credential_reference_fields(credential)
     spin_up = ScheduledTaskType.SPIN_UP_RANGES.value
     with transaction.atomic():
         # Serialize concurrent enqueues for the same event so duplicate clicks
@@ -68,11 +101,12 @@ def request_event_provisioning(
                 details={"event_id": str(event_id)},
             ) from None
 
-        if actor_id is not None:
-            from ctf.enums import EventCapability
-            from ctf.services.authorization import assert_event_capability
+        from ctf.bridges import cms_fence_pack_reference
 
-            assert_event_capability(actor_id, event, EventCapability.RANGES)
+        assert_event_capability(admission, event, EventCapability.RANGES)
+        if event.scenario_id != admitted_event.scenario_id:
+            raise ValueError("Event scenario changed during provisioning admission")
+        cms_fence_pack_reference(event.scenario_id)
 
         now = timezone.now()
 
@@ -82,8 +116,7 @@ def request_event_provisioning(
             status=ScheduledTaskStatus.RUNNING.value,
         ).first()
         if running is not None:
-            logger.info("Coalescing provision request onto running task %s", running.pk)
-            return running
+            return _coalesce_provision_task(running, authority_fields, source, now, defer_if_busy)
 
         pending = (
             CTFScheduledTask.objects.filter(
@@ -95,25 +128,14 @@ def request_event_provisioning(
             .first()
         )
         if pending is not None:
-            if pending.scheduled_for > now:
-                pending.scheduled_for = now
-                pending.metadata = {**(pending.metadata or {}), "source": source}
-                pending.save(update_fields=["scheduled_for", "metadata", "updated_at"])
-                logger.info(
-                    "Pulled scheduled spin-up task %s forward for event %s", pending.pk, safe_log_value(event_id)
-                )
-            else:
-                logger.info("Coalescing provision request onto pending task %s", pending.pk)
-            return pending
+            return _coalesce_provision_task(pending, authority_fields, source, now, defer_if_busy)
 
-        from ctf.bridges import cms_fence_pack_reference
-
-        cms_fence_pack_reference(event.scenario_id)
         task = CTFScheduledTask.objects.create(
             event_id=event_id,
             task_type=spin_up,
             scheduled_for=now,
             metadata={"source": source},
+            **authority_fields,
         )
     logger.info("Enqueued provision task %s for event %s", task.pk, safe_log_value(event_id))
     return task
@@ -167,3 +189,24 @@ def get_provision_progress(event_id: UUID) -> dict[str, Any]:
         }
 
     return {"counts": counts, "task": task_block}
+
+
+def _coalesce_provision_task(
+    task: CTFScheduledTask, authority_fields: dict[str, object], source: str, now: datetime, defer_if_busy: bool
+) -> CTFScheduledTask | None:
+    """Reuse only the same native initiating proof and pull a pending task forward under its event lock."""
+    running = task.status == ScheduledTaskStatus.RUNNING.value
+    if any(getattr(task, key) != value for key, value in authority_fields.items()):
+        if defer_if_busy:
+            return None
+        state = "running" if running else "queued"
+        raise ValueError(f"Range provisioning is already {state} under another credential")
+    if not running and task.scheduled_for > now:
+        task.scheduled_for = now
+        task.metadata = {**(task.metadata or {}), "source": source}
+        task.save(update_fields=["scheduled_for", "metadata", "updated_at"])
+        logger.info("Pulled scheduled spin-up task %s forward for event %s", task.pk, safe_log_value(task.event_id))
+    else:
+        state = "running" if running else "pending"
+        logger.info("Coalescing provision request onto %s task %s", state, task.pk)
+    return task

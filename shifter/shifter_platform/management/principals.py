@@ -72,6 +72,22 @@ def principal_identity_for_user(user: User) -> PrincipalRef:
     return _principal_ref(principal)
 
 
+def principal_identity_for_uuid(principal_uuid: UUID) -> PrincipalRef:
+    """Read a durable subject identity without admitting its current lifecycle."""
+    principal = Principal.objects.filter(uuid=principal_uuid).first()
+    if principal is None:
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    return _principal_ref(principal)
+
+
+def human_principal_identity_user_id(principal_ref: PrincipalRef) -> int:
+    """Project a retained human owner for audit/display, never authentication."""
+    principal = Principal.objects.filter(uuid=principal_ref.uuid, kind=Principal.Kind.HUMAN).first()
+    if principal_ref.kind != "human" or principal is None or principal.user_id is None:
+        raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
+    return principal.user_id
+
+
 def principal_for_user(user: User) -> PrincipalRef:
     """Resolve a pre-existing human identity without creating one on a read."""
     if user is None or user.pk is None:
@@ -178,6 +194,14 @@ def human_principal_user_id(principal_ref: PrincipalRef) -> int:
     if identifier is None:
         raise PrincipalConflictError(_PRINCIPAL_UNAVAILABLE)
     return identifier
+
+
+def active_human_user_ids(principal_uuids: tuple[UUID, ...]) -> tuple[int, ...]:
+    """Project active browser recipients in one query, never service contacts."""
+    identities = dict(
+        _active_principals().filter(kind=Principal.Kind.HUMAN, uuid__in=principal_uuids).values_list("uuid", "user_id")
+    )
+    return tuple(user_id for value in dict.fromkeys(principal_uuids) if (user_id := identities.get(value)) is not None)
 
 
 def resolve_service_credential(*, issuer: str, subject: str, audience: str) -> CredentialContext:
@@ -330,7 +354,9 @@ __all__ = [
     "bind_principal_provider_identity",
     "create_service_principal",
     "ensure_human_principal",
+    "human_principal_identity_user_id",
     "principal_for_user",
+    "principal_identity_for_uuid",
     "resolve_principal",
     "resolve_principal_uuid",
     "resolve_service_credential",

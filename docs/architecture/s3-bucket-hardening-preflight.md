@@ -7,10 +7,10 @@ Status: implemented controls with documented deferrals
 
 Tracking issues:
 
-- SSE-KMS / bucket policy: [#218](https://github.com/Brad-Edwards/shifter/issues/218)
-- Cross-region replication evaluation: [#143](https://github.com/Brad-Edwards/shifter/issues/143)
-- Access logging: [#310](https://github.com/Brad-Edwards/shifter/issues/310) (unified logging strategy)
-- Versioning disabled: [#109](https://github.com/Brad-Edwards/shifter/issues/109)
+- SSE-KMS / bucket policy: [#218](https://github.com/Brad-Edwards/bigrae/issues/218)
+- Cross-region replication evaluation: [#143](https://github.com/Brad-Edwards/bigrae/issues/143)
+- Access logging: [#310](https://github.com/Brad-Edwards/bigrae/issues/310) (unified logging strategy)
+- Versioning disabled: [#109](https://github.com/Brad-Edwards/bigrae/issues/109)
 
 Canonical Terraform surface: `platform/terraform/modules/portal/s3/`
 
@@ -38,10 +38,10 @@ PUT uploads for ephemeral agent and user files. It does not cover:
 
 | Checkov ID | Status | Rationale |
 | --- | --- | --- |
-| CKV_AWS_21 (versioning) | Disabled | Ephemeral data; versioning would retain deleted uploads and increase cost ([#109](https://github.com/Brad-Edwards/shifter/issues/109)) |
-| CKV_AWS_18 (access logging) | Deferred | Unified logging strategy not yet wired for this bucket ([#310](https://github.com/Brad-Edwards/shifter/issues/310)) |
+| CKV_AWS_21 (versioning) | Disabled | Ephemeral data; versioning would retain deleted uploads and increase cost ([#109](https://github.com/Brad-Edwards/bigrae/issues/109)) |
+| CKV_AWS_18 (access logging) | Deferred | Unified logging strategy not yet wired for this bucket ([#310](https://github.com/Brad-Edwards/bigrae/issues/310)) |
 | CKV2_AWS_62 (event notifications) | Not configured | No consumer exists; creating an unused notification stream is an anti-pattern |
-| CKV_AWS_144 (cross-region replication) | **Not required** | See evaluation below ([#143](https://github.com/Brad-Edwards/shifter/issues/143)) |
+| CKV_AWS_144 (cross-region replication) | **Not required** | See evaluation below ([#143](https://github.com/Brad-Edwards/bigrae/issues/143)) |
 
 Waivers follow ADR-004-R11: inline `# checkov:skip` on the bucket resource plus
 matching `docs/adr/exceptions.yaml` entries. Checkov is blocking in CI
@@ -49,7 +49,7 @@ matching `docs/adr/exceptions.yaml` entries. Checkov is blocking in CI
 
 ## Cross-Region Replication Evaluation (#143)
 
-Issue [#143](https://github.com/Brad-Edwards/shifter/issues/143) (migrated from
+Issue [#143](https://github.com/Brad-Edwards/bigrae/issues/143) (migrated from
 PaloAltoNetworks/shifter#219) asks whether CKV_AWS_144 cross-region replication
 (CRR) is needed for the portal user-storage bucket.
 

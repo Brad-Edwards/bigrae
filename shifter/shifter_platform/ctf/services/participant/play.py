@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from django.db.models import QuerySet
 
     from ctf.models import CTFChallenge, CTFEvent, CTFHint, CTFParticipant, CTFSubmission
+    from shared.credentials import CredentialContext
 
 
 def compute_hint_purchase_info(
@@ -70,14 +71,20 @@ def match_target_instance(challenge: CTFChallenge, instances: Iterable[dict[str,
     return None
 
 
-def resolve_target_connection_info(challenge: CTFChallenge, participant: CTFParticipant) -> dict[str, Any] | None:
+def resolve_target_connection_info(
+    challenge: CTFChallenge, participant: CTFParticipant, *, credential: CredentialContext | None = None
+) -> dict[str, Any] | None:
     """Return connection-info dict for the challenge's target instance, or None."""
-    participant_user = participant.user
-    if not challenge.target_instance_name or participant.range_status != "ready" or participant_user is None:
+    if (
+        not challenge.target_instance_name
+        or participant.range_status != "ready"
+        or participant.range_instance_id is None
+        or credential is None
+    ):
         return None
-    import cms.services as cms_services
+    from ctf.bridges import cms_get_range_target_instances
 
-    return match_target_instance(challenge, cms_services.get_range_target_instances(participant_user))
+    return match_target_instance(challenge, cms_get_range_target_instances(credential, participant.range_instance_id))
 
 
 def compute_attempt_state(

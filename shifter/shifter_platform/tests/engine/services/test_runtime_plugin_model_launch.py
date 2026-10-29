@@ -18,20 +18,26 @@ from engine.services import bind_runtime_plugin, install_runtime_plugin
 from engine.services._runtime_plugin_bindings import persist_runtime_plugin_pin, resolve_runtime_plugin_pin
 from shared.model_access import ContractError
 from shared.runtime_plugin_binding import RuntimePluginScope
-from workspaces.models import Organization, OrganizationMembership
+from workspaces.models import Organization
 
-from .test_model_allocation_launch import prepared_launch
+from .test_model_allocation_launch import launch_credential, prepared_launch
 
-pytestmark = pytest.mark.django_db(transaction=True)
+pytestmark = [
+    pytest.mark.django_db(transaction=True),
+    pytest.mark.usefixtures("provisioner_workload_config"),
+]
 
 
-def _prepared_plugin_launch(django_user_model):
+def _prepared_plugin_launch(django_user_model, live_session_credential):
     request = prepared_launch(django_user_model)
     target = Range.objects.get(uuid=request.range_id)
-    organization = Organization.objects.create(name="Combined launch")
-    OrganizationMembership.objects.create(user=target.user, organization=organization, role="admin")
+    from workspaces.services import create_account
+
+    account = create_account(kind="team", name="Combined launch")
+    organization = Organization.objects.get(account_id=account.id, is_default=True)
+    credential = live_session_credential(target.user)
     installed = install_runtime_plugin(
-        target.user,
+        credential,
         organization.uuid,
         {
             "protocol": "shifter.runtime-plugin/v1",
@@ -52,7 +58,7 @@ def _prepared_plugin_launch(django_user_model):
         pack_digest=request.need.scenario_digest,
     )
     bind_runtime_plugin(
-        target.user,
+        credential,
         RuntimePluginScope(organization_uuid=organization.uuid, pack_digest=scope.pack_digest, pack_id=scope.pack_id),
         installed.id,
         {"targets": {"server": "node.web"}},
@@ -60,14 +66,16 @@ def _prepared_plugin_launch(django_user_model):
     with transaction.atomic():
         pin = resolve_runtime_plugin_pin(scope, target.range_config)
         persist_runtime_plugin_pin(target, pin)
-    return request, target
+    return request, target, launch_credential(request, live_session_credential)
 
 
-def test_model_grant_and_plugin_invocations_use_the_same_committed_generation(django_user_model):
-    request, target = _prepared_plugin_launch(django_user_model)
+def test_model_grant_and_plugin_invocations_use_the_same_committed_generation(
+    django_user_model, live_session_credential, allow_all_policy
+):
+    request, target, credential = _prepared_plugin_launch(django_user_model, live_session_credential)
     command = ["raes-range", "provision", "--request-id", str(request.request_id)]
-    first = enqueue_provisioner_launch(command)
-    assert enqueue_provisioner_launch(command) == first
+    first = enqueue_provisioner_launch(command, credential=credential)
+    assert enqueue_provisioner_launch(command, credential=credential) == first
     intent = ProvisionerLaunchIntent.objects.get()
     allocation = ModelAllocation.objects.get()
     assert allocation.operation_id == intent.operation_id
@@ -88,8 +96,10 @@ def test_model_grant_and_plugin_invocations_use_the_same_committed_generation(dj
 
 
 @pytest.mark.parametrize("failure", ["quota", "plugin-input"])
-def test_rejected_launch_rolls_back_grant_input_intent_and_plugin_work(django_user_model, failure):
-    request, target = _prepared_plugin_launch(django_user_model)
+def test_rejected_launch_rolls_back_grant_input_intent_and_plugin_work(
+    django_user_model, failure, live_session_credential, allow_all_policy
+):
+    request, target, credential = _prepared_plugin_launch(django_user_model, live_session_credential)
     if failure == "quota":
         ModelQuotaReading.objects.all().delete()
         error = ContractError
@@ -102,7 +112,9 @@ def test_rejected_launch_rolls_back_grant_input_intent_and_plugin_work(django_us
 
         error = RaesOperationInputError
     with pytest.raises(error):
-        enqueue_provisioner_launch(["raes-range", "provision", "--request-id", str(request.request_id)])
+        enqueue_provisioner_launch(
+            ["raes-range", "provision", "--request-id", str(request.request_id)], credential=credential
+        )
     assert not ModelAllocation.objects.exists()
     assert not ModelPendingGrant.objects.exists()
     assert not OperationInput.objects.exists()
@@ -113,11 +125,15 @@ def test_rejected_launch_rolls_back_grant_input_intent_and_plugin_work(django_us
 
 
 @pytest.mark.parametrize("fault", ["target", "role", "duplicate", "allocation"])
-def test_guest_enrollment_projection_rejects_foreign_or_ambiguous_bindings(django_user_model, fault):
+def test_guest_enrollment_projection_rejects_foreign_or_ambiguous_bindings(
+    django_user_model, fault, live_session_credential, allow_all_policy
+):
     from shared.raes.operation_input import RaesOperationInputError, parse_raes_operation_input
 
-    request, _ = _prepared_plugin_launch(django_user_model)
-    enqueue_provisioner_launch(["raes-range", "provision", "--request-id", str(request.request_id)])
+    request, _, credential = _prepared_plugin_launch(django_user_model, live_session_credential)
+    enqueue_provisioner_launch(
+        ["raes-range", "provision", "--request-id", str(request.request_id)], credential=credential
+    )
     payload = OperationInput.objects.get().envelope["payload"]
     row = payload["model_enrollments"][0]
     if fault == "duplicate":

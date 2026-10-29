@@ -13,6 +13,7 @@ from shared.authorization import AuthorizationDecision, CredentialCeiling, Decis
 from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.models import AuditLog
+from tests._credential_helpers import persisted_credential
 
 pytestmark = pytest.mark.django_db
 
@@ -32,12 +33,14 @@ class Provider:
 
 def _service_actor():
     principal = Principal.objects.create(kind="service", name="Administrator")
-    return CredentialContext(
-        PrincipalRef(principal.uuid, "service"),
-        "service",
-        uuid4(),
-        CredentialCeiling(frozenset({"installation.manage_principals"})),
-        frozenset(),
+    return persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "service"),
+            "service",
+            uuid4(),
+            CredentialCeiling(frozenset({"installation.manage_principals"})),
+            frozenset(),
+        )
     )
 
 
@@ -84,12 +87,14 @@ def test_policy_denial_and_missing_provider_leave_user_active():
 def test_policy_human_cannot_disable_self_even_with_full_authority():
     user = get_user_model().objects.create_user(username="self")
     principal = Principal.objects.get(user=user)
-    actor = CredentialContext(
-        PrincipalRef(principal.uuid, "human"),
-        "session",
-        uuid4(),
-        CredentialCeiling(frozenset({"installation.manage_principals"})),
-        frozenset(),
+    actor = persisted_credential(
+        CredentialContext(
+            PrincipalRef(principal.uuid, "human"),
+            "session",
+            uuid4(),
+            CredentialCeiling(frozenset({"installation.manage_principals"})),
+            frozenset(),
+        )
     )
 
     with pytest.raises(lifecycle.AccountLifecycleError) as error:
@@ -248,6 +253,34 @@ def test_service_admin_password_reset_http_adapter(settings, monkeypatch):
     assert AuditLog.objects.filter(
         context="administrator password reset requested", entity_id=target.id, actor_principal_uuid=actor.principal.uuid
     ).exists()
+
+
+@pytest.mark.parametrize(
+    "backend",
+    ["django.core.mail.backends.console.EmailBackend", "django.core.mail.backends.filebased.EmailBackend"],
+)
+def test_native_reset_refuses_mail_backends_that_record_credentials(
+    settings, monkeypatch, backend, mailoutbox, django_capture_on_commit_callbacks
+):
+    from management.api.policy_views import PolicyAdminUserResetPasswordView
+
+    settings.SITE_URL = "https://portal.example.test"
+    settings.EMAIL_BACKEND = backend
+    target = get_user_model().objects.create_user(username="logged-reset", email="owner@example.test", password="pw")
+    actor = _service_actor()
+    monkeypatch.setattr("management.api.policy_views.configured_authorization_provider", Provider)
+    request = APIRequestFactory().post(f"/api/v1/administer/users/{target.pk}/reset-password/", {}, format="json")
+    request.credential_context = actor
+    force_authenticate(request, token=actor)
+
+    with django_capture_on_commit_callbacks(execute=True) as callbacks:
+        response = PolicyAdminUserResetPasswordView.as_view()(request, pk=target.pk)
+
+    assert response.status_code == 400
+    assert response.data["error"]["code"] == "reset_delivery_unavailable"
+    assert callbacks == []
+    assert not mailoutbox
+    assert not AuditLog.objects.filter(context="administrator password reset requested", entity_id=target.pk).exists()
 
 
 def test_service_admin_compatibility_lifecycle_commands(monkeypatch):

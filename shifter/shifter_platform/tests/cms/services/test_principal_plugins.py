@@ -46,7 +46,7 @@ def plugin_actor(settings, monkeypatch):
 def test_service_administration_preserves_private_tenant_scope_and_installer_proof(plugin_actor, manifest):
     from engine.models import RuntimePluginInstallation
     from engine.services import change_runtime_plugin, install_runtime_plugin, list_runtime_plugins
-    from shared.exceptions import ValidationError
+    from workspaces.services import OrganizationAuthorizationError
 
     fixture = plugin_actor
     created = install_runtime_plugin(
@@ -61,7 +61,7 @@ def test_service_administration_preserves_private_tenant_scope_and_installer_pro
     assert row.credential_uuid == fixture.credential.credential_uuid
     assert row.authority_account_uuid == fixture.organization.account.uuid
     assert list_runtime_plugins(fixture.credential, fixture.organization.uuid).results[0].id == row.id
-    with pytest.raises((ValidationError, ValueError)):
+    with pytest.raises(OrganizationAuthorizationError):
         list_runtime_plugins(fixture.credential, fixture.sibling.uuid)
     assert change_runtime_plugin(fixture.credential, fixture.organization.uuid, row.id, "disable").state == "disabled"
 

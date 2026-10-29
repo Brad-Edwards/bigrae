@@ -950,7 +950,7 @@ def run_gcp_database_migrations(
         info("[DRY-RUN] Would run the dedicated GCP database migration Job")
         return
 
-    subprocess.run(  # nosec B603 B607
+    retirement = subprocess.run(  # nosec B603 B607
         [
             "kubectl",
             "delete",
@@ -959,11 +959,14 @@ def run_gcp_database_migrations(
             "shifter-platform",
             "--ignore-not-found",
             "--wait=true",
+            "--timeout=180s",
         ],
         capture_output=True,
         text=True,
         check=False,
     )
+    if retirement.returncode != 0:
+        raise RuntimeError("Failed to retire the previous GCP migration Job")
 
     for manifest in (prerequisites, job):
         result = subprocess.run(  # nosec B603 B607

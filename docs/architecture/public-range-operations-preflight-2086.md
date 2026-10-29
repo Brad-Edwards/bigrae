@@ -9,7 +9,7 @@ Inspection baseline: `ba536832543c01491b61618d71c649e780dbcc40`.
 
 ## Decision context and scope
 
-Adopt the public-operation portion of the [review's proposed ADR-057](https://github.com/Brad-Edwards/shifter/blob/10f40285d26b20f31018c77a274bb62773073eb3/docs/adr/proposals/057-operable-lifecycle-release.md)
+Adopt the public-operation portion of the [review's proposed ADR-057](https://github.com/Brad-Edwards/bigrae/blob/10f40285d26b20f31018c77a274bb62773073eb3/docs/adr/proposals/057-operable-lifecycle-release.md)
 through ADR-040 and ADR-043. **The current accepted ADR-057 is a different
 decision about GCP east-west isolation and deferred service mesh.** Do not
 overwrite or renumber it, or adopt the proposal's entire release program here.
@@ -48,7 +48,7 @@ neither a workspace role nor a retry key grants event or participant authority.
   Stored placement already has a reuse seam; other old-generation identity
   must be equally durable. Current parsing is not an upgrade-safe teardown
   strategy.
-- [#1919](https://github.com/Brad-Edwards/shifter/issues/1919) concerns nested
+- [#1919](https://github.com/Brad-Edwards/bigrae/issues/1919) concerns nested
   participant hosts/VPN gateways, dependency ordering, premature assignment
   removal and misleading cleanup success. `gcp_range_cell_destroy` now calls
   gateway/instance deletion before network deletion, but

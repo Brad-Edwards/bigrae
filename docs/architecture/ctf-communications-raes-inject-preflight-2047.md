@@ -9,9 +9,9 @@ Date: 2026-08-14
 
 Requirements: `CTF-008`, `CTF-010`, `CTF-012`, `CTF-014`
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/2047>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/2047>
 
-Domain-model implementation slice: <https://github.com/Brad-Edwards/shifter/issues/2048>
+Domain-model implementation slice: <https://github.com/Brad-Edwards/bigrae/issues/2048>
 
 Delivery-engine slice: [#2049 preflight](ctf-communication-delivery-engine-preflight-2049.md).
 That note records the post-#2048 repository state and specializes the execution

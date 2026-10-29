@@ -280,6 +280,25 @@ fi
 # are not silently reaped (issue #931); the bare worker would leave the ping
 # settings to Uvicorn's defaults. `tests/test_asgi_worker_smoke.py` pins both
 # the import contract and the keepalive in CI.
+runtime_gate=true
+if [[ "${SHIFTER_IDENTITY_MAINTENANCE:-false}" == "true" ]]; then
+    runtime_gate=false
+fi
+if [[ $# -gt 1 && "$1" == "python" && "$2" == "manage.py" ]]; then
+    case "${3:-}" in
+        migrate|makemigrations|check|api_contract|collectstatic|compilemessages|identity_cutover|identity_cutover_bootstrap|identity_runtime_check)
+            runtime_gate=false
+            ;;
+        *)
+            # Unlisted commands retain the previously selected runtime gate.
+            ;;
+    esac
+fi
+if [[ "$runtime_gate" == "true" ]]; then
+    echo "Verifying activated identity runtime..."
+    python manage.py identity_runtime_check
+fi
+
 if [[ $# -gt 0 ]]; then
     echo "Running: $*"
     exec "$@"

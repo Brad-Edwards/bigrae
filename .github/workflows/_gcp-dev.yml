@@ -63,6 +63,14 @@ on:
       # projects the GitHub variables onto its settings and fails on a conflict.
       SHIFTER_CONFIG_GCP_DEV:
         required: false
+      # One-time S8 facts are mounted into the cutover Job as files. They are
+      # never placed in argv, environment values, ConfigMaps, or logs.
+      IDENTITY_CUTOVER_FACTS_JSON:
+        required: false
+      IDENTITY_BOOTSTRAP_FACTS_JSON:
+        required: false
+      CATALOG_CREDENTIAL:
+        required: false
       SMOKE_TEST_USER_EMAIL:
         required: false
 
@@ -566,8 +574,21 @@ jobs:
           TRUSTED_REPOSITORY_ID: ${{ github.repository_id }}
           TRUSTED_OWNER_ID: ${{ github.repository_owner_id }}
           REQUIRE_ACTIVE_CERTIFICATE: ${{ inputs.require_active_certificate }}
+          IDENTITY_CUTOVER_FACTS_JSON: ${{ secrets.IDENTITY_CUTOVER_FACTS_JSON }}
+          IDENTITY_BOOTSTRAP_FACTS_JSON: ${{ secrets.IDENTITY_BOOTSTRAP_FACTS_JSON }}
+          CATALOG_CREDENTIAL: ${{ secrets.CATALOG_CREDENTIAL }}
         run: |
           set -euo pipefail
+          umask 077
+          cutover_facts="${RUNNER_TEMP}/identity-cutover-facts.json"
+          bootstrap_facts="${RUNNER_TEMP}/identity-bootstrap-facts.json"
+          catalog_credential="${RUNNER_TEMP}/catalog-credential"
+          trap 'rm -f "${cutover_facts}" "${bootstrap_facts}" "${catalog_credential}"' EXIT
+          if { [ -n "${IDENTITY_CUTOVER_FACTS_JSON}" ] && [ -z "${IDENTITY_BOOTSTRAP_FACTS_JSON}" ]; } || \
+             { [ -z "${IDENTITY_CUTOVER_FACTS_JSON}" ] && [ -n "${IDENTITY_BOOTSTRAP_FACTS_JSON}" ]; }; then
+            echo "::error::Identity cutover and bootstrap facts must be supplied together."
+            exit 1
+          fi
           args=(
             gcp-deploy --inputs "${DEPLOYMENT_INPUTS}" --environment "${GCP_ENVIRONMENT}"
             --stage rollout --identity ambient --lock external
@@ -578,6 +599,18 @@ jobs:
           if [ "${REQUIRE_ACTIVE_CERTIFICATE}" != "true" ]; then
             args+=(--first-install)
           fi
+          if [ -n "${IDENTITY_CUTOVER_FACTS_JSON}" ]; then
+            printf '%s' "${IDENTITY_CUTOVER_FACTS_JSON}" > "${cutover_facts}"
+            printf '%s' "${IDENTITY_BOOTSTRAP_FACTS_JSON}" > "${bootstrap_facts}"
+            chmod 600 "${cutover_facts}" "${bootstrap_facts}"
+            args+=(--identity-cutover-facts "${cutover_facts}" --identity-bootstrap-facts "${bootstrap_facts}")
+          fi
+          if [ -n "${CATALOG_CREDENTIAL}" ]; then
+            printf '%s' "${CATALOG_CREDENTIAL}" > "${catalog_credential}"
+            chmod 600 "${catalog_credential}"
+            args+=(--catalog-credential-file "${catalog_credential}")
+          fi
+          unset IDENTITY_CUTOVER_FACTS_JSON IDENTITY_BOOTSTRAP_FACTS_JSON CATALOG_CREDENTIAL
           uv run --frozen python deploy.py "${args[@]}"
       - name: Remove ephemeral deployment inputs
         if: always()

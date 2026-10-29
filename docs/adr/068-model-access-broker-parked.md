@@ -46,7 +46,7 @@ no controls.
 3. No work hardens or extends the parked broker. Changes to its code are limited
    to keeping CI reliable for everyone until it is removed or replaced. Model
    access control is taken up again under the AI Gateway milestone
-   ([#2274](https://github.com/Brad-Edwards/shifter/issues/2274)).
+   ([#2274](https://github.com/Brad-Edwards/bigrae/issues/2274)).
 4. Any future model access control path is a transparent proxy by default:
    - Spend, rate, concurrency, token limits, and detections are optional
      controls a deployment can attach. The default is no controls, and a missing
@@ -58,6 +58,17 @@ no controls.
 
    The intended end state is that guests reach models through that proxy rather
    than keyless-direct; that switch needs its own decision.
+
+## Identity-cutover enforcement
+
+Issue #2321 closes the retained sharing API and composition/selector entry points
+before membership reads or publication effects. An enabled runtime setting cannot
+override this parked boundary. This enforces the existing decision; it does not
+qualify the broker, add publisher authority storage or activate the replacement.
+Low-level accounting contracts remain available to their isolated tests.
+Keyless-direct and independently supported native source/range controls keep
+their existing boundaries. Mounted-route and direct-service tests verify that
+legacy operator flags and native credentials both leave sharing unavailable.
 
 ## Alternatives
 

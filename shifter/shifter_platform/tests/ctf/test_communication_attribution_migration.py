@@ -33,6 +33,9 @@ def historical_schema():
 
 def test_backfill_attributes_only_the_first_revision_to_the_campaign_author(historical_schema):
     author = historical_schema.get_model("auth", "User").objects.create(username="legacy-author")
+    from management.models import Principal
+
+    principal = Principal.objects.create(user_id=author.pk, kind="human", name="Legacy synthetic author")
     campaign = historical_schema.get_model("ctf", "CommunicationCampaign").objects.create(
         workspace_id=1,
         title="Legacy",
@@ -55,3 +58,15 @@ def test_backfill_attributes_only_the_first_revision_to_the_campaign_author(hist
     first, second = migrated.get(revision_number=1), migrated.get(revision_number=2)
     assert (first.actor_user_id, first.actor_token_id) == (author.pk, 7)
     assert (second.actor_user_id, second.actor_token_id) == (None, None)
+
+    # Both migration histories must converge without replacing human attribution
+    # or inventing the author of a later historical revision.
+    apps = _migrate([("ctf", "0078_native_communication_attribution")])
+    migrated = apps.get_model("ctf", "MessageRevision").objects.filter(campaign_id=campaign.pk)
+    first, second = migrated.get(revision_number=1), migrated.get(revision_number=2)
+    assert first.actor_principal_uuid == principal.uuid
+    assert (first.actor_user_id, first.actor_token_id) == (author.pk, 7)
+    assert second.actor_principal_uuid is None
+    retained = apps.get_model("ctf", "CommunicationCampaign").objects.get(pk=campaign.pk)
+    assert retained.creator_principal_uuid == principal.uuid
+    assert retained.cancelled_by_principal_uuid is None

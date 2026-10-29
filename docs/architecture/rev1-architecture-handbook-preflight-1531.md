@@ -158,7 +158,7 @@ add tests only where behavior changes. Avoid prose snapshots.
 
 Correct repository/support/citation links in README, CONTRIBUTING, SUPPORT,
 SECURITY, CODE_OF_CONDUCT and published docs as applicable, using
-`.ground-control.yaml`'s `Brad-Edwards/shifter`. Do not globally replace vendor
+`.ground-control.yaml`'s `Brad-Edwards/bigrae`. Do not globally replace vendor
 names: product references, copyright/license notices, historical authorship and
 third-party attribution remain factual. The README's citation URL and local
 CyberScript setup command are concrete stale examples. Do not invent a support

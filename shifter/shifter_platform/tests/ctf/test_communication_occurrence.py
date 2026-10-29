@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 from django.utils import timezone
 
-import workspaces.services as workspace_services
 from ctf.enums import EventStatus, ParticipantStatus
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import CommunicationIntent, CTFEvent, CTFParticipant, MessageRevision
@@ -23,12 +22,9 @@ from ctf.services.communication import (
     revise_message,
     schedule_declaration,
 )
+from tests.ctf._account_scope import individual_account_uuid
 
 pytestmark = pytest.mark.django_db
-
-
-def _workspace_uuid(user):
-    return str(workspace_services.resolve_personal_workspace(user).workspace_uuid)
 
 
 def _campaign(organizer_user, ctf_event, *, trigger_spec):
@@ -41,7 +37,7 @@ def _campaign(organizer_user, ctf_event, *, trigger_spec):
     )
     return create_campaign(
         organizer_user,
-        _workspace_uuid(organizer_user),
+        individual_account_uuid(organizer_user),
         CampaignDraft(
             title="Kickoff",
             origin="organizer_staff",
@@ -52,6 +48,7 @@ def _campaign(organizer_user, ctf_event, *, trigger_spec):
             subject="Welcome",
             body="Hello",
         ),
+        parent_type="account",
     )
 
 

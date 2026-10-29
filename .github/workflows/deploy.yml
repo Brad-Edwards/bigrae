@@ -408,30 +408,10 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_DB: shifter
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
       TESTING: "1"
-      TEST_DB_BACKEND: postgres
       DJANGO_DEBUG: "true"
       DJANGO_SECRET_KEY: ${{ github.run_id }}-${{ github.run_attempt }}
-      DB_HOST: localhost
-      DB_PORT: 5432
-      DB_NAME: shifter
-      DB_USER: test
-      DB_PASSWORD: test
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Setup uv
@@ -451,19 +431,16 @@ jobs:
       - name: Build SPA
         working-directory: shifter/shifter_platform/frontend
         run: npm run build
-      - name: Prepare hermetic stack (static, migrations, synthetic actors)
+      - name: Collect static files
         working-directory: shifter/shifter_platform
         run: |
           uv run python manage.py collectstatic --noinput
-          uv run python manage.py migrate --noinput
-          uv run python manage.py seed_e2e
-          uv run python manage.py seed_e2e_ctf
       - name: Install Playwright browser
         working-directory: shifter/shifter_platform/frontend
         run: npx playwright install --with-deps chromium
       - name: Browser accessibility scans (axe)
-        working-directory: shifter/shifter_platform/frontend
-        run: npm run test:e2e:a11y
+        working-directory: shifter/shifter_platform
+        run: ./scripts/run_openfga_integration.sh --browser npm run test:e2e:a11y
 
   # PR Gate — a single always-present aggregate check for branch
   # protection. `dev` protection requires this one context instead of the
@@ -564,6 +541,9 @@ jobs:
       GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN: ${{ secrets.GCP_IDENTITY_ALLOWED_EMAIL_DOMAIN }}
       GCP_RANGE_IMAGE_KEY_PROFILES_JSON: ${{ secrets.GCP_RANGE_IMAGE_KEY_PROFILES_JSON }}
       SHIFTER_CONFIG_GCP_DEV: ${{ secrets.SHIFTER_CONFIG_GCP_DEV }}
+      IDENTITY_CUTOVER_FACTS_JSON: ${{ secrets.IDENTITY_CUTOVER_FACTS_JSON }}
+      IDENTITY_BOOTSTRAP_FACTS_JSON: ${{ secrets.IDENTITY_BOOTSTRAP_FACTS_JSON }}
+      CATALOG_CREDENTIAL: ${{ secrets.CATALOG_CREDENTIAL }}
       GCP_BOOTSTRAP_ADMIN_EMAIL: ${{ secrets.GCP_BOOTSTRAP_ADMIN_EMAIL }}
       GCP_BOOTSTRAP_ADMIN_PASSWORD: ${{ secrets.GCP_BOOTSTRAP_ADMIN_PASSWORD }}
       PLATFORM_BOOTSTRAP_STAFF_EMAILS: ${{ secrets.PLATFORM_BOOTSTRAP_STAFF_EMAILS }}

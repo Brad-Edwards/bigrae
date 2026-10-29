@@ -34,6 +34,7 @@ from shared.api_tokens import scopes
 from shared.api_tokens.models import ApiToken
 from shared.audit import AuditAction
 from shared.models import AuditLog
+from tests._mission_control_fixtures import native_scopes
 
 pytestmark = [pytest.mark.django_db, pytest.mark.usefixtures("personal_token_use_grant")]
 
@@ -72,7 +73,7 @@ def _post_launch(client, url=LEGACY_LAUNCH_URL, body=None):
 
 
 def _token_client(user, *granted):
-    _, raw = ApiToken.create_token(name="rl-test", created_by=user, scopes=list(granted))
+    _, raw = ApiToken.create_token(name="rl-test", created_by=user, scopes=native_scopes(list(granted)))
     api = APIClient()
     api.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
     return api

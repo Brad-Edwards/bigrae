@@ -17,11 +17,22 @@ from cms.exceptions import CMSError
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.authorization import AuthorizationProviderBindingError, AuthorizationRequest
 from shared.authorization.policy import require_authorization, scope_parent
-from shared.credentials import CredentialContext, resolve_current_credential
+from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.identity_scope import ResourceScope
 from workspaces.services import resolve_resource_scope
 
 _UNAVAILABLE = "Content unavailable"
+
+
+class ContentAuthorityError(CMSError):
+    """A live content action could not be admitted under the original proof."""
+
+
+def require_native_content_credential(credential: object) -> CredentialContext:
+    """User attribution and SQL ownership cannot replace authenticated native proof."""
+    if not isinstance(credential, CredentialContext):
+        raise ContentAuthorityError(_UNAVAILABLE)
+    return credential
 
 
 def content_scope(row: Asset | RaesPackageSource | None) -> ResourceScope:
@@ -44,25 +55,23 @@ def content_scope(row: Asset | RaesPackageSource | None) -> ResourceScope:
         raise CMSError(_UNAVAILABLE) from None
 
 
-def set_catalog_publication(credential: CredentialContext, scenario_id: str, *, published: bool) -> None:
+def set_catalog_publication(
+    credential: CredentialContext, scenario_id: str, *, published: bool, expected_package_digest: str | None = None
+) -> None:
     """Only an explicitly installation-owned source enters the shared catalog."""
     from cms.models import RaesPackageSource
 
     if type(published) is not bool:
         raise CMSError(_UNAVAILABLE)
     source = RaesPackageSource.objects.filter(scenario_id=scenario_id).first()
-    if source is None:
-        raise CMSError("Content unavailable")
+    if source is None or (expected_package_digest is not None and source.package_digest != expected_package_digest):
+        raise CMSError(_UNAVAILABLE)
     scope = content_scope(source)
     if scope.kind != "installation":
         raise CMSError(_UNAVAILABLE)
     current = require_content_scope(credential, scope, "publish_content")
     with transaction.atomic():
-        row = RaesPackageSource.objects.select_for_update().filter(pk=source.pk).first()
-        if row is None or content_scope(row) != scope or row.scope_generation != source.scope_generation:
-            raise CMSError(_UNAVAILABLE)
-        if row.owner_principal_uuid != source.owner_principal_uuid:
-            raise CMSError(_UNAVAILABLE)
+        row = _locked_publication_source(source, scope, current)
         previous = row.is_operator_published
         row.is_operator_published = published
         row.save(update_fields=["is_operator_published", "updated_at"])
@@ -80,6 +89,26 @@ def set_catalog_publication(credential: CredentialContext, scenario_id: str, *, 
         )
 
 
+def _locked_publication_source(
+    source: RaesPackageSource, scope: ResourceScope, current: CredentialContext
+) -> RaesPackageSource:
+    """Lock the source and recheck its admitted scope, generation, digest and proof."""
+    from cms.models import RaesPackageSource
+
+    row = RaesPackageSource.objects.select_for_update().filter(pk=source.pk).first()
+    if (
+        row is None
+        or content_scope(row) != scope
+        or row.scope_generation != source.scope_generation
+        or row.package_digest != source.package_digest
+        or resolve_local_credential(current) != current
+    ):
+        raise CMSError(_UNAVAILABLE)
+    if row.owner_principal_uuid != source.owner_principal_uuid:
+        raise CMSError(_UNAVAILABLE)
+    return row
+
+
 def content_scope_fields(scope: ResourceScope) -> dict[str, object]:
     """Explicit scalar ancestry; absence never implies operator publication."""
     return {
@@ -88,6 +117,20 @@ def content_scope_fields(scope: ResourceScope) -> dict[str, object]:
         "organization_uuid": scope.organization_uuid,
         "workspace_uuid": scope.workspace_uuid,
     }
+
+
+def fence_content_scope(credential: CredentialContext, scope: ResourceScope) -> None:
+    """Recheck admitted local proof and exact current ancestry inside its SQL write."""
+    from workspaces.services import resolve_range_scope_binding
+
+    try:
+        if not transaction.get_connection().in_atomic_block:
+            raise ValueError("Content commit requires a transaction")
+        resolve_range_scope_binding(scope, for_update=True)
+        if resolve_local_credential(credential) != credential:
+            raise ValueError("Content proof changed")
+    except Exception:
+        raise ContentAuthorityError(_UNAVAILABLE) from None
 
 
 def require_content_scope(
@@ -107,6 +150,8 @@ def require_content_scope(
             raise ValueError(_UNAVAILABLE)
         return current
     except AuthorizationProviderBindingError:
-        raise CMSError("Content authority unavailable", details={"code": "authority-unavailable"}) from None
+        raise ContentAuthorityError(
+            "Content authority unavailable", details={"code": "authority-unavailable"}
+        ) from None
     except Exception:
-        raise CMSError(_UNAVAILABLE) from None
+        raise ContentAuthorityError(_UNAVAILABLE) from None

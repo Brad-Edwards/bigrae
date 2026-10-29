@@ -24,4 +24,4 @@ CTFd is the de facto standard CTF platform. Many publicly available challenge pa
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/transfer.py` (Native and CTFd-format challenge import and export)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/taxonomy.py` (CTFChallengeFile challenge file references)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/organizer/transfer.py` (Organizer import and export API views)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#632` (CTF-1104: CTFd Format Compatibility)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#632` (CTF-1104: CTFd Format Compatibility)

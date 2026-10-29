@@ -21,7 +21,7 @@ from django.db.models.functions import Coalesce
 from cms.credential_encryption import EncryptedInstanceDataField
 from cms.models.catalogs import AppType, InstanceType
 from cms.models.lifecycle import apply_terminal_soft_delete
-from shared.db import SoftDeleteManager, SoftDeleteMixin, SoftDeleteQuerySet
+from shared.db import RecordedAuthorityFields, SoftDeleteManager, SoftDeleteMixin, SoftDeleteQuerySet
 from shared.enums import RequestType, ResourceStatus
 
 logger = logging.getLogger(__name__)
@@ -79,7 +79,7 @@ class EntityBase(SoftDeleteMixin, models.Model):
 # -----------------------------------------------------------------------------
 
 
-class Request(SoftDeleteMixin, models.Model):
+class Request(RecordedAuthorityFields, SoftDeleteMixin, models.Model):
     """Provisioning request container.
 
     Groups items requested together while allowing independent lifecycles.

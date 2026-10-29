@@ -203,7 +203,9 @@ class CommunicationRevisionSerializer(ClosedSerializer):
 class CommunicationCreateSerializer(CommunicationRevisionSerializer):
     """Organizer authoring input; actor and provenance are always server derived."""
 
-    workspace_id = serializers.UUIDField()
+    account = serializers.UUIDField(required=False)
+    organization = serializers.UUIDField(required=False)
+    workspace = serializers.UUIDField(required=False)
     title = serializers.CharField(max_length=200)
     target_event_ids = serializers.ListField(child=serializers.UUIDField(), min_length=1, max_length=MAX_TARGET_EVENTS)
     audience_spec = CommunicationAudienceSerializer()
@@ -212,6 +214,13 @@ class CommunicationCreateSerializer(CommunicationRevisionSerializer):
         child=serializers.ChoiceField(choices=[v.value for v in CommunicationChannel]), min_length=1, max_length=2
     )
     acknowledgement_policy = serializers.ChoiceField(choices=[v.value for v in AcknowledgementPolicy], default="none")
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        """Validate the draft and require one explicit native campaign parent."""
+        attrs = super().validate(attrs)
+        if sum(name in attrs for name in ("account", "organization", "workspace")) != 1:
+            raise serializers.ValidationError(INVALID_VALUE)
+        return attrs
 
 
 class CommunicationReleaseSerializer(ClosedSerializer):

@@ -36,4 +36,4 @@ Email delivery is a platform capability. CTF defines when and what to send but d
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/invitation.txt` (Invitation Email Template (text))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/credentials.html` (Credentials Email Template (HTML))
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Notification Service Tests)
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/shifter#664` (CTF-801: Email Notifications)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#664` (CTF-801: Email Notifications)

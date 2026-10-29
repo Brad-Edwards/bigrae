@@ -1,10 +1,10 @@
 # Content, range, background and streaming authority: S6 proposal
 
 Status: approved by the user on 2026-10-13 for the exact-design authorization required by
-[issue #2308](https://github.com/Brad-Edwards/shifter/issues/2308).
+[issue #2308](https://github.com/Brad-Edwards/bigrae/issues/2308).
 The approval authorizes this C4 source integration. Production activation remains S8.
 
-Scope: [issue #2319](https://github.com/Brad-Edwards/shifter/issues/2319), custom
+Scope: [issue #2319](https://github.com/Brad-Edwards/bigrae/issues/2319), custom
 integration C4. The binding architecture is ADR-066 and the
 [S6 preflight](../architecture/content-range-authority-preflight-2319.md).
 Dependencies #2314, #2315 and #2316 are merged. S8 remains the single production

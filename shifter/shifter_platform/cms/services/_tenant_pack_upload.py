@@ -13,22 +13,30 @@ from uuid import UUID, uuid4, uuid5
 
 import yaml
 from django.conf import settings
-from django.contrib.auth.models import User
 from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
 
-from cms.models import RaesPackageSource, ScenarioModelNeeds, TenantPackArchive
+from cms.models import RaesPackageSource, ScenarioModelNeeds
 from cms.scenarios.pack_validation import pack_digest, validate_pack
-from shared.audit import AuditAction, AuditActorType, AuditEntityType, AuditEvent, audit_log
+from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, principal_actor_fields
 from shared.cloud import get_object_storage
+from shared.credentials import CredentialContext
 from shared.exceptions import ValidationError
 from shared.model_access import PackModelNeedsDeclaration
 from shared.raes.object_source import stage_uploaded_pack
 from shared.raes.pack_conformance import validate_pack_contract
 from shared.raes.package_loader import resolve_pack_scenario_path
-from workspaces.services import get_organization_profile
 
-from ._content_ingestion import PackRegistrationRequest, register_pack
+from ._content_ingestion import PackRegistrationRequest, prepare_pack_registration, register_pack
+from ._tenant_pack_authority import admit_tenant_pack, fence_tenant_pack
+from ._tenant_pack_upload_journal import (
+    PackUploadJournal,
+    claim_pack_upload,
+    release_pack_upload,
+    reserve_pack_upload,
+    retain_installed_archive,
+    settle_pack_upload,
+)
 
 logger = logging.getLogger(__name__)
 _MODEL_NEEDS_FILE = "model-needs.json"
@@ -73,45 +81,43 @@ def _validate_archive(path: Path, name: str, report: str) -> tuple[str, str, dic
 
 
 def _persist(
-    user: User,
+    user: CredentialContext,
     organization_uuid: UUID,
     request: PackRegistrationRequest,
     report: str,
     request_id: str,
     model_needs: dict[str, dict[str, object]],
-    location: tuple[str, str],
+    journal: PackUploadJournal,
 ) -> dict[str, Any]:
     """Register validated bytes, their owned archive and conformance evidence atomically."""
+    admitted = admit_tenant_pack(user, organization_uuid)
+    prepared = prepare_pack_registration(admitted.credential, request, admitted.scope, _upload_journal=journal)
     with transaction.atomic():
-        # Reauthorize after foreign-input validation and storage I/O.
-        get_organization_profile(user, organization_uuid)
+        fence_tenant_pack(admitted)
+        claim_pack_upload(journal, admitted, request)
         result = register_pack(
-            user=user,
+            user=admitted.credential,
             request=request,
             organization_uuid=organization_uuid,
             request_id=request_id,
+            scope=admitted.scope,
+            _prepared_admission=prepared,
         )
         row = RaesPackageSource.objects.select_for_update().get(scenario_id=result.scenario_id)
         # Every revision's object stays pack-owned inventory so removal can
         # delete exactly the bytes this pack uploaded (ADR-034-R13).
-        TenantPackArchive.objects.create(
-            organization_uuid=organization_uuid,
-            scenario_id=row.scenario_id,
-            package_ref=request.package_ref,
-            bucket=location[0],
-            object_key=location[1],
-            location_verified=True,
-        )
+        retain_installed_archive(journal)
         row.conformance_status = "passed"
         row.conformance_report_ref = report
         row.save(update_fields=["conformance_status", "conformance_report_ref", "updated_at"])
         if model_needs:
             overlay = ScenarioModelNeeds.objects.select_for_update().filter(scenario_id=row.scenario_id).first()
             if overlay is None:
-                overlay = ScenarioModelNeeds(scenario_id=row.scenario_id, updated_by=user)
+                overlay = ScenarioModelNeeds(scenario_id=row.scenario_id)
             overlay.authored_package_digest = row.package_digest
             overlay.needs = model_needs
-            overlay.updated_by = user
+            overlay.updated_by_id = None
+            overlay.updated_by_principal_uuid = admitted.credential.principal.uuid
             overlay.save()
         else:
             ScenarioModelNeeds.objects.filter(scenario_id=row.scenario_id).delete()
@@ -121,8 +127,7 @@ def _persist(
                 entity_id=0,
                 entity_ref=row.scenario_id,
                 action=AuditAction.UPDATE,
-                actor_type=AuditActorType.USER,
-                actor_id=user.id,
+                **principal_actor_fields(admitted.credential.principal),
                 request_id=request_id,
                 new_state={
                     "organization_uuid": str(organization_uuid),
@@ -155,7 +160,7 @@ def _write_archive(archive: UploadedFile, path: Path) -> None:
 
 def upload_tenant_pack(
     *,
-    user: User,
+    user: CredentialContext,
     organization_uuid: UUID,
     name: str,
     archive: UploadedFile,
@@ -163,7 +168,8 @@ def upload_tenant_pack(
     request_id: str = "",
 ) -> dict[str, Any]:
     """Validate bytes before storing; never execute, install, or select an adapter."""
-    organization_uuid = get_organization_profile(user, organization_uuid).uuid
+    admitted = admit_tenant_pack(user, organization_uuid)
+    user = admitted.credential
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", name):
         raise ValidationError("Enter a valid pack name")
     if expected_digest and not re.fullmatch(r"sha256:[a-f0-9]{64}", expected_digest):
@@ -186,31 +192,37 @@ def upload_tenant_pack(
         storage = get_object_storage()
         # Unique server-owned object identity: rollback cannot remove another
         # upload or a previously committed pack revision.
+        request = PackRegistrationRequest(
+            scenario_id=catalog_id,
+            package_name=name,
+            source_kind="object",
+            contract_kind="raes",
+            contract_profile="shifter",
+            package_ref=reference,
+            package_version=version,
+            package_digest=digest,
+            expected_package_digest=expected_digest,
+        )
+        # Even an ambiguous storage return or process crash leaves exact keys
+        # under the incumbent cleanup worker's durable custody.
+        admitted = admit_tenant_pack(user, organization_uuid)
+        journal = reserve_pack_upload(admitted, request, (bucket, key), request_id)
         try:
             with path.open("rb") as stream:
                 storage.upload_file(stream, bucket, key, content_type="application/gzip")
+            settle_pack_upload(journal)
             return _persist(
                 user,
                 organization_uuid,
-                PackRegistrationRequest(
-                    scenario_id=catalog_id,
-                    package_name=name,
-                    source_kind="object",
-                    contract_kind="raes",
-                    contract_profile="shifter",
-                    package_ref=reference,
-                    package_version=version,
-                    package_digest=digest,
-                    expected_package_digest=expected_digest,
-                ),
+                request,
                 report,
                 request_id,
                 model_needs,
-                (bucket, key),
+                journal,
             )
         except Exception:
             try:
-                storage.delete_object(bucket, key)
+                release_pack_upload(journal)
             except Exception:
                 logger.error("Uncommitted pack upload cleanup failed")
             raise ValidationError("Pack installation failed; reload the current version and retry") from None

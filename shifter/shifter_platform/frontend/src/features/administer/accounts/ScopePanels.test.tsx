@@ -28,12 +28,12 @@ it("issues, resends and confirms revoking invitations through the selected works
   renderRoute(<ScopeInvitationPanel workspaceUuid="selected" />);
   await user.type(await screen.findByLabelText("Recipient email"), "new@example.test");
   await user.click(screen.getByRole("button", { name: "Send invitation" }));
-  await waitFor(() => expect(mock).toHaveBeenCalledWith("/workspaces/selected/invitations/", expect.objectContaining({ body: { email: "new@example.test" } })));
+  await waitFor(() => expect(mock).toHaveBeenCalledWith("/account-workspaces/selected/invitations/", expect.objectContaining({ body: { email: "new@example.test" } })));
   await user.click(screen.getByRole("button", { name: "Resend invitation" }));
-  await waitFor(() => expect(mock).toHaveBeenCalledWith("/workspaces/selected/invitations/invitation/resend/", expect.objectContaining({ method: "POST" })));
+  await waitFor(() => expect(mock).toHaveBeenCalledWith("/account-workspaces/selected/invitations/invitation/resend/", expect.objectContaining({ method: "POST" })));
   await user.click(screen.getByRole("button", { name: "Revoke invitation" }));
   await user.click(screen.getByRole("button", { name: "Confirm revocation" }));
-  await waitFor(() => expect(mock).toHaveBeenCalledWith("/workspaces/selected/invitations/invitation/revoke/", expect.objectContaining({ method: "POST" })));
+  await waitFor(() => expect(mock).toHaveBeenCalledWith("/account-workspaces/selected/invitations/invitation/revoke/", expect.objectContaining({ method: "POST" })));
 });
 
 it("does not expose invitation authoring when the scope read is denied", async () => {

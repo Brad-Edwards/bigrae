@@ -7,7 +7,7 @@ Status: pre-implementation guidance
 
 Date: 2026-06-21
 
-Tracking issue: <https://github.com/Brad-Edwards/shifter/issues/850>
+Tracking issue: <https://github.com/Brad-Edwards/bigrae/issues/850>
 
 ## Scope Boundary
 

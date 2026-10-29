@@ -158,11 +158,11 @@ def test_readiness_service_owns_its_postgres_lock_transaction(organizer_user) ->
         assert_event_content_hydration_ready(event)
 
 
-def test_activation_and_edit_never_commit_active_stale_content(organizer_user) -> None:
+def test_activation_and_edit_never_commit_active_stale_content(organizer_user, organizer_credential) -> None:
     event = _event(organizer_user)
     hydrate_event_ctf_content(event.pk, _resolved(), actor_id=organizer_user.pk)
     challenge = CTFChallenge.objects.get(event=event, source_id="challenge-one")
-    assert open_registration(event) is True
+    assert open_registration(event, actor=organizer_credential) is True
 
     barrier = threading.Barrier(2)
     with (

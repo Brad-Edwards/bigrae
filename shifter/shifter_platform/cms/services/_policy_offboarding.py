@@ -12,9 +12,9 @@ from cms.models import RangeInstance, Request
 from engine.services import RangeOwnershipProjection, RangeProjectionIntegrityError, range_ownership_projection
 from shared.audit import AuditAction, AuditEntityType, AuditEvent, RequestAudit, audit_log
 from shared.authorization import AuthorizationProvider, AuthorizationRequest, TargetRef
-from shared.credentials import CredentialContext
+from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.identity_scope import PrincipalRef, ResourceScope
-from shared.principal_port import principal_for_user, principal_identity_for_user, resolve_principal
+from shared.principal_port import principal_for_user, principal_identity_for_user
 from workspaces.services import (
     AccountScopeError,
     WorkspaceOwnershipCandidate,
@@ -37,14 +37,15 @@ _OWNERSHIP_PROJECTIONS_DISAGREE = "Range ownership projections disagree"
 
 def _require(
     actor: CredentialContext, provider: AuthorizationProvider, action: str, target: TargetRef, scope: ResourceScope
-) -> None:
+) -> CredentialContext:
     """Shared policy is the sole grant; evaluator failures never become success."""
     try:
         if actor.kind == "temporary":
             raise PermissionError
-        resolve_principal(actor.principal)
+        actor = resolve_current_credential(actor)
         if not provider.check(AuthorizationRequest(actor.principal, action, target, scope, actor.ceiling)).allowed:
             raise PermissionError
+        return actor
     except Exception as exc:
         raise PermissionError("Ownership transfer denied") from exc
 
@@ -94,7 +95,7 @@ def policy_reassign_range_owner(
         organization_id=instance.organization_id,
         workspace_id=instance.workspace_id,
     )
-    _require(actor, provider, "range.transfer_ownership", TargetRef("range", projection.uuid), scope)
+    actor = _require(actor, provider, "range.transfer_ownership", TargetRef("range", projection.uuid), scope)
     destination_ref = principal_for_user(destination)
     expected_owner = instance.user_id if expected_owner_id is None else expected_owner_id
     if not (
@@ -131,6 +132,11 @@ def _transfer_locked(
             raise CMSError("Replacement is not eligible for the resource scope")
         current = RangeInstance.objects.select_for_update().get(pk=instance.pk)
         request = Request.objects.select_for_update().get(pk=instance.request_id)
+        try:
+            if resolve_local_credential(actor) != actor:
+                raise ValueError("Credential changed")
+        except ValueError:
+            raise CMSError("Ownership transfer denied") from None
         if (
             current.user_id != expected_owner
             or request.user_id != expected_owner
@@ -177,7 +183,7 @@ def policy_transfer_user_ownership(
     Each successful resource effect is transactional. The summary retains
     blocked outcomes and makes no claim of a globally atomic offboarding.
     """
-    _require(
+    actor = _require(
         actor, provider, "installation.manage_principals", TargetRef("installation"), ResourceScope("installation")
     )
     requested = tuple(dict.fromkeys(kinds))

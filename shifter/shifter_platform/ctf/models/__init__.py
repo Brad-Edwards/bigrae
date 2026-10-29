@@ -51,12 +51,14 @@ from .communication_delivery import DeliveryAttempt, ParticipantReceipt
 from .content_hydration import CTFContentHydrationReceipt
 from .content_image import ContentImageStatus, CTFContentImage
 from .event import CTFEvent
+from .event_authority_transition import CTFEventAuthorityTransition
 from .event_page import CTFEventPage
 from .event_staff import CTFEventStaff
 from .flag import CTFFlag
 from .hint import CTFHint, CTFHintUsage
 from .notification import CTFEmailTemplate, CTFNotification, CTFWebhook
 from .public_registration import CTFPublicRegistrationRequest
+from .range_launch import CTFRangeLaunch
 from .rating import CTFChallengeRating
 from .recovery import CTFRangeRecovery
 from .scheduled_task import CTFScheduledTask
@@ -84,6 +86,7 @@ __all__ = [
     "CTFContentImage",
     "CTFEmailTemplate",
     "CTFEvent",
+    "CTFEventAuthorityTransition",
     "CTFEventPage",
     "CTFEventStaff",
     "CTFFlag",
@@ -92,6 +95,7 @@ __all__ = [
     "CTFNotification",
     "CTFParticipant",
     "CTFPublicRegistrationRequest",
+    "CTFRangeLaunch",
     "CTFRangeRecovery",
     "CTFReceiptConsumption",
     "CTFScheduledTask",
