@@ -407,11 +407,6 @@ urlpatterns = [
         name="api_notification_cancel_schedule",
     ),
     path(
-        "events/<uuid:event_id>/email-templates/<str:notification_type>/",
-        organizer.EventEmailTemplateView.as_view(),
-        name="api_event_email_template",
-    ),
-    path(
         "events/<uuid:event_id>/invitations/send/",
         organizer.SendLoginInfoView.as_view(),
         name="api_send_invitations",

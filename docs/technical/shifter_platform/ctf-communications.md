@@ -26,9 +26,17 @@ true. That setting is false for console, file, and dummy backends outside
 development and test runtimes. Release, preview, cutover, and lifecycle notices
 read the same value in the web and worker processes.
 
-The adapter reads only the coordinate of its own snapshot. It renders the
-pinned subject and Markdown source through the trusted `ctf/email/communication`
-template, which escapes the source. It calls `shared.email.attempt_email()` with
+The adapter reads only the coordinate of its own snapshot. The campaign
+`notice_kind` selects one trusted pair under `ctf/email/notice/`. The kinds are
+`announcement`, `reminder`, `cleanup`, `results`, `range_ready`, and
+`range_failure`. Organizer campaigns are always `announcement`. Only lifecycle
+notices set another kind.
+
+The pair renders the pinned subject and Markdown source with escaped scalar
+values. These values are the participant name and the event name, dates, and
+portal URL of the snapshot event. The URL comes from `SITE_URL`; an unsafe
+value is retriable as `site_url_unavailable`. Organizers cannot override the
+templates (#580). The adapter calls `shared.email.attempt_email()` with
 the worker transport timeout and the row `idempotency_key`. The key becomes a
 stable Message-ID. A missing snapshot or erased coordinate is terminal. An
 unreadable coordinate is retriable within the worker budget.

@@ -109,8 +109,8 @@ def render_template(template_path: str, context: dict[str, Any]) -> tuple[str, s
 
     Args:
         template_path: Path prefix relative to the templates root **without**
-            the extension.  For example ``"ctf/email/invitation"`` will render
-            ``ctf/email/invitation.html`` and ``ctf/email/invitation.txt``.
+            the extension.  For example ``"ctf/email/notice/reminder"`` will render
+            ``ctf/email/notice/reminder.html`` and ``ctf/email/notice/reminder.txt``.
         context: Template context dict for variable substitution.
 
     Returns:
