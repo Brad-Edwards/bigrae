@@ -8,11 +8,16 @@ working directory, so a deploy never changes the operator's default kubeconfig c
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+import time
+from collections.abc import Callable, Mapping
 from pathlib import Path
 
+from bootstrap_core import warn
 from gcp_inputs import private_workdir
-from gcp_process import ProcessRunner
+from gcp_process import GcpCommandError, ProcessRunner, diagnostic_tail
+
+_LOG_READ_ATTEMPTS = 5
+_LOG_READ_DELAY_SECONDS = 15
 
 
 def cluster_name(environment: str) -> str:
@@ -65,6 +70,35 @@ def kubectl_json(runner: ProcessRunner, env: Mapping[str, str | None], *args: st
     except json.JSONDecodeError:
         return {}
     return value if isinstance(value, dict) else {}
+
+
+def read_job_log(
+    runner: ProcessRunner,
+    job: str,
+    *,
+    namespace: str,
+    container: str = "",
+    sleep: Callable[[float], None] = time.sleep,
+) -> str:
+    """Return the log of a completed Job, retrying the idempotent read (#2687).
+
+    A new private cluster can briefly fail to proxy a log request to the node.
+    A failure reports kubectl's own stderr only: the container output on stdout
+    can carry private values.
+    """
+    argv = ["kubectl", "logs", f"job/{job}", "-n", namespace, *(["-c", container] if container else [])]
+    for attempt in range(1, _LOG_READ_ATTEMPTS + 1):
+        result = runner.run(argv, check=False, sensitive=True)
+        if result.returncode == 0:
+            return result.stdout
+        detail = diagnostic_tail(result.stderr) or "kubectl wrote no error"
+        if attempt < _LOG_READ_ATTEMPTS:
+            warn(
+                f"Reading the job/{job} log failed: {detail}; "
+                f"retrying in {_LOG_READ_DELAY_SECONDS}s ({attempt}/{_LOG_READ_ATTEMPTS})"
+            )
+            sleep(_LOG_READ_DELAY_SECONDS)
+    raise GcpCommandError(f"kubectl logs failed with exit status {result.returncode}: {detail}")
 
 
 def apply_manifest(runner: ProcessRunner, env: Mapping[str, str | None], manifest: Mapping[str, object]) -> None:
