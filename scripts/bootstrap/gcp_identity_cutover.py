@@ -10,9 +10,9 @@ from __future__ import annotations
 import json
 import os
 import stat
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -42,6 +42,17 @@ class CutoverRun:
 
     required: bool
     manifest: str = field(repr=False)
+    # The deploy generated the facts for an empty installation (#2679).
+    fresh_install: bool = False
+    bootstrap_facts: Path | None = None
+
+    def with_documents(self, documents: Sequence[dict[str, object]]) -> CutoverRun:
+        """Return the run bound to a re-rendered release, for example with the published policy IDs."""
+        return replace(self, manifest=yaml.safe_dump_all(documents, sort_keys=False))
+
+
+#: Generates the cutover and bootstrap facts files of an empty installation.
+FreshInstallFacts = Callable[[], tuple[Path, Path]]
 
 
 def _unique_fields(items: list[tuple[str, object]]) -> dict[str, object]:
@@ -121,20 +132,33 @@ def _run_job(runner: ProcessRunner, job: Mapping[str, object], *, timeout: str) 
         _delete(runner, "job", name)
 
 
-def _probe_state(runner: ProcessRunner, manifest: str) -> str:
-    """Require one recognized status marker from the completed native probe."""
+def _probe_state(runner: ProcessRunner, manifest: str) -> tuple[str, int | None]:
+    """Require one recognized status marker; return the state and the reported user count."""
     job = render(manifest, job_name=f"identity-cutover-status-{uuid4().hex[:12]}", status_only=True)
     output = _run_job(runner, job, timeout="5m")
     results = [line[len(_RESULT_PREFIX) :] for line in output.splitlines() if line.startswith(_RESULT_PREFIX)]
     try:
         if len(results) != 1:
             raise ValueError
-        state = json.loads(results[0], object_pairs_hook=_unique_fields)["state"]
-        if state not in _LEGACY_STATES | {"activated"}:
+        result = json.loads(results[0], object_pairs_hook=_unique_fields)
+        state = result["state"]
+        users = result.get("users")
+        if state not in _LEGACY_STATES | {"activated"} or not (users is None or isinstance(users, int)):
             raise ValueError
     except (ValueError, KeyError, TypeError):
         raise IdentityCutoverError("Identity status probe was inconclusive; workloads remain unchanged") from None
-    return state
+    return state, users
+
+
+def _fresh_installation(state: str, users: int | None) -> bool:
+    """True for an empty installation, or one whose only user is the prepared bootstrap administrator.
+
+    A legacy database with retained users never qualifies. When generated facts
+    meet a different retained plan, the cutover refuses them (#2679).
+    """
+    if users is None:
+        return False
+    return (state == "absent" and users == 0) or (state in _LEGACY_STATES - {"absent"} and users <= 1)
 
 
 def _mount_facts(runner: ProcessRunner, cutover: Path, bootstrap: Path) -> None:
@@ -160,6 +184,7 @@ def identity_cutover_boundary(
     *,
     cutover_facts: str | Path | None = None,
     bootstrap_facts: str | Path | None = None,
+    fresh_install_facts: FreshInstallFacts | None = None,
 ) -> Iterator[CutoverRun]:
     """Keep a failed legacy conversion quiesced and always remove mounted facts."""
     validate_fact_paths(cutover_facts, bootstrap_facts)
@@ -167,8 +192,14 @@ def identity_cutover_boundary(
     # Validate the candidate portal shape before even prerequisite application.
     render(manifest, job_name="identity-cutover-validation", status_only=True)
     _apply(runner, probe_prerequisites(manifest))
-    required = _probe_state(runner, manifest) != "activated"
+    state, users = _probe_state(runner, manifest)
+    required = state != "activated"
     run = CutoverRun(required, manifest)
+    if required and not cutover_facts and fresh_install_facts is not None and _fresh_installation(state, users):
+        # An empty installation needs no reviewed facts: the deploy derives them
+        # from the configured operator account (#2679).
+        cutover_facts, bootstrap_facts = fresh_install_facts()
+        run = CutoverRun(required, manifest, fresh_install=True, bootstrap_facts=Path(bootstrap_facts))
     if not required:
         try:
             yield run

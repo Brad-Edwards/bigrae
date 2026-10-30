@@ -348,6 +348,23 @@ def ensure_gcp_identity_platform_operator(
         raise
 
 
+def gcp_identity_platform_subject(config: GDCBootstrapConfig, outputs: dict[str, dict[str, object]], email: str) -> str:
+    """Return the Identity Platform account ID (the token subject) of the operator email (#2679)."""
+    response = _gcp_identity_admin_request(
+        config=config,
+        outputs=outputs,
+        path=f"/projects/{config.project_id}/accounts:lookup",
+        payload={"email": [email.strip().lower()]},
+    )
+    users = response.get("users")
+    if not isinstance(users, list) or len(users) != 1 or not isinstance(users[0], dict):
+        raise RuntimeError("The Identity Platform operator account is missing; enable settings.operator_bootstrap")
+    subject = users[0].get("localId")
+    if not isinstance(subject, str) or not subject.strip():
+        raise RuntimeError("The Identity Platform operator account has no account ID")
+    return subject
+
+
 def _gcp_private_service_cidrs(outputs: dict[str, dict[str, object]]) -> list[str]:
     """Return private-service CIDRs for Helm network policy values."""
     control_plane_database = _get_output_value(outputs, "control_plane_database")

@@ -101,6 +101,7 @@ from ._identity_cutover import (
 from ._identity_cutover import (
     pending_identity_cutover_work as pending_identity_cutover_work,
 )
+from ._inbox_catalog import register_inbox_catalog
 from ._model_access_sharing import (
     ModelAccessSelectorError,
     find_model_access_selected_ranges,
@@ -433,6 +434,7 @@ __all__ = (
     "reconcile_tenant_pack_removal",
     "reconcile_tenant_pack_removals",
     "reconcile_warm_pool",
+    "register_inbox_catalog",
     "register_pack",
     "relocate_tenant_pack_archive",
     "replace_group_lease_policy",

@@ -4551,6 +4551,11 @@
         "id": "ADR-070-R9",
         "description": "The release registry is public (#2659). A deployment trusts a release only through the provenance policy of ADR-070-R5, so any registry that holds the exact digests and their attestation referrers can serve the release. gcp-deploy, gcp-destroy, and gcp-release-scan send the Google access token only to Artifact Registry hosts; any other registry gets anonymous pulls through the distribution bearer-token flow. An operator who cannot reach the public registry copies the release images by digest, with their referrers, to a mirror and passes --release-source; the commands then verify, scan, and import the mirror copy of each digest.",
         "checks": []
+      },
+      {
+        "id": "ADR-070-R10",
+        "description": "A release installs a tenant with one command (#2679). The release manifest pins the base range images by digest and carries the release's OpenFGA authorization model. deploy.py gcp-install applies the GitHub-less foundation from the bundle and the operator's identity, creates the initial operator password secret, publishes the bundle, and runs gcp-deploy --first-install. That deploy imports the pinned base images as the operator (the deploy identity holds no image administration), generates the OpenFGA CA, server certificates, and preshared keys into Secret Manager without overwriting an existing secret, and publishes the authorization model through a bounded openfga-publisher Job; each later deploy publishes the release model again and reuses an unchanged one. On an empty database the deploy derives the identity facts from the configured operator account; a database with users still needs the reviewed legacy conversion facts. Catalog registration acts as the recorded bootstrap administrator through a credential that holds only the installation content actions, lasts 15 minutes, and is revoked; a failed registration is a warning. A tenant platform creates no image-build infrastructure (enable_image_build_infra, default false), and the foundation creates the image-builder identity only for a build purpose or an image-build network. The current release requires native SQL and OpenFGA: settings that disable either fail before any change.",
+        "checks": []
       }
     ],
     "exceptions": [],

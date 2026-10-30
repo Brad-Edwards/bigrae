@@ -346,6 +346,39 @@ def _release_images(items: list[str]) -> dict[str, str]:
     return images
 
 
+def _base_images(pairs: list[str]) -> dict[str, str]:
+    """Parse ``ROLE=IDENTITY`` base image arguments; a repeated role is an error."""
+    images: dict[str, str] = {}
+    for pair in pairs:
+        role, separator, identity = pair.partition("=")
+        if not separator or role in images:
+            raise InstallationConfigError(
+                [ConfigIssue("release.base_images", f"invalid or repeated --base-image {role!r}")],
+                subject="GCP release manifest",
+            )
+        images[role] = identity
+    return images
+
+
+def _authorization_model(path: str) -> dict[str, object] | None:
+    """Read the authorization model JSON file, when one is given."""
+    if not path:
+        return None
+    try:
+        model = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        raise InstallationConfigError(
+            [ConfigIssue("release.authorization_model", "cannot read the authorization model JSON file")],
+            subject="GCP release manifest",
+        ) from None
+    if not isinstance(model, dict):
+        raise InstallationConfigError(
+            [ConfigIssue("release.authorization_model", "the authorization model must be a JSON object")],
+            subject="GCP release manifest",
+        )
+    return model
+
+
 def _cmd_gcp_release_manifest(args: argparse.Namespace) -> int:
     """Write one validated GCP release manifest from explicit image identities to stdout."""
     try:
@@ -354,6 +387,8 @@ def _cmd_gcp_release_manifest(args: argparse.Namespace) -> int:
             source_revision=args.source_revision,
             chart_version=args.chart_version,
             images=_release_images(args.image),
+            base_images=_base_images(args.base_image),
+            authorization_model=_authorization_model(args.authorization_model_file),
         )
     except InstallationConfigError as exc:
         print(str(exc), file=sys.stderr)

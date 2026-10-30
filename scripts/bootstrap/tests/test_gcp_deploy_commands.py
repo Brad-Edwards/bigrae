@@ -335,11 +335,19 @@ class TestStageHelpers:
         runner = FakeRunner()
         retire_inventoried_artifacts(runner, inputs, "ctx")
         assert runner.calls == []
-        assert sync_policy_credentials(runner, inputs, sample_gcp_outputs(PROJECT)) is False
+        assert sync_policy_credentials(runner, inputs, {"native_identity": {"value": {"openfga_enabled": False}}}) is False
         assert (
             sync_policy_credentials(runner, inputs, {"native_identity": {"value": {"openfga_enabled": True}}}) is True
         )
-        assert "sync_openfga_secrets.py" in runner.calls[0].argv[1]
+        # The three derived OpenFGA secrets exist (#2679), so nothing is generated before the sync.
+        describes = runner.find("gcloud", "secrets", "versions", "describe")
+        assert [call.argv[call.argv.index("--secret") + 1] for call in describes] == [
+            "shifter-acme-openfga-runtime",
+            "shifter-acme-openfga-admin",
+            "shifter-acme-openfga-ca",
+        ]
+        assert not runner.find("gcloud", "secrets", "create")
+        assert "sync_openfga_secrets.py" in runner.calls[-1].argv[1]
         with pytest.raises(DeployStageError, match="foundation-inputs"):
             reconcile_foundation_image_network(runner, inputs)
 

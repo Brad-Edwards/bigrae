@@ -62,8 +62,14 @@ def build_values(
     *,
     runtime_env: Mapping[str, str],
     identities: Mapping[str, str],
+    policy_binding: tuple[str, str] | None = None,
 ) -> dict[str, object]:
-    """Build the non-secret generated Helm values for one deployment."""
+    """Build the non-secret generated Helm values for one deployment.
+
+    ``policy_binding`` is the published OpenFGA store and model; without one,
+    the values bind the pinned settings IDs, or leave the policy client unbound
+    until publication (#2679).
+    """
     from installation.gcp_model_broker import validate_model_broker_readback
     from installation.render import (
         render_gcp_range_telemetry_env,
@@ -84,7 +90,7 @@ def build_values(
         mission_control_lease_env=render_mission_control_lease_env(root_config),  # type: ignore[arg-type]
         range_telemetry_env=render_gcp_range_telemetry_env(root_config),  # type: ignore[arg-type]
         model_broker_runtime=root_config.settings.get("model_broker_runtime"),  # type: ignore[attr-defined]
-        openfga_settings=settings.openfga.model_dump(),  # type: ignore[attr-defined]
+        openfga_settings=_openfga_settings(settings.openfga, policy_binding),  # type: ignore[attr-defined]
         capacity_profile_id=settings.shared_service_capacity_profile,  # type: ignore[attr-defined]
     )
     return render_gcp_helm_values(
@@ -98,6 +104,14 @@ def build_values(
         },
         render_artifacts=artifacts,
     )
+
+
+def _openfga_settings(policy: object, binding: tuple[str, str] | None) -> dict[str, object]:
+    """Return the OpenFGA settings with the published store and model IDs, when there are any."""
+    settings = policy.model_dump()  # type: ignore[attr-defined]
+    if binding is not None:
+        settings["store_id"], settings["model_id"] = binding
+    return settings
 
 
 def write_values(workdir: Path, values: Mapping[str, object]) -> Path:

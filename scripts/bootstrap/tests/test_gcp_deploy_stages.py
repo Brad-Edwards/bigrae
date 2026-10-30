@@ -90,6 +90,16 @@ def recorder(monkeypatch, chart):
     )
     monkeypatch.setattr(gcp_deploy_stages, "verify_range_telemetry", record("verify_range_telemetry"))
     monkeypatch.setattr(gcp_deploy_stages, "seed_operator", record("seed_operator"))
+    # The release model publication and the generated OpenFGA credentials (#2679).
+    monkeypatch.setattr("gcp_policy.ensure_policy_secrets", record("ensure_policy_secrets", lambda *a, **k: False))
+    monkeypatch.setattr(
+        "gcp_policy.publish_policy_model",
+        record("publish_policy_model", lambda *a, **k: ("01J00000000000000000000001", "01J00000000000000000000002")),
+    )
+    monkeypatch.setattr("gcp_policy.release_model", lambda model: {"type_definitions": [{"type": "principal"}]})
+    monkeypatch.setattr(
+        gcp_deploy_stages, "operator_bootstrap_facts", record("operator_bootstrap_facts", lambda *a, **k: None)
+    )
     return order, outputs
 
 
@@ -127,7 +137,9 @@ class TestInfrastructureStage:
 
 
 class TestRolloutStage:
-    def test_missing_catalog_proof_leaves_app_ready_and_prints_dns_recovery(self, inputs, recorder, monkeypatch):
+    def test_missing_catalog_proof_leaves_app_ready_and_prints_dns_recovery(
+        self, inputs, recorder, monkeypatch, capsys
+    ):
         order, outputs = recorder
         monkeypatch.setattr("gcp_catalog.initialize_catalog", actual_initialize_catalog)
         request = RolloutRequest(
@@ -138,10 +150,11 @@ class TestRolloutStage:
             evidence=EvidenceRun("b-evidence", REVISION, "r", 1),
             first_install=True,
         )
-        with pytest.raises(IdentityCutoverError, match="Native application is active; catalog setup is incomplete"):
-            rollout_stage(activated_runner(), inputs, InfrastructureResult(outputs=outputs, kube={}), request)
+        # #2679: pending catalog work is a warning, not a failed deploy.
+        assert rollout_stage(activated_runner(), inputs, InfrastructureResult(outputs=outputs, kube={}), request)
+        assert "catalog may be incomplete" in capsys.readouterr().out
         assert order.index("helm_upgrade") < order.index("wait_for_rollouts") < order.index("wait_for_ingress_address")
-        assert order[-1] == "wait_for_certificate"
+        assert order.index("wait_for_certificate") < order.index("operator_bootstrap_facts")
 
     def test_legacy_policy_migration_and_activation_precede_full_release_restore(self, inputs, recorder, facts):
         import yaml
@@ -222,13 +235,22 @@ class TestRolloutStage:
         )
         infra = InfrastructureResult(outputs=outputs, kube={"KUBECONFIG": "/work/kubeconfig"})
         assert rollout_stage(activated_runner(), inputs, infra, request) is True
+        # #2679: the deploy creates the OpenFGA credentials before the identity
+        # probe, publishes the release model after the migrations, re-renders
+        # with the published IDs, and registers the catalog as the bootstrap
+        # administrator after the certificate wait.
         assert order == [
             "compose_runtime_env",
             "build_values",
             "write_values",
-            "ensure_gcp_control_plane_namespaces",
             "render_chart",
+            "ensure_gcp_control_plane_namespaces",
+            "ensure_policy_secrets",
             "run_gcp_database_migrations",
+            "publish_policy_model",
+            "build_values",
+            "write_values",
+            "render_chart",
             "sync_gcp_guacamole_runtime_secret",
             "adopt_objects",
             "helm_upgrade",
@@ -238,6 +260,7 @@ class TestRolloutStage:
             "record_running_images",
             "wait_for_ingress_address",
             "wait_for_certificate",
+            "operator_bootstrap_facts",
             "initialize_catalog",
         ]
         assert "KUBECONFIG" not in os.environ or os.environ["KUBECONFIG"] != "/work/kubeconfig"

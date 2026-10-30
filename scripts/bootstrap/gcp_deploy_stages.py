@@ -9,13 +9,15 @@ separate jobs.
 from __future__ import annotations
 
 import dataclasses
+import json
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 from bootstrap_core import get_repo_root, header, info, success, warn
 from gcp_evidence import EvidenceRun
-from gcp_inputs import DeploymentInputs
+from gcp_inputs import DeploymentInputs, private_workdir, write_private_file
 from gcp_kube import cluster_name, kube_env
 from gcp_process import ProcessRunner, scoped_environment, script_argv
 
@@ -149,6 +151,47 @@ def seed_operator(inputs: DeploymentInputs, outputs: Mapping[str, Mapping[str, o
     )
 
 
+def operator_bootstrap_facts(inputs: DeploymentInputs, outputs: Mapping[str, Mapping[str, object]]) -> Path:
+    """Write the bootstrap facts that name the configured operator account (#2679).
+
+    The infrastructure stage created that Identity Platform account from
+    ``settings.operator_bootstrap.admin_email``. The facts carry only the issuer
+    and the subject, in an owner-only file in the private work directory.
+    """
+    from gcp_control_plane import gcp_identity_platform_subject
+    from gcp_runtime import gdc_config
+
+    operator = inputs.settings.operator_bootstrap  # type: ignore[attr-defined]
+    if operator is None or not operator.enabled:
+        raise DeployStageError("A fresh install needs settings.operator_bootstrap to create the first administrator")
+    project = str(outputs["identity_platform_project_id"]["value"])
+    subject = gcp_identity_platform_subject(gdc_config(inputs), dict(outputs), operator.admin_email)
+    facts = {
+        "schema": "shifter.identity-bootstrap-facts/v1",
+        "issuer": f"https://securetoken.google.com/{project}",
+        "subject": subject,
+    }
+    directory = private_workdir(inputs.workdir / "identity")
+    return write_private_file(directory / "bootstrap.json", json.dumps(facts, sort_keys=True))
+
+
+def fresh_install_facts(inputs: DeploymentInputs, outputs: Mapping[str, Mapping[str, object]]) -> tuple[Path, Path]:
+    """Write the cutover and bootstrap facts of an empty installation (#2679).
+
+    An empty database has no organizations, workspaces, or users to map. The
+    first administrator may issue personal credentials, which the catalog
+    registration and the first sign-in use.
+    """
+    bootstrap = operator_bootstrap_facts(inputs, outputs)
+    cutover = {
+        "schema": "shifter.identity-cutover-facts/v1",
+        "account_types_by_organization": {},
+        "bootstrap_personal_token_eligibility": True,
+        "owner_user_ids_by_workspace": {},
+    }
+    return write_private_file(bootstrap.parent / "cutover.json", json.dumps(cutover, sort_keys=True)), bootstrap
+
+
 def infrastructure_stage(
     runner: ProcessRunner,
     inputs: DeploymentInputs,
@@ -244,13 +287,35 @@ def read_infrastructure(runner: ProcessRunner, inputs: DeploymentInputs) -> Infr
     return InfrastructureResult(outputs=outputs, kube=kube)
 
 
+def policy_settings(inputs: DeploymentInputs) -> object:
+    """Return the OpenFGA settings with the derived secret references filled in (#2679)."""
+    from installation.settings_gcp import resolve_openfga_settings
+
+    return resolve_openfga_settings(
+        inputs.settings.openfga,  # type: ignore[attr-defined]
+        project_id=inputs.project_id,
+        deployment=inputs.environment,
+    )
+
+
 def sync_policy_credentials(
     runner: ProcessRunner, inputs: DeploymentInputs, outputs: Mapping[str, Mapping[str, object]]
 ) -> bool:
-    """Synchronize the policy datastore credentials when native policy is enabled."""
+    """Create the OpenFGA credentials on first use, then synchronize them into the cluster."""
+    from gcp_policy import ensure_policy_secrets
+
     native = outputs.get("native_identity", {}).get("value") or {}
     if not (isinstance(native, Mapping) and native.get("openfga_enabled")):
         return False
+    policy = policy_settings(inputs)
+    ensure_policy_secrets(
+        runner,
+        {
+            "runtime": policy.runtime_secret_ref,  # type: ignore[attr-defined]
+            "admin": policy.admin_secret_ref,  # type: ignore[attr-defined]
+            "ca": policy.ca_secret_ref,  # type: ignore[attr-defined]
+        },
+    )
     runner.run(script_argv(get_repo_root(), "sync_openfga_secrets", "--config", str(inputs.config_path)))
     return True
 
@@ -291,6 +356,8 @@ class RolloutRequest:
     identity_cutover_facts: str = ""
     identity_bootstrap_facts: str = ""
     catalog_credential_file: str = ""
+    # The release's OpenFGA model, which each deploy publishes unless the settings pin one (#2679).
+    authorization_model: Mapping[str, object] | None = None
 
 
 def rollout_stage(
@@ -322,6 +389,7 @@ def rollout_stage(
         retire_disabled_broker,
     )
     from gcp_openvpn import ensure_pki, pool_output, roll_out_pool
+    from gcp_policy import publish_policy_model, release_model
     from gcp_rollout import (
         record_running_images,
         restart_workloads,
@@ -346,12 +414,21 @@ def rollout_stage(
         runtime_env = compose_runtime_env(
             runner, inputs, outputs, provisioner_digest=provisioner, workdir=inputs.workdir
         )
-        values = build_values(inputs, outputs, runtime_env=runtime_env, identities=request.identities)
+
+        def render(binding: tuple[str, str] | None) -> tuple[dict[str, object], Path, list[Path], list[dict]]:
+            values = build_values(
+                inputs, outputs, runtime_env=runtime_env, identities=request.identities, policy_binding=binding
+            )
+            values_file = write_values(inputs.workdir, values)
+            values_files = [profile_values_path(inputs.profile), values_file]
+            return values, values_file, values_files, render_chart(runner, {}, values_files)
+
+        # Pinned settings IDs bind the policy client now; otherwise each deploy
+        # publishes the release model after the policy servers are ready (#2679).
+        binding = policy_settings(inputs).pinned_binding  # type: ignore[attr-defined]
+        values, values_file, values_files, documents = render(binding)
         broker_enabled = bool((values.get("modelBroker") or {}).get("enabled"))  # type: ignore[union-attr]
-        values_file = write_values(inputs.workdir, values)
-        values_files = [profile_values_path(inputs.profile), values_file]
         ensure_gcp_control_plane_namespaces()
-        documents = render_chart(runner, {}, values_files)
         # Only prerequisite bindings change before a conclusive probe. Policy
         # rotation that makes the incumbent runtime unverifiable stops here.
         policy_enabled = sync_policy_credentials(runner, inputs, outputs)
@@ -361,11 +438,16 @@ def rollout_stage(
             inputs.workdir,
             cutover_facts=request.identity_cutover_facts,
             bootstrap_facts=request.identity_bootstrap_facts,
+            fresh_install_facts=lambda: fresh_install_facts(inputs, outputs),
         ) as cutover:
             run_gcp_database_migrations(outputs, values_file)
             if policy_enabled and cutover.required:
                 migrate_policy_datastore(runner, documents)
                 restart_policy_clients(runner)
+            if policy_enabled and binding is None:
+                binding = publish_policy_model(runner, documents, release_model(request.authorization_model))
+                values, values_file, values_files, documents = render(binding)
+                cutover = cutover.with_documents(documents)
             activate_identity_cutover(runner, cutover)
             sync_gcp_guacamole_runtime_secret(gdc_config(inputs), outputs)
             retire_disabled_broker(runner, enabled=broker_enabled)
@@ -402,10 +484,37 @@ def rollout_stage(
             runner,
             documents,
             credential_file=request.catalog_credential_file,
+            bootstrap_facts=_catalog_bootstrap_facts(inputs, outputs, cutover, request.catalog_credential_file),
             hostname=inputs.public_hostname,
         )
     success("Rollout stage complete")
     return active
+
+
+def _catalog_bootstrap_facts(
+    inputs: DeploymentInputs,
+    outputs: Mapping[str, Mapping[str, object]],
+    cutover: object,
+    credential_file: str,
+) -> Path | None:
+    """Return the bootstrap facts that register the in-box catalog, or None to skip it (#2679).
+
+    A supplied credential takes precedence. Otherwise the catalog Job acts as the
+    configured operator, which must be the recorded bootstrap administrator.
+    """
+    if credential_file:
+        return None
+    if getattr(cutover, "bootstrap_facts", None) is not None:
+        return cutover.bootstrap_facts  # type: ignore[attr-defined]
+    operator = inputs.settings.operator_bootstrap  # type: ignore[attr-defined]
+    if operator is None or not operator.enabled:
+        return None
+    try:
+        return operator_bootstrap_facts(inputs, outputs)
+    except RuntimeError as exc:
+        # The application is active; a lookup failure leaves only catalog work pending.
+        warn(f"Cannot name the bootstrap administrator for catalog registration ({type(exc).__name__})")
+        return None
 
 
 def tool_available(name: str) -> bool:

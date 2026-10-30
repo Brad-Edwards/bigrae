@@ -258,3 +258,49 @@ def test_policy_administration_network_is_separate_from_runtime_clients(tmp_path
                     if any("namespaceSelector" not in peer and "podSelector" in peer
                            and selected(peer["podSelector"], {"app.kubernetes.io/component": component}) for peer in peers)}
         assert admitted == allowed
+
+
+def test_catalog_initializer_reaches_the_native_database(tmp_path) -> None:
+    """#2679: the catalog Job registers content through the same native SQL lane as the portal."""
+    values = _values()
+    users = {
+        role: f"synthetic-{role}@synthetic-project.iam"
+        for role in (
+            "portal",
+            "workers",
+            "ctf-scheduler",
+            "provisioner-launcher",
+            "provisioner",
+            "openfga-runtime",
+            "openfga-admin",
+            "openfga-migrator",
+        )
+    }
+    values["openfga"].update(
+        {
+            "runtimeDatabaseUser": users["openfga-runtime"],
+            "adminDatabaseUser": users["openfga-admin"],
+            "migrationDatabaseUser": users["openfga-migrator"],
+        }
+    )
+    values["cloudSqlProxy"] = {
+        "enabled": True,
+        "instanceConnectionName": "synthetic-project:us-central1:platform-pg",
+        "databaseUsers": users,
+        "databaseCidrs": ["10.60.0.12/32"],
+    }
+    generated = tmp_path / "native.json"
+    generated.write_text(json.dumps(values))
+    result = subprocess.run(
+        ["helm", "template", "native-test", str(CHART), "-f", str(CHART / "values-gcp-dev.yaml"), "-f", str(generated)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    lane = next(
+        item
+        for item in yaml.safe_load_all(result.stdout)
+        if item and item.get("kind") == "NetworkPolicy" and item["metadata"]["name"] == "allow-platform-native-sql-egress"
+    )
+    assert "catalog-initializer" in lane["spec"]["podSelector"]["matchExpressions"][0]["values"]

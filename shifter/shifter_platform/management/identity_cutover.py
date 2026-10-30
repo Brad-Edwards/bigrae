@@ -98,6 +98,16 @@ def bootstrap_principal_uuid(issuer: str, subject: str) -> UUID | None:
     )
 
 
+def installation_user_count() -> int:
+    """Count users, or 0 before the first migration creates the user table (#2679)."""
+    user_model = get_user_model()
+    from django.db import connection
+
+    if user_model._meta.db_table not in connection.introspection.table_names():
+        return 0
+    return user_model.objects.count()
+
+
 def prepare_empty_installation_bootstrap(issuer: str, subject: str) -> UUID | None:
     """Create the first administrator principal on an empty installation (#2671).
 
