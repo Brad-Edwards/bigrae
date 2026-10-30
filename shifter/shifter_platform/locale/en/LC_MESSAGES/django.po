@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-30 02:23+0000\n"
+"POT-Creation-Date: 2026-10-30 02:42+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -39,37 +39,37 @@ msgstr ""
 msgid "Open %(event_name)s: %(event_url)s"
 msgstr ""
 
-#: templates/ctf/email/notice/announcement.html:5
+#: templates/ctf/email/notice/announcement.html:6
 #: templates/ctf/email/notice/announcement.txt:5
 #, python-format
 msgid "%(event_name)s has a new announcement."
 msgstr ""
 
-#: templates/ctf/email/notice/cleanup.html:5
+#: templates/ctf/email/notice/cleanup.html:6
 #: templates/ctf/email/notice/cleanup.txt:5
 #, python-format
 msgid "The range cleanup for %(event_name)s is approaching."
 msgstr ""
 
-#: templates/ctf/email/notice/range_failure.html:5
+#: templates/ctf/email/notice/range_failure.html:6
 #: templates/ctf/email/notice/range_failure.txt:5
 #, python-format
 msgid "We could not prepare your range for %(event_name)s."
 msgstr ""
 
-#: templates/ctf/email/notice/range_ready.html:5
+#: templates/ctf/email/notice/range_ready.html:6
 #: templates/ctf/email/notice/range_ready.txt:5
 #, python-format
 msgid "Your range is ready for %(event_name)s."
 msgstr ""
 
-#: templates/ctf/email/notice/reminder.html:5
+#: templates/ctf/email/notice/reminder.html:6
 #: templates/ctf/email/notice/reminder.txt:5
 #, python-format
 msgid "%(event_name)s starts on %(event_start)s (%(event_timezone)s)."
 msgstr ""
 
-#: templates/ctf/email/notice/results.html:5
+#: templates/ctf/email/notice/results.html:6
 #: templates/ctf/email/notice/results.txt:5
 #, python-format
 msgid "The final results for %(event_name)s are available."

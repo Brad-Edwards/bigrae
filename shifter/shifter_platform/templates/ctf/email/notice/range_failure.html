@@ -2,4 +2,8 @@
 {# SPDX-License-Identifier: MIT #}
 {% extends "ctf/email/notice/_base.html" %}
 {% load i18n %}
-{% block intro %}{% blocktrans %}We could not prepare your range for {{ event_name }}.{% endblocktrans %}{% endblock %}
+{% block intro %}
+    {% blocktrans trimmed %}
+        We could not prepare your range for {{ event_name }}.
+    {% endblocktrans %}
+{% endblock %}
