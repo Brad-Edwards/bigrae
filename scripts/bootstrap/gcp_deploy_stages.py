@@ -445,7 +445,7 @@ def rollout_stage(
         retire_disabled_broker,
     )
     from gcp_openvpn import ensure_pki, pool_output
-    from gcp_policy import publish_policy_model, release_model
+    from gcp_policy import policy_admin_available, publish_policy_model, release_model
     from gcp_rollout import wait_for_certificate, wait_for_ingress_address
     from gcp_runtime import compose_runtime_env, gdc_config
 
@@ -476,6 +476,11 @@ def rollout_stage(
         # Only prerequisite bindings change before a conclusive probe. Policy
         # rotation that makes the incumbent runtime unverifiable stops here.
         policy_enabled = sync_policy_credentials(runner, inputs, outputs)
+        if policy_enabled and binding is None and policy_admin_available(runner):
+            # An existing installation publishes first: the probe checks the
+            # activated cutover against the rendered binding (#2694).
+            binding = publish_policy_model(runner, release.documents, release_model(request.authorization_model))
+            release = render(binding=binding)
         with identity_cutover_boundary(
             runner,
             release.documents,

@@ -135,3 +135,13 @@ class TestPublication:
         with pytest.raises(PolicySetupError, match="no authorization model"):
             release_model(None)
         assert gcp_policy.STORE_NAME == "bigrae-installation"
+
+
+def test_policy_admin_availability_needs_an_available_replica():
+    """#2694: only a serving admin server lets the deploy publish before the probe."""
+    from gcp_policy import policy_admin_available
+
+    get = ["kubectl", "get", "deployment", "openfga-admin"]
+    assert policy_admin_available(FakeRunner().on(get, ProcessResult(0, "1"))) is True
+    for result in (ProcessResult(0, ""), ProcessResult(0, "0"), ProcessResult(1, "", "NotFound")):
+        assert policy_admin_available(FakeRunner().on(get, result)) is False
