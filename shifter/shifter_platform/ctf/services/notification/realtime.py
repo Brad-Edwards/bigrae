@@ -146,7 +146,7 @@ def publish_communication_wakeup(
     """Publish one reference-only in-app communication wake-up, best-effort (#2098).
 
     The wake-up is an accelerator over the durable inbox (the ``RecipientSnapshot`` /
-    ``ParticipantReceipt`` committed at admission), never the source of truth. It
+    ``RecipientReceipt`` committed at admission), never the source of truth. It
     uses the stable per-recipient ``snapshot_id`` as the shared replay identity so
     distinct communications never collapse onto one row and a replayed wake-up maps
     to the same row (no duplicate visible entries) -- unlike the event-scoped

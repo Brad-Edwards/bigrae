@@ -11,12 +11,13 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from ctf.enums_communication import CampaignStatus, DeliveryStatus, IntentStatus
+from ctf.enums_communication import CampaignStatus, DeliveryStatus, IntentStatus, RecipientKind
 from ctf.models import (
     CommunicationCampaign,
     CommunicationIntent,
@@ -103,6 +104,26 @@ def on_participant_removed(participant: CTFParticipant) -> int:
         cancelled = _cancel_unclaimed(Q(snapshot__in=snapshots), now)
         snapshots.update(delivery_coordinate="", updated_at=now)
     logger.info("Handled participant %s removal for communications (%d deliveries stopped)", participant.id, cancelled)
+    return cancelled
+
+
+def on_organizer_removed(event: CTFEvent, principal_uuid: UUID) -> int:
+    """React to an owner or co-organizer leaving an event's candidate set (ADR-065-R4).
+
+    The caller holds the event lock and commits the staff change with this fence.
+    Cancels that principal's unclaimed organizer delivery commands for the event and
+    erases its encrypted coordinate; the snapshot identity remains bounded evidence
+    and is never retargeted. Inbox access ends live at the organizer inbox boundary.
+    Returns the number of delivery commands cancelled.
+    """
+    now = timezone.now()
+    with transaction.atomic():
+        snapshots = RecipientSnapshot.objects.filter(
+            event=event, recipient_kind=RecipientKind.ORGANIZER.value, principal_uuid=principal_uuid
+        )
+        cancelled = _cancel_unclaimed(Q(snapshot__in=snapshots), now)
+        snapshots.update(delivery_coordinate="", updated_at=now)
+    logger.info("Handled organizer removal on event %s for communications (%d deliveries stopped)", event.pk, cancelled)
     return cancelled
 
 

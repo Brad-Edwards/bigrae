@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from uuid import UUID
 
 from ctf.exceptions import CTFError, CTFPermissionError
@@ -91,6 +92,46 @@ def require_event_creation(actor: object, parent: TargetRef) -> ResourceScope:
         raise CTFPermissionError(_DENIED) from exc
     _require_policy(request)
     return scope
+
+
+def principals_holding_event_action(event_uuid: UUID, principal_uuids: Iterable[UUID], action: str) -> frozenset[UUID]:
+    """Return the human principals that currently hold ``action`` on one event.
+
+    A sessionless recheck for delivery recipients: each principal is resolved live
+    and checked with an exact single-action ceiling, so a stored candidate grants
+    nothing (ADR-065-R4). An unresolvable or service principal is simply absent.
+    Evaluator failure raises the unavailable error; it never narrows or widens.
+    """
+    from shared.authorization import CredentialCeiling
+    from shared.principal_port import resolve_principal_uuid
+
+    target = TargetRef("event", event_uuid)
+    ceiling = CredentialCeiling(frozenset({action}), target)
+    try:
+        scope = event_credential_scope(event_uuid)
+    except (ValueError, AuthorizationContractError) as exc:
+        raise CTFError(_UNAVAILABLE, code="CTF_AUTHORITY_UNAVAILABLE") from exc
+    requests: list[AuthorizationRequest] = []
+    for principal_uuid in dict.fromkeys(principal_uuids):
+        try:
+            principal = resolve_principal_uuid(principal_uuid)
+        except PrincipalResolutionError:
+            continue
+        if principal.kind == "human":
+            requests.append(AuthorizationRequest(principal, action, target, scope, ceiling))
+    if not requests:
+        return frozenset()
+    try:
+        decisions = configured_authorization_provider().batch_check(tuple(requests))
+    # provider errors may carry evaluator endpoint or credential details
+    except Exception as exc:  # noqa: BLE001
+        logger.error("CTF authority provider unavailable exc_type=%s", type(exc).__name__, exc_info=False)
+        raise CTFError(_UNAVAILABLE, code="CTF_AUTHORITY_UNAVAILABLE") from None
+    if len(decisions) != len(requests) or any(item.kind == DecisionKind.EVALUATOR_ERROR for item in decisions):
+        raise CTFError(_UNAVAILABLE, code="CTF_AUTHORITY_UNAVAILABLE")
+    return frozenset(
+        request.principal.uuid for request, decision in zip(requests, decisions, strict=True) if decision.allowed
+    )
 
 
 def _require_policy(request: AuthorizationRequest) -> None:

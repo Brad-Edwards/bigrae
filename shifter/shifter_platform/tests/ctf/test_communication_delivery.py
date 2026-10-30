@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from ctf.enums import ParticipantStatus
 from ctf.enums_communication import DeliveryStatus, IntentDeliveryState
-from ctf.models import CommunicationIntent, CTFParticipant, DeliveryAttempt, ParticipantReceipt, RecipientSnapshot
+from ctf.models import CommunicationIntent, CTFParticipant, DeliveryAttempt, RecipientReceipt, RecipientSnapshot
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
 from ctf.services.communication import delivery as delivery_svc
 from ctf.services.communication.adapters import contract as adapter_contract
@@ -92,7 +92,7 @@ def test_release_commits_in_app_availability_without_a_worker(organizer_user, ct
     intent = _release(organizer_user, ctf_event, channels=["in_app"])
 
     # The durable inbox entry (receipt) exists at admission, before any worker runs.
-    assert ParticipantReceipt.objects.filter(snapshot__intent=intent).count() == 1
+    assert RecipientReceipt.objects.filter(snapshot__intent=intent).count() == 1
 
 
 def test_email_only_release_creates_no_in_app_receipt(organizer_user, ctf_event):
@@ -100,7 +100,7 @@ def test_email_only_release_creates_no_in_app_receipt(organizer_user, ctf_event)
     intent = _release(organizer_user, ctf_event, channels=["email"])
 
     # Receipt existence must not expose an email-only item as an in-app inbox entry.
-    assert ParticipantReceipt.objects.filter(snapshot__intent=intent).count() == 0
+    assert RecipientReceipt.objects.filter(snapshot__intent=intent).count() == 0
     assert DeliveryAttempt.objects.filter(intent=intent, channel="email").count() == 1
 
 

@@ -144,9 +144,12 @@ def request_event_provisioning(
 def get_provision_progress(event_id: UUID) -> dict[str, Any]:
     """Project provisioning progress for an event.
 
-    Returns bounded aggregate participant counts (computed from the cached
-    ``range_status``) plus the active spin-up task's status, suitable for
-    polling from the organizer UI. Carries no raw error text.
+    Returns bounded aggregate participant counts over the eligible registered
+    cohort (computed from the cached ``range_status``) plus the active spin-up
+    task's status, suitable for polling from the organizer UI and for the
+    late-range organizer alert (CTF-1002). A cached ``ready`` without a current
+    range assignment is not readiness and counts as ``not_assigned``. Carries no
+    raw error text.
 
     Args:
         event_id: UUID of the event.
@@ -154,6 +157,8 @@ def get_provision_progress(event_id: UUID) -> dict[str, Any]:
     Returns:
         ``{"counts": {...}, "task": {...} | None}``.
     """
+    from ctf.services.participant.queries import eligible_participant_q
+
     counts = {
         "total": 0,
         "ready": 0,
@@ -162,10 +167,14 @@ def get_provision_progress(event_id: UUID) -> dict[str, Any]:
         "not_assigned": 0,
         "other": 0,
     }
-    statuses = CTFParticipant.objects.filter(event_id=event_id).values_list("range_status", flat=True)
-    for status in statuses:
+    rows = CTFParticipant.objects.filter(eligible_participant_q(), event_id=event_id).values_list(
+        "range_status", "range_instance_id"
+    )
+    for status, range_instance_id in rows:
         counts["total"] += 1
         key = status or "not_assigned"
+        if key == "ready" and range_instance_id is None:
+            key = "not_assigned"
         if key in counts and key != "total":
             counts[key] += 1
         else:

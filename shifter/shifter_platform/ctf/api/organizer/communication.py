@@ -39,6 +39,7 @@ from ctf.api.serializers.communication_console import (
     CommunicationTargetQuerySerializer,
     CommunicationTargetsSerializer,
 )
+from ctf.communication_contracts import ORGANIZER_AUDIENCE_KIND
 from ctf.exceptions import CTFCommunicationError, CTFError
 from ctf.models import CommunicationCampaign, MessageRevision
 from ctf.services.communication import (
@@ -162,7 +163,7 @@ class CommunicationListView(CommunicationView):
             account_id=binding.account_id,
             organization_id=binding.organization_id,
             workspace_id=binding.workspace_id,
-        )
+        ).exclude(audience_spec__kind=ORGANIZER_AUDIENCE_KIND)
         if "event_id" in query:
             queryset = queryset.filter(target_events__pk=query["event_id"])
         candidates = list(

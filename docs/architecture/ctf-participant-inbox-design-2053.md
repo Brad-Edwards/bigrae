@@ -10,7 +10,7 @@ Application paths are relative to `shifter/shifter_platform/`.
 | Item | Decision |
 | --- | --- |
 | Message identity | The recipient snapshot UUID is the message identity. A retry of one occurrence converges on one snapshot. Two occurrences are two messages. |
-| Receipt state | Read, dismiss and acknowledgement are three independent first-write timestamps on `ParticipantReceipt`. |
+| Receipt state | Read, dismiss and acknowledgement are three independent first-write timestamps on `RecipientReceipt`. |
 | Obligation | The pinned policy defines the obligation. `read` needs a read. `explicit` needs an acknowledgement. `none` needs nothing. |
 | Views | `inbox` hides dismissed messages that have no open obligation. `action_required` lists open obligations. `dismissed` lists dismissed messages. |
 | Content | Admission rejects images, raw HTML, unsafe links and oversized rendered output. The browser renders only the closed communication profile. |

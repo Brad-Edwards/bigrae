@@ -26,40 +26,13 @@ def scheduled_task():
     return task
 
 
-class TestHandleEventStart:
-    """Tests for _handle_event_start scheduler handler."""
-
-    @patch("ctf.services.notification.notify_organizer_event_start")
-    @patch("ctf.services.event.activate_event", return_value=True)
-    def test_calls_activate_and_notify(self, mock_activate, mock_notify, scheduled_task):
-        """Activates event and notifies organizer on success."""
-        from ctf.management.commands.run_ctf_scheduler import _handle_event_start
-
-        _handle_event_start(scheduled_task)
-
-        mock_activate.assert_called_once_with(scheduled_task.event)
-        mock_notify.assert_called_once_with(scheduled_task.event_id)
-
-    @patch("ctf.services.notification.notify_organizer_event_start")
-    @patch("ctf.services.event.activate_event", return_value=False)
-    def test_no_notify_on_failure(self, mock_activate, mock_notify, scheduled_task):
-        """Does not notify organizer if activation fails."""
-        from ctf.management.commands.run_ctf_scheduler import _handle_event_start
-
-        _handle_event_start(scheduled_task)
-
-        mock_activate.assert_called_once_with(scheduled_task.event)
-        mock_notify.assert_not_called()
-
-
 class TestHandleEventEnd:
     """Tests for _handle_event_end scheduler handler."""
 
     @pytest.mark.django_db
-    @patch("ctf.services.notification.notify_organizer_event_end")
     @patch("ctf.services.event.complete_event", return_value=True)
-    def test_calls_complete_and_notify(self, mock_complete, mock_notify, ctf_event_active):
-        """Completes event and notifies organizer on success."""
+    def test_calls_automatic_complete(self, mock_complete, ctf_event_active):
+        """Completes the event through the automatic end path."""
         from django.utils import timezone
 
         from ctf.enums import ScheduledTaskStatus, ScheduledTaskType
@@ -79,18 +52,17 @@ class TestHandleEventEnd:
 
         mock_complete.assert_called_once()
         assert mock_complete.call_args.args[0].pk == ctf_event_active.pk
-        mock_notify.assert_called_once_with(ctf_event_active.pk)
+        assert mock_complete.call_args.kwargs == {"automatic": True, "task_id": task.pk}
 
     @pytest.mark.django_db
-    @patch("ctf.services.notification.notify_organizer_event_end")
     @patch("ctf.services.event.complete_event", return_value=False)
-    def test_no_notify_on_failure(self, mock_complete, mock_notify, ctf_event_active):
-        """Does not notify organizer if completion fails."""
+    def test_no_end_effects_when_completion_is_refused(self, mock_complete, ctf_event_active):
+        """A refused end on a still-active event applies no end effects."""
         from django.utils import timezone
 
         from ctf.enums import ScheduledTaskStatus, ScheduledTaskType
         from ctf.management.commands.run_ctf_scheduler import _handle_event_end
-        from ctf.models import CTFScheduledTask
+        from ctf.models import CommunicationCampaign, CTFScheduledTask
 
         ctf_event_active.event_end = timezone.now() - timedelta(minutes=1)
         ctf_event_active.save(update_fields=["event_end", "updated_at"])
@@ -104,15 +76,12 @@ class TestHandleEventEnd:
         _handle_event_end(task)
 
         mock_complete.assert_called_once()
-        mock_notify.assert_not_called()
+        assert not CommunicationCampaign.objects.filter(target_events=ctf_event_active).exists()
 
     @pytest.mark.django_db
     @patch("ctf.services.range.cleanup_event_ranges", return_value={"ok": True})
-    @patch("ctf.services.notification.notify_organizer_event_end")
     @patch("ctf.services.event.complete_event", return_value=True)
-    def test_event_end_does_not_bypass_range_lease_cleanup(
-        self, mock_complete, mock_notify, mock_cleanup, ctf_event_active
-    ):
+    def test_event_end_does_not_bypass_range_lease_cleanup(self, mock_complete, mock_cleanup, ctf_event_active):
         """Event completion leaves resource teardown to the shared lease reconciler."""
         from django.utils import timezone
 
@@ -133,7 +102,6 @@ class TestHandleEventEnd:
         _handle_event_end(task)
 
         mock_complete.assert_called_once()
-        mock_notify.assert_called_once_with(ctf_event_active.pk)
         mock_cleanup.assert_not_called()
 
 

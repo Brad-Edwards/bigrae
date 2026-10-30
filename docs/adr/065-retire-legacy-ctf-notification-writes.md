@@ -36,6 +36,19 @@ are unavailable until a supported recipient/transport contract exists; the
 participant ledger must not gain invented organizer participants or disclose
 organizer-only material to participants.
 
+Revision R4, 2026-10-30, issue #528. The maintainer chose the organizer
+recipient contract. The existing ledger gains an explicit organizer recipient
+kind with principal identity and recipient-kind database constraints. The event
+owner and live co-organizers are delivery candidates, not authority. Release,
+the delivery worker and the organizer inbox recheck the candidate set and
+current native policy. Organizer alerts use the in-app organizer inbox, and
+email when the deployment has email delivery. Organizer rows never enter the
+participant inbox, the communications console or campaign reports. Only the
+system origin can select organizer recipients. The
+[design](../architecture/ctf-organizer-alerts-design-528.md) and the
+[preflight](../architecture/ctf-organizer-alerts-preflight-528.md) give the
+details. ADR-071 provides the email transport.
+
 The API compatibility checker supports exact absent write-method retirements so
 retaining GET on the same URL does not exempt it from compatibility checking.
 Reintroducing any retired method fails the checker. All unrelated differences

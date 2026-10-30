@@ -33,6 +33,7 @@ describe("MonitoringPage", () => {
     expect(await screen.findByText("Ada Lovelace")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Scoreboard" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Ranges" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Alerts" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Notifications" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Analytics" })).toBeInTheDocument();
   });

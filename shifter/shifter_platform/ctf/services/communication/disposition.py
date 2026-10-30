@@ -23,7 +23,7 @@ from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone
 
 from ctf.enums_communication import CommunicationChannel, DeliveryStatus, IntentDeliveryState
-from ctf.models import CommunicationIntent, DeliveryAttempt, ParticipantReceipt, RecipientSnapshot
+from ctf.models import CommunicationIntent, DeliveryAttempt, RecipientReceipt, RecipientSnapshot
 
 _IN_APP = CommunicationChannel.IN_APP.value
 _OUTSTANDING = (DeliveryStatus.QUEUED.value, DeliveryStatus.CLAIMED.value, DeliveryStatus.RETRY_DUE.value)
@@ -54,7 +54,7 @@ def derive_delivery_state(intent: CommunicationIntent) -> str:
     tally: Counter[str] = Counter()
     for channel in intent.channels:
         if channel == _IN_APP:
-            available = ParticipantReceipt.objects.filter(snapshot__intent_id=intent.pk).count()
+            available = RecipientReceipt.objects.filter(snapshot__intent_id=intent.pk).count()
             tally["accepted"] += available
             tally["failed"] += recipients - available
             continue

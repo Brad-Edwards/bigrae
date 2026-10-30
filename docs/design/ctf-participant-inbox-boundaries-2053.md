@@ -13,7 +13,7 @@ activation boundaries. Application paths below are relative to
 | --- | --- |
 | Inbox API and authority | `ctf/api/communication_inbox.py`, `ctf/api/urls.py` and `ctf/services/communication/inbox.py` already supply event-qualified list/detail/read/acknowledge. Extend these; do not create another participant notification API or reuse organizer permissions. |
 | Persistence and identity | `ctf/models/communication.py` and `communication_delivery.py` own immutable revisions, occurrences, snapshots and one receipt per snapshot. `communication/release.py` commits in-app availability with the admitted occurrence. No message store, repository wrapper, outbox or workflow framework is missing. |
-| Receipt state | `ParticipantReceipt` and `interact_with_receipt` already preserve first read/acknowledgement timestamps. Durable dismiss state, its projection and action are absent. Closing a toast in `CtfWorkspaceLayout.tsx` is only local presentation state. |
+| Receipt state | `RecipientReceipt` and `interact_with_receipt` already preserve first read/acknowledgement timestamps. Durable dismiss state, its projection and action are absent. Closing a toast in `CtfWorkspaceLayout.tsx` is only local presentation state. |
 | Safe content | `ctf.communication_contracts` owns admission and digests; `MarkdownContent.tsx` already has the closed `ctf-communication-markdown/v1` parameter. Admission currently validates image destinations without rejecting image syntax, and `MAX_RENDERED_BYTES` is declared but unused. Removing media while rendering does not satisfy rejection at admission. Regex URL checks do not prove equivalence to Markdown/browser parsing. An unknown runtime profile currently selects the general renderer; the TypeScript literal type is not a runtime gate. The existing `markdown-it-py` dependency and `ctf/content_images.py` demonstrate CommonMark token parsing; reuse that parsing approach, not its broader image-copy admission policy or fetching workflow. |
 | Browser and realtime | The shell's `useEventNotifications` still expects content-bearing announcement/challenge frames. `notification/realtime.py` now emits `communication` references or `refresh`. No participant inbox hook/page, durable dismiss UI, reconnect recovery or cross-tab receipt convergence exists. Reuse the shell and query client, adapting their current protocol rather than restoring legacy payloads. |
 | Retention and caching | `communication/retention.py` physically purges expired campaigns; inbox queries do not independently apply that cutoff. Inbox responses currently have no explicit private/no-store policy. List pages include full bodies, so a finite row limit alone is not a response-byte or rendering-cost bound. |
@@ -149,7 +149,7 @@ nor a sandbox or a general challenge-type contract. Do not generalize them to
 communication profiles, recipients, receipt actions or transport handlers, or
 put inbox work in `AppConfig.ready()`.
 Signed scoring evidence in `shared.receipt_validation` is also separate from
-communication `ParticipantReceipt`; neither can satisfy the other's policy.
+communication `RecipientReceipt`; neither can satisfy the other's policy.
 
 Branding remains the existing `CTFEvent` projection and organizer validation
 (`logo_url`, bounded hex `theme_color`, description). If the inbox shows event

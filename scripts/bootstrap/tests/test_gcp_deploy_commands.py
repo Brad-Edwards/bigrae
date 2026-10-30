@@ -145,6 +145,34 @@ class TestRunDeploy:
         assert "--if-generation-match=7" in runner.find("gcloud", "storage", "rm")[0].argv
         assert IMPERSONATION_KEY not in os.environ
 
+    def test_a_failed_lock_release_never_hides_the_run_error(self, bundle, manifest, stages, monkeypatch, capsys):
+        """#2676: the original failure propagates; a successful run still fails on a stuck lock."""
+        from gcp_process import GcpCommandError
+
+        def runner():
+            return (
+                FakeRunner()
+                .on(["gcloud", "storage", "objects", "describe"], ProcessResult(0, "7\n"))
+                .on(["gcloud", "storage", "rm"], ProcessResult(1, "", "Reauthentication failed"))
+            )
+
+        def fetch(*args, **kwargs):
+            return load_deployment_inputs(str(bundle), Path(args[1]), FakeRunner(), {})
+
+        monkeypatch.setattr(gcp_deploy, "load_deployment_inputs", fetch)
+        options = DeployOptions(source="gs://acme-shifter-deployment-config", release_manifest=str(manifest))
+
+        def broken_rollout(*args, **kwargs):
+            raise GcpDeployError("rollout broke")
+
+        monkeypatch.setattr(gcp_deploy, "rollout_stage", broken_rollout)
+        with pytest.raises(GcpDeployError, match="rollout broke"):
+            run_deploy(options, runner=runner())
+        assert "--break-lock" in capsys.readouterr().out
+        monkeypatch.setattr(gcp_deploy, "rollout_stage", lambda *a, **k: True)
+        with pytest.raises(GcpCommandError):
+            run_deploy(options, runner=runner())
+
     def test_ci_stages_use_ambient_identity_and_an_external_lock(self, bundle, manifest, stages, tmp_path: Path):
         roots = tmp_path / "image-roots.json"
         options = DeployOptions(

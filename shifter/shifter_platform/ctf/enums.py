@@ -413,15 +413,29 @@ VALID_TRANSITIONS: dict[EventStatus, frozenset[EventStatus]] = {
 }
 
 
-def validate_transition(current: EventStatus, target: EventStatus) -> bool:
-    """Return True if transitioning from current to target is valid."""
-    return target in VALID_TRANSITIONS.get(current, frozenset())
+# CTF-701: edges valid only for the trusted scheduled end at or after the
+# current end time. Manual lifecycle actions never use them.
+SCHEDULED_END_TRANSITIONS: dict[EventStatus, frozenset[EventStatus]] = {
+    EventStatus.PAUSED: frozenset({EventStatus.ENDED}),
+}
+
+
+def validate_transition(current: EventStatus, target: EventStatus, *, scheduled_end: bool = False) -> bool:
+    """Return True if transitioning from current to target is valid.
+
+    ``scheduled_end`` admits the scheduled-end-only edges; the caller owns the
+    trusted scheduler source and the end-time check under the event lock.
+    """
+    if target in VALID_TRANSITIONS.get(current, frozenset()):
+        return True
+    return scheduled_end and target in SCHEDULED_END_TRANSITIONS.get(current, frozenset())
 
 
 __all__ = [
     "EVENT_MODIFIABLE_STATUSES",
     "EVENT_TERMINAL_STATUSES",
     "PARTICIPANT_MODERATED_STATUSES",
+    "SCHEDULED_END_TRANSITIONS",
     "VALID_TRANSITIONS",
     "AttemptLimitMode",
     "ChallengeCategory",
