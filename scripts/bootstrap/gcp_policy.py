@@ -103,6 +103,7 @@ def generate_policy_bundles() -> dict[str, dict[str, str]]:
             ),
             critical=True,
         )
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
         .sign(ca_key, hashes.SHA256())
     )
     bundles: dict[str, dict[str, str]] = {"ca": {"ca.crt": ca_cert.public_bytes(serialization.Encoding.PEM).decode()}}
@@ -120,6 +121,9 @@ def generate_policy_bundles() -> dict[str, dict[str, str]]:
             .add_extension(x509.SubjectAlternativeName([x509.DNSName(name) for name in names]), critical=False)
             .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
             .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+            # RFC 5280 key identifiers; strict TLS clients require them on an issued certificate.
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
             .sign(ca_key, hashes.SHA256())
         )
         token = secrets.token_urlsafe(48)
@@ -224,7 +228,14 @@ def render_publisher(
                 "spec": {
                     "restartPolicy": "Never",
                     "automountServiceAccountToken": False,
-                    "securityContext": {"runAsNonRoot": True, "seccompProfile": {"type": "RuntimeDefault"}},
+                    # The owner-and-group-only token is readable through the pod group,
+                    # as in the cutover and catalog Jobs.
+                    "securityContext": {
+                        "runAsNonRoot": True,
+                        "seccompProfile": {"type": "RuntimeDefault"},
+                        "fsGroup": 1000,
+                        "fsGroupChangePolicy": "OnRootMismatch",
+                    },
                     "containers": [container],
                     "volumes": [
                         {"name": "publisher", "configMap": {"name": name}},
