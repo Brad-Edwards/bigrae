@@ -418,6 +418,14 @@ services:
       timeoutSec: 30
       connectionDraining:
         drainingTimeoutSec: 30
+      healthCheck:
+        type: HTTP
+        requestPath: /guacamole/
+        port: 8080
+        checkIntervalSec: 15
+        timeoutSec: 5
+        healthyThreshold: 1
+        unhealthyThreshold: 2
 
 network:
   enabled: true

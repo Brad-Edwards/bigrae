@@ -568,7 +568,7 @@
           "required": ["annotations", "backendConfig"],
           "properties": {
             "annotations": { "$ref": "#/$defs/annotations" },
-            "backendConfig": { "$ref": "#/$defs/portalBackendConfig" }
+            "backendConfig": { "$ref": "#/$defs/backendConfig" }
           }
         },
         "guacamoleClient": {
@@ -1130,21 +1130,6 @@
       }
     },
     "backendConfig": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "name", "securityPolicyName", "timeoutSec", "connectionDraining"],
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "name": { "$ref": "#/$defs/dnsLabel" },
-        "securityPolicyName": {
-          "type": "string",
-          "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$"
-        },
-        "timeoutSec": { "type": "integer", "minimum": 30, "maximum": 86400 },
-        "connectionDraining": { "$ref": "#/$defs/connectionDraining" }
-      }
-    },
-    "portalBackendConfig": {
       "type": "object",
       "additionalProperties": false,
       "required": [

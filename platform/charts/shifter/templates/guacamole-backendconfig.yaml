@@ -14,4 +14,13 @@ spec:
   securityPolicy:
     name: {{ .Values.services.guacamoleClient.backendConfig.securityPolicyName }}
   {{- end }}
+  {{- /* Explicit, so the check never depends on the pods that exist when the backend is created (#2692). */}}
+  healthCheck:
+    type: {{ .Values.services.guacamoleClient.backendConfig.healthCheck.type }}
+    requestPath: {{ .Values.services.guacamoleClient.backendConfig.healthCheck.requestPath | quote }}
+    port: {{ .Values.services.guacamoleClient.backendConfig.healthCheck.port }}
+    checkIntervalSec: {{ .Values.services.guacamoleClient.backendConfig.healthCheck.checkIntervalSec }}
+    timeoutSec: {{ .Values.services.guacamoleClient.backendConfig.healthCheck.timeoutSec }}
+    healthyThreshold: {{ .Values.services.guacamoleClient.backendConfig.healthCheck.healthyThreshold }}
+    unhealthyThreshold: {{ .Values.services.guacamoleClient.backendConfig.healthCheck.unhealthyThreshold }}
 {{- end }}
