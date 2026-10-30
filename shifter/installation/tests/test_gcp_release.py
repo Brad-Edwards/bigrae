@@ -36,6 +36,38 @@ def _manifest_payload(**overrides: object) -> dict[str, object]:
     }
 
 
+class TestReleaseInstallInputs:
+    """#2679: a release pins its base range images and carries its authorization model."""
+
+    def test_base_images_and_model_round_trip(self, tmp_path: Path):
+        base = {role: f"ghcr.io/acme/shifter-gce-{role}@sha256:" + "a" * 64 for role in ("kali", "ubuntu", "dc")}
+        model = {"schema_version": "1.1", "type_definitions": [{"type": "principal"}]}
+        manifest = build_release_manifest(
+            version="1.4.0",
+            source_revision=REVISION,
+            chart_version="0.2.0",
+            images=_images(),
+            base_images=base,
+            authorization_model=model,
+        )
+        path = tmp_path / "release.json"
+        path.write_text(render_release_manifest(manifest), encoding="utf-8")
+        loaded = load_release_manifest(path)
+        assert loaded.base_images == base and loaded.authorization_model == model
+
+    @pytest.mark.parametrize(
+        "overrides",
+        [
+            {"base_images": {"kali": "ghcr.io/acme/shifter-gce-kali@sha256:" + "a" * 64}},
+            {"base_images": dict.fromkeys(("kali", "ubuntu", "dc"), "ghcr.io/acme/x:latest")},
+            {"authorization_model": {"type_definitions": []}},
+        ],
+    )
+    def test_partial_or_mutable_install_inputs_are_rejected(self, overrides):
+        with pytest.raises(InstallationConfigError):
+            parse_release_manifest(json.dumps(_manifest_payload(**overrides)))
+
+
 class TestReleaseManifest:
     def test_round_trip_is_canonical_and_exposes_digests(self, tmp_path: Path):
         manifest = build_release_manifest(
@@ -86,6 +118,26 @@ class TestReleaseManifestCommand:
         # The command opens no caller-named file; a shell redirect selects the destination.
         with pytest.raises(SystemExit):
             main([*argv, "--output", "release.json"])
+
+    def test_pins_base_images_and_embeds_the_authorization_model(self, tmp_path: Path, capsys):
+        """#2679: the release carries its install inputs."""
+        argv = ["gcp-release-manifest", "--version", "1.4.0", "--source-revision", REVISION, "--chart-version", "0.2.0"]
+        for name, identity in _images().items():
+            argv += ["--image", f"{name}={identity}"]
+        base = {role: f"ghcr.io/acme/shifter-gce-{role}@sha256:" + "c" * 64 for role in ("kali", "ubuntu", "dc")}
+        for role, identity in base.items():
+            argv += ["--base-image", f"{role}={identity}"]
+        model = tmp_path / "model.json"
+        model.write_text(json.dumps({"schema_version": "1.1", "type_definitions": [{"type": "principal"}]}))
+        assert main([*argv, "--authorization-model-file", str(model)]) == 0
+        manifest = parse_release_manifest(capsys.readouterr().out)
+        assert manifest.base_images == base and manifest.authorization_model["schema_version"] == "1.1"
+        assert main([*argv, "--base-image", "kali=x", "--authorization-model-file", str(model)]) == 1
+        assert "repeated --base-image" in capsys.readouterr().err
+        for text in ("not json", "[]"):
+            model.write_text(text)
+            assert main([*argv, "--authorization-model-file", str(model)]) == 1
+        assert main([*argv, "--authorization-model-file", str(tmp_path / "missing.json")]) == 1
 
     def test_rejects_malformed_and_duplicate_images(self, capsys: pytest.CaptureFixture[str]):
         base = ["gcp-release-manifest", "--version", "1", "--source-revision", REVISION, "--chart-version", "0.2.0"]

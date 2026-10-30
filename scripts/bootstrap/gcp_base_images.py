@@ -41,9 +41,12 @@ __all__ = [
     "ResolvedArtifact",
     "discover_and_import",
     "import_base_image",
+    "import_pinned",
     "package_for_role",
+    "range_images_from_imports",
     "render_range_image_env",
     "resolve_artifact",
+    "resolve_release_base_images",
 ]
 
 # The minimum reusable base set the supported GCE tenant bootstrap needs.
@@ -291,6 +294,27 @@ def resolve_artifact(role: str, source: str) -> ResolvedArtifact:
         disk_digest=_disk_layer_digest(manifest),
         revision=revision,
     )
+
+
+def resolve_pinned_artifact(role: str, identity: str) -> ResolvedArtifact:
+    """Validate one exact ``<package>@sha256:<hex>`` base image that a release pins (#2679)."""
+    package, _, digest = identity.rpartition("@")
+    if not _DIGEST_RE.fullmatch(digest) or package != package_for_role(role, package.rsplit("/", 1)[0]):
+        raise BaseImageError(f"release base image for {role!r} must be <prefix>/shifter-gce-{role}@sha256:<digest>")
+    manifest = _fetch_manifest(package, digest)
+    revision = validate_artifact_manifest(manifest, role=role)
+    return ResolvedArtifact(
+        role=role, package=package, digest=digest, disk_digest=_disk_layer_digest(manifest), revision=revision
+    )
+
+
+def resolve_release_base_images(source: str) -> dict[str, str]:
+    """Return the newest validated ``<package>@<digest>`` of each role, for a release to pin."""
+    pinned: dict[str, str] = {}
+    for role in BASE_IMAGE_ROLES:
+        artifact = resolve_artifact(role, source)
+        pinned[role] = f"{artifact.package}@{artifact.digest}"
+    return pinned
 
 
 def _existing_image_metadata(project: str, image_name: str) -> dict[str, object] | None:
@@ -564,3 +588,37 @@ def discover_and_import(
         }
     finally:
         _delete_transfer_bucket(project, bucket)
+
+
+def import_pinned(*, project: str, region: str, base_images: dict[str, str]) -> dict[str, ImportedImage]:
+    """Import the release's exact base images as native GCE images (#2679).
+
+    The release manifest pins one digest for each role, so no discovery runs.
+    An unchanged digest reuses the existing image.
+    """
+    header("Release base images (registry -> native GCE)")
+    if set(base_images) != set(BASE_IMAGE_ROLES):
+        raise BaseImageError("the release must pin exactly the kali, ubuntu, and dc base images")
+    artifacts = [resolve_pinned_artifact(role, base_images[role]) for role in BASE_IMAGE_ROLES]
+    bucket = _create_transfer_bucket(project, region)
+    try:
+        return {
+            artifact.role: import_base_image(artifact, project=project, staging_bucket=bucket) for artifact in artifacts
+        }
+    finally:
+        _delete_transfer_bucket(project, bucket)
+
+
+_RANGE_IMAGE_ENV_KEYS = frozenset({"GCP_RANGE_LINUX_IMAGE", "GCP_RANGE_KALI_IMAGE", "GCP_RANGE_DC_IMAGE"})
+_RANGE_ENV_TO_ROLE = {
+    "GCP_RANGE_LINUX_IMAGE": "linux",
+    "GCP_RANGE_KALI_IMAGE": "kali",
+    "GCP_RANGE_DC_IMAGE": "dc",
+}
+
+
+def range_images_from_imports(range_image_env: dict[str, str]) -> dict[str, str]:
+    """Convert imported ``GCP_RANGE_*_IMAGE`` values to ``range-images.json`` roles."""
+    if set(range_image_env) != _RANGE_IMAGE_ENV_KEYS:
+        raise BaseImageError("public base-image import did not return the complete range-image set")
+    return {_RANGE_ENV_TO_ROLE[key]: value for key, value in range_image_env.items()}

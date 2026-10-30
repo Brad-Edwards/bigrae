@@ -4,7 +4,9 @@
 
 Accepted 2026-10-28. Amended 2026-10-29 by
 [#2659](https://github.com/Brad-Edwards/bigrae/issues/2659): the release
-registry is public. Amends ADR-003-R6, ADR-004-R5, ADR-004-R23, ADR-006,
+registry is public. Amended 2026-10-30 by
+[#2679](https://github.com/Brad-Edwards/bigrae/issues/2679): one command
+installs a tenant from a release and one bundle. Amends ADR-003-R6, ADR-004-R5, ADR-004-R23, ADR-006,
 ADR-007, ADR-033-R2, ADR-037, ADR-053-R3, and ADR-069-R3. Issue
 [#2571](https://github.com/Brad-Edwards/bigrae/issues/2571) records the work.
 The [design](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/github-less-gcp-deployment-design-2571.md)
@@ -122,15 +124,34 @@ tracks the AWS path.
    copies the release images by digest, with their referrers, to a mirror. The
    operator then passes `--release-source`, and the commands verify, scan, and
    import the mirror copy of each digest.
+10. **A release installs a tenant with one command.** The release manifest
+    pins the base range images by digest and carries the release's OpenFGA
+    authorization model. `gcp-install` applies the foundation from the bundle
+    and the operator's identity, creates the initial operator password, publishes
+    the bundle, and runs the first install. That deploy imports the pinned base
+    images as the operator, generates the OpenFGA credentials, and publishes the
+    authorization model; each later deploy publishes the release model again
+    and reuses an unchanged one. On an empty database, the deploy derives the
+    identity facts from the configured operator account. A database with users
+    still needs the reviewed legacy conversion facts. A tenant platform creates
+    no image-build infrastructure; only a maintainer build environment opts in.
+    The current release requires native SQL and OpenFGA, so a setting that
+    disables either fails before any change.
 
 Catalog initialization is an application operation after verified native
 activation and readiness. It uses the existing content services with an actual
-native bearer proof supplied through `--catalog-credential-file`; cloud IAM and
-deployment control do not grant application permission. The schema Job must not
-create a legacy catalog actor or unscoped content. Missing proof leaves catalog
-setup explicitly incomplete while the active application remains available for
-administrator login. Private credential files and transient Secret mounts stay
-outside the deployment input bundle and logs.
+native bearer proof; cloud IAM and deployment control do not grant application
+permission. The proof is a credential supplied through
+`--catalog-credential-file`, or, when the configured operator is the
+bootstrap administrator that the cutover recorded, a credential that the
+catalog Job issues for that administrator (#2679). That credential holds only
+the installation content actions, lasts 15 minutes, never leaves the Job, and
+is revoked after the registration. The content services check the
+administrator's own policy for each step. The schema Job must not create a
+legacy catalog actor or unscoped content. A failed or skipped registration
+leaves catalog work pending with a warning while the active application remains
+available for administrator login. Private credential files and transient
+Secret mounts stay outside the deployment input bundle and logs.
 
 ## Consequences
 

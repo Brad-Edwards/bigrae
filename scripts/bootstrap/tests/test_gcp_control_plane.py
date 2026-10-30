@@ -23,6 +23,7 @@ import pytest
 
 import deploy
 import gcp_control_plane
+from tests.gcp_test_support import native_identity_value, native_workload_accounts
 
 PINNED_IMAGE_TAG = "abc1234"
 
@@ -137,8 +138,11 @@ def _sample_gcp_control_plane_outputs(project_id: str = "example-gcp-project") -
                 # localpart is shortened to prov-launcher (#1719).
                 "provisioner-launcher": (f"shiftergcpdev-prov-launcher@{project_id}.iam.gserviceaccount.com"),
                 "provisioner": f"shiftergcpdev-provisioner@{project_id}.iam.gserviceaccount.com",
+                **native_workload_accounts(project_id),
             }
         },
+        # The current release requires native SQL and OpenFGA (#2679).
+        "native_identity": {"value": native_identity_value(project_id)},
     }
 
 
@@ -505,13 +509,14 @@ class TestGdcControlPlaneHelmValues:
 
         prerequisites, job = deploy.render_gcp_migration_manifests(outputs, values)
 
-        service_account, runtime_config = prerequisites["items"]
+        service_account, runtime_config, *_native_egress = prerequisites["items"]
         assert service_account["metadata"]["name"] == "migrator"
         assert (
             service_account["metadata"]["annotations"]["iam.gke.io/gcp-service-account"]
             == outputs["workload_service_accounts"]["value"]["migrator"]
         )
-        assert runtime_config["data"]["DB_SECRET_ID"].endswith("-db")
+        # The migrator owns the schema through its owner secret; the native runtime
+        # login of the other workloads has no password secret (#2679).
         assert runtime_config["data"]["DB_MIGRATION_SECRET_ID"].endswith("-db-migration")
         pod = job["spec"]["template"]["spec"]
         assert pod["serviceAccountName"] == "migrator"

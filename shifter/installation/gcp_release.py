@@ -23,6 +23,9 @@ _SUBJECT = "GCP release manifest"
 #: ``pulumi-provisioner`` Artifact Registry root (a retained compatibility name).
 RELEASE_IMAGE_NAMES: tuple[str, ...] = ("portal", "provisioner", "guacd", "guacamole-client", "openvpn")
 ReleaseImageName = Literal["portal", "provisioner", "guacd", "guacamole-client", "openvpn"]
+#: Base range image roles that a release pins for import into each tenant (#2679).
+BASE_IMAGE_ROLES: tuple[str, ...] = ("kali", "ubuntu", "dc")
+BaseImageRole = Literal["kali", "ubuntu", "dc"]
 
 # re.ASCII keeps \d to the digits 0-9, as in the other character classes.
 _IMAGE_IDENTITY_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::\d+)?/[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$", re.ASCII)
@@ -32,7 +35,11 @@ _CHART_VERSION_PATTERN = r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
 
 
 class GcpReleaseManifest(BaseModel):
-    """Closed release manifest: one revision and five exact image identities."""
+    """Closed release manifest: one revision, its exact images, and its install inputs.
+
+    A release built before #2679 has no ``base_images`` and no
+    ``authorization_model``; such a release still deploys an existing tenant.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True, serialize_by_alias=True)
 
@@ -41,6 +48,31 @@ class GcpReleaseManifest(BaseModel):
     source_revision: str = Field(pattern=_REVISION_PATTERN, description="Full commit SHA that every image built.")
     chart_version: str = Field(pattern=_CHART_VERSION_PATTERN, description="Helm chart version of the revision.")
     images: dict[ReleaseImageName, str] = Field(description="Exact repository@sha256 identity for each image.")
+    base_images: dict[BaseImageRole, str] = Field(
+        default_factory=dict, description="Exact repository@sha256 identity of each base range image to import."
+    )
+    authorization_model: dict[str, object] | None = Field(
+        default=None, description="The release's OpenFGA authorization model, in the API JSON form."
+    )
+
+    @field_validator("base_images")
+    @classmethod
+    def _exact_base_images(cls, images: dict[str, str]) -> dict[str, str]:
+        if images and set(images) != set(BASE_IMAGE_ROLES):
+            raise ValueError("release base images must name exactly: " + ", ".join(BASE_IMAGE_ROLES))
+        invalid = sorted(role for role, identity in images.items() if not _IMAGE_IDENTITY_RE.fullmatch(identity))
+        if invalid:
+            raise ValueError("release base images must be exact repository@sha256 identities: " + ", ".join(invalid))
+        return images
+
+    @field_validator("authorization_model")
+    @classmethod
+    def _authorization_model(cls, model: dict[str, object] | None) -> dict[str, object] | None:
+        if model is not None and (
+            not isinstance(model.get("schema_version"), str) or not isinstance(model.get("type_definitions"), list)
+        ):
+            raise ValueError("the authorization model must have schema_version and type_definitions")
+        return model
 
     @field_validator("images")
     @classmethod
@@ -103,7 +135,13 @@ def load_release_manifest(path: Path) -> GcpReleaseManifest:
 
 
 def build_release_manifest(
-    *, version: str, source_revision: str, chart_version: str, images: dict[str, str]
+    *,
+    version: str,
+    source_revision: str,
+    chart_version: str,
+    images: dict[str, str],
+    base_images: dict[str, str] | None = None,
+    authorization_model: dict[str, object] | None = None,
 ) -> GcpReleaseManifest:
     """Build and validate a release manifest from its parts."""
     try:
@@ -114,6 +152,8 @@ def build_release_manifest(
                 "source_revision": source_revision,
                 "chart_version": chart_version,
                 "images": images,
+                "base_images": base_images or {},
+                "authorization_model": authorization_model,
             }
         )
     except ValidationError as exc:
@@ -122,4 +162,5 @@ def build_release_manifest(
 
 def render_release_manifest(manifest: GcpReleaseManifest) -> str:
     """Render the canonical JSON form of a release manifest."""
-    return json.dumps(manifest.model_dump(mode="json", by_alias=True), indent=2, sort_keys=True) + "\n"
+    payload = manifest.model_dump(mode="json", by_alias=True, exclude_defaults=True)
+    return json.dumps(payload, indent=2, sort_keys=True) + "\n"

@@ -28,7 +28,9 @@ from gcp_deploy import (
 from gcp_destroy import DestroyOptions, run_destroy
 from gcp_inputs import RANGE_IMAGE_ROLES
 
-LIFECYCLE_COMMANDS = frozenset({"gcp-deploy", "gcp-release-scan", "gcp-smoke", "gcp-destroy", "gcp-config"})
+LIFECYCLE_COMMANDS = frozenset(
+    {"gcp-install", "gcp-deploy", "gcp-release-scan", "gcp-smoke", "gcp-destroy", "gcp-config"}
+)
 _IDENTITY_HELP = "impersonate (operator, default) or ambient (the caller already is the purpose identity, CI)"
 _STORE_HELP = "Deployment config bucket prefix"
 _RELEASE_SOURCE_HELP = "Mirror registry prefix that holds the release images by digest (default: the manifest's)"
@@ -73,6 +75,15 @@ def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
 
 def add_lifecycle_subparsers(subparsers: argparse._SubParsersAction) -> None:
     """Wire the GitHub-less GCP lifecycle subcommands."""
+    install = subparsers.add_parser(
+        "gcp-install", help="Install a GCP deployment from a release and one local bundle (foundation through deploy)"
+    )
+    install.add_argument("--inputs", required=True, help="Local bundle directory: bigrae.yaml and the Terraform values")
+    install.add_argument("--release-manifest", default="", help="Release manifest (default: the deployer image's)")
+    install.add_argument("--release-source", default="", help=_RELEASE_SOURCE_HELP)
+    install.add_argument(
+        "--operator", default="", help="Google identity that may impersonate the deploy identities (default: gcloud's)"
+    )
     deploy = subparsers.add_parser("gcp-deploy", help="Stand up or update a GCP deployment from a published release")
     _add_source_arguments(deploy)
     _add_lock_arguments(deploy)
@@ -172,6 +183,20 @@ def _deploy_options(args: argparse.Namespace) -> DeployOptions:
     )
 
 
+def _run_install(args: argparse.Namespace) -> int:
+    """Run ``gcp-install`` from the parsed arguments."""
+    from gcp_install import InstallOptions, run_install
+
+    return run_install(
+        InstallOptions(
+            inputs=args.inputs,
+            release_manifest=args.release_manifest,
+            release_source=args.release_source,
+            operator=args.operator,
+        )
+    )
+
+
 def _handle_config(args: argparse.Namespace) -> int:
     """Run one ``gcp-config`` action."""
     if args.config_action == "publish":
@@ -186,6 +211,7 @@ def _handle_config(args: argparse.Namespace) -> int:
 
 
 _HANDLERS: dict[str, Callable[[argparse.Namespace], int]] = {
+    "gcp-install": lambda args: _run_install(args),
     "gcp-deploy": lambda args: run_deploy(_deploy_options(args)),
     "gcp-release-scan": lambda args: run_release_scan_command(
         ScanOptions(

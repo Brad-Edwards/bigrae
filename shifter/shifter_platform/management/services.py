@@ -25,6 +25,7 @@ from shared.model_access.authority_port import invalidate_authority, suppress_au
 
 from . import identity_cutover as _identity_cutover
 from . import model_access_authority as _model_access_authority
+from . import personal_credentials as _personal_credentials
 from . import policy as _policy
 from . import principals as _principals
 from . import session_backend as _session_backend
@@ -39,6 +40,9 @@ identity_cutover_principals = _identity_cutover.identity_cutover_principals
 identity_cutover_token_count = _identity_cutover.identity_cutover_token_count
 invalidate_pre_cutover_admission = _identity_cutover.invalidate_pre_cutover_admission
 prepare_empty_installation_bootstrap = _identity_cutover.prepare_empty_installation_bootstrap
+installation_user_count = _identity_cutover.installation_user_count
+issue_installation_catalog_credential = _personal_credentials.issue_installation_catalog_credential
+revoke_installation_catalog_credential = _personal_credentials.revoke_installation_catalog_credential
 
 save_session_assurance = _session_backend.save_session_assurance
 session_for_credential = _session_backend.session_for_credential
