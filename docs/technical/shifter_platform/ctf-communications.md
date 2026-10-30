@@ -18,6 +18,59 @@ its [preflight](../../architecture/ctf-email-durable-delivery-preflight-1525.md)
 ADR-051-R14, and ADR-071 define the email channel on this same ledger and
 worker.
 
+ADR-065-R4 adds organizer recipients to this ledger. The
+[organizer-alert design (#528)](../../architecture/ctf-organizer-alerts-design-528.md)
+and its [preflight](../../architecture/ctf-organizer-alerts-preflight-528.md)
+record the architecture and the boundaries.
+
+## Organizer recipients
+
+`ctf.services.notification._organizer` declares four system alerts:
+`event_started`, `event_start_refused`, `ranges_not_ready` and `event_ended`.
+Each declaration is a system campaign with the internal `event_organizers`
+audience and an absolute due time. `schedule_declaration` commits the scheduled
+intent and its `RELEASE_COMMUNICATION` task in the caller's transaction. The
+lifecycle service declares start and end alerts under the event lock, in the
+transaction that changes the state. The campaign UUID derives from the event,
+the alert kind and the schedule occurrence, so a replay returns the first intent.
+Organizer alerts skip the shared system authoring rate budget at creation.
+Release-time admission backpressure still applies. When a declaration is
+refused, `declare_or_retain_lifecycle_alert` records the alert in the claimed
+task's `pending_alerts` metadata in the same transaction. The handler calls
+`redeclare_pending_alerts` and raises `AlertDeclarationPending` while an alert
+remains, so the task retries with its existing backoff.
+
+| Boundary | Organizer behavior |
+| --- | --- |
+| Audience | `{"kind": "event_organizers", "event_ids": [<one event>], "action": "event.read" \| "event.manage_ranges"}`. Only `create_system_event_campaign` and the `system_milestone` origin accept it. `AudienceKind` and the public serializer do not include it. |
+| Candidates | `event_notification_organizers`: the owner principal and live co-organizer principals with an active human account. Candidates are not grants. |
+| Release | `prepare_organizer_recipients` checks the pinned action for each candidate with `principals_holding_event_action` before locks. Under the event lock, release keeps only prechecked principals that are still candidates. A policy outage reschedules the release within the grace window. |
+| Email | The campaign `notice_kind` is `organizer_alert`. The email adapter renders `ctf/email/notice/organizer_alert` and links to the event's organizer Alerts tab (`ctf:admin_event_alerts`). |
+| Snapshot | `recipient_kind="organizer"`, `principal_uuid`, `user_id` and the encrypted email coordinate. No participant identity. Database constraints enforce the shape and one row for each intent, event and principal. |
+| Worker | Before the claim lock, `recipient_fence.organizer_policy_stop` rechecks the pinned action with `principals_holding_event_action`. A denial suppresses with `organizer_policy_denied`. An evaluator outage settles the command as retriable with `authority_unavailable` and no I/O. Under the lock, pre-flight suppresses with `organizer_ineligible` when the principal is no longer a candidate. |
+| Removal | Staff revocation, and a change from co-organizer to another role, call `on_organizer_removed`. It cancels unclaimed commands and erases the coordinate. |
+| Console | The campaign list excludes organizer campaigns. `authorized_campaign` returns not found for them. |
+| Participant inbox | Selects participant rows only. |
+
+The organizer inbox is session-only:
+`/api/v1/ctf/events/<event_id>/organizer-alerts/`. It supports list, detail,
+`read/` and `dismiss/`. `organizer_inbox` requires a current candidate and
+checks each closed alert action with `assert_event_action` on the session
+credential. Rows whose pinned action is denied are absent. Organizer alerts
+have no acknowledgement. Responses are private and the browser does not store
+them.
+
+The scheduler start handler calls `run_automatic_start` in
+`ctf.services.event.automation`. It runs `start_event_automatically` and then
+`alert_if_ranges_not_ready`. The readiness check uses `get_provision_progress`:
+the eligible registered cohort, where `ready` needs a current range assignment.
+A refused start raises, so the executor retries with backoff. After the end
+time, the automatic start returns `expired` and never activates the event. A spin-up yields
+when a different non-spin-up task is due. The requeued run is a continuation:
+it uses the time left before start as its window and skips the repeated
+capacity admission. Capacity and provisioning-failure organizer callbacks stay
+unavailable.
+
 ## Email channel
 
 `adapters/email.py` registers `EmailAdapter` in the closed adapter mapping.

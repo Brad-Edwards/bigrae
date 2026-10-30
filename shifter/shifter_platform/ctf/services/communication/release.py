@@ -30,17 +30,16 @@ from django.utils import timezone
 
 from ctf.communication_contracts import canonical_digest
 from ctf.enums import EventStatus
-from ctf.enums_communication import CampaignStatus, CommunicationChannel, DeliveryStatus, IntentStatus
+from ctf.enums_communication import (
+    CampaignStatus,
+    IntentStatus,
+)
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import (
     CommunicationCampaign,
     CommunicationIntent,
     CTFEvent,
-    CTFParticipant,
-    DeliveryAttempt,
     MessageRevision,
-    ParticipantReceipt,
-    RecipientSnapshot,
 )
 from ctf.services.audit import audit_communication_release
 from ctf.services.communication.admission import (
@@ -51,9 +50,10 @@ from ctf.services.communication.admission import (
     reauthorize,
 )
 from ctf.services.communication.attribution import actor_attribution
-from ctf.services.communication.audience import resolve_recipients
+from ctf.services.communication.audience import prepare_organizer_recipients
 from ctf.services.communication.backpressure import AdmissionRequest, enforce_admission
 from ctf.services.communication.disposition import refresh_delivery_state
+from ctf.services.communication.materialize import materialize_recipients, resolve_audience
 
 logger = logging.getLogger(__name__)
 
@@ -156,45 +156,6 @@ def _resolve_revision(campaign: CommunicationCampaign, revision: MessageRevision
     return revision
 
 
-def _materialize(
-    intent: CommunicationIntent, recipients: list[CTFParticipant], channels: list[str], now: datetime
-) -> None:
-    """Write the per-recipient snapshots, receipts, and per-channel delivery commands.
-
-    In-app availability is committed here, at admission: when ``in_app`` is a
-    selected channel the ``ParticipantReceipt`` (the durable inbox entry) is created
-    in this transaction, so availability never depends on a worker later processing
-    the queued wake-up command (#2098). When ``in_app`` is not selected no receipt is
-    created, so an email-only campaign never exposes an in-app inbox item.
-    """
-    in_app_selected = CommunicationChannel.IN_APP.value in channels
-    for participant in recipients:
-        snapshot = RecipientSnapshot.objects.create(
-            intent=intent,
-            event_id=participant.event_id,
-            participant=participant,
-            participant_public_id=participant.id,
-            team_id=participant.team_id,
-            user_id=participant.user_id,
-            delivery_coordinate=participant.email or "",
-        )
-        if in_app_selected:
-            ParticipantReceipt.objects.create(snapshot=snapshot)
-        DeliveryAttempt.objects.bulk_create(
-            [
-                DeliveryAttempt(
-                    intent=intent,
-                    snapshot=snapshot,
-                    channel=channel,
-                    status=DeliveryStatus.QUEUED.value,
-                    idempotency_key=f"{intent.idempotency_key}:{participant.id}:{channel}",
-                    due_at=intent.due_at or now,
-                )
-                for channel in channels
-            ]
-        )
-
-
 def release_campaign(
     campaign: CommunicationCampaign,
     *,
@@ -233,6 +194,8 @@ def release_campaign(
         if actor.credential is not None
         else list(campaign.target_events.values_list("id", flat=True))
     )
+    # Remote organizer policy runs before any SQL lock (ADR-065-R4).
+    organizers = prepare_organizer_recipients(campaign.audience_spec)
 
     with transaction.atomic():
         # 1. Lock the live target events in primary-key order (canonical order shared
@@ -259,7 +222,7 @@ def release_campaign(
         assert_occurrence_ready(locked, target_events, now=now, immediate=True, allow_early=actor.allow_early_release)
         _assert_release_allowed(locked, target_events)
         revision = _resolve_revision(locked, revision)
-        recipients = resolve_recipients(set(target_event_ids), locked.audience_spec)
+        recipients, organizer_event_id = resolve_audience(locked, target_events, target_event_ids, organizers)
         channels = list(locked.channels)
         attribution = actor_attribution(actor)
         attribution_user_id = attribution.user_id
@@ -314,7 +277,7 @@ def release_campaign(
                 return committed
             raise
 
-        _materialize(intent, recipients, channels, now)
+        materialize_recipients(intent, recipients, channels, now, organizer_event_id=organizer_event_id)
         CommunicationCampaign.objects.filter(pk=locked.pk).update(status=CampaignStatus.RELEASED.value, updated_at=now)
         refresh_delivery_state([intent.pk])
         audit_communication_release(
@@ -405,6 +368,7 @@ def release_due_declaration(
         if actor.credential is not None
         else list(campaign.target_events.values_list("id", flat=True))
     )
+    organizers = prepare_organizer_recipients(campaign.audience_spec)
 
     with transaction.atomic():
         target_events = list(CTFEvent.objects.select_for_update().filter(id__in=target_event_ids).order_by("pk"))
@@ -422,7 +386,7 @@ def release_due_declaration(
             return disposition
 
         _assert_release_allowed(locked_campaign, target_events)
-        recipients = resolve_recipients(set(target_event_ids), locked_campaign.audience_spec)
+        recipients, organizer_event_id = resolve_audience(locked_campaign, target_events, target_event_ids, organizers)
         channels = list(locked_intent.channels)
         scope_kind, scope_id = _campaign_scope(locked_campaign)
         enforce_admission(
@@ -439,7 +403,7 @@ def release_due_declaration(
                 channel_count=len(channels),
             )
         )
-        _materialize(locked_intent, recipients, channels, now)
+        materialize_recipients(locked_intent, recipients, channels, now, organizer_event_id=organizer_event_id)
         CommunicationIntent.objects.filter(pk=locked_intent.pk).update(
             status=IntentStatus.RELEASED.value, released_at=now, updated_at=now
         )

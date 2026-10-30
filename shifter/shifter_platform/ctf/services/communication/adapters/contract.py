@@ -54,7 +54,7 @@ class DeliveryCommand:
     snapshot_id: UUID
     channel: str
     event_id: UUID
-    participant_public_id: UUID
+    participant_public_id: UUID | None
     recipient_user_id: int | None
     occurrence_key: str
     idempotency_key: str

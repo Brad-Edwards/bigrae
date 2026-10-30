@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-30 02:42+0000\n"
+"POT-Creation-Date: 2026-10-30 03:16+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -49,6 +49,12 @@ msgstr ""
 #: templates/ctf/email/notice/cleanup.txt:5
 #, python-format
 msgid "The range cleanup for %(event_name)s is approaching."
+msgstr ""
+
+#: templates/ctf/email/notice/organizer_alert.html:7
+#: templates/ctf/email/notice/organizer_alert.txt:5
+#, python-format
+msgid "%(event_name)s has a new organizer alert."
 msgstr ""
 
 #: templates/ctf/email/notice/range_failure.html:6

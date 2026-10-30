@@ -283,15 +283,43 @@ AUDIENCE_ID_FIELDS: dict[str, str] = {
 }
 
 
-def validate_audience_spec(spec: object) -> dict[str, Any]:
+# Internal organizer-recipient selector (ADR-065-R4). It is deliberately absent
+# from ``AudienceKind`` so the public vocabulary, schema, and serializers never
+# offer it; only trusted system notices opt in through ``allow_organizer``.
+ORGANIZER_AUDIENCE_KIND = "event_organizers"
+# The closed policy action a recipient must currently hold on the one event.
+ORGANIZER_ALERT_ACTIONS = frozenset({"event.read", "event.manage_ranges"})
+
+
+def is_organizer_audience(spec: object) -> bool:
+    """Return whether ``spec`` selects organizer recipients (shape not validated)."""
+    return isinstance(spec, dict) and spec.get("kind") == ORGANIZER_AUDIENCE_KIND
+
+
+def _validate_organizer_audience(spec: dict[str, Any]) -> dict[str, Any]:
+    """Validate the one-event organizer selector and its closed policy action."""
+    if set(spec) != {"kind", "event_ids", "action"}:
+        raise _reject("audience has unexpected fields")
+    action = spec["action"]
+    if not isinstance(action, str) or action not in ORGANIZER_ALERT_ACTIONS:
+        raise _reject("audience action is not supported")
+    ids = _require_uuid_list(spec, "event_ids", minimum=1, exact=1)
+    return {"kind": ORGANIZER_AUDIENCE_KIND, "event_ids": ids, "action": action}
+
+
+def validate_audience_spec(spec: object, *, allow_organizer: bool = False) -> dict[str, Any]:
     """Validate a closed audience selector; return the normalized mapping.
 
     Stores public CTF UUIDs only. Email addresses, arbitrary user ids, ORM
     predicates, and free-form filter JSON are rejected by the exact-key rule.
+    The organizer selector is accepted only when ``allow_organizer`` is set by a
+    trusted system caller.
     """
     if not isinstance(spec, dict):
         raise _reject("audience must be an object")
     kind = spec.get("kind")
+    if allow_organizer and kind == ORGANIZER_AUDIENCE_KIND:
+        return _validate_organizer_audience(spec)
     if not isinstance(kind, str) or kind not in AUDIENCE_ID_FIELDS:
         raise _reject("audience kind is not supported")
     id_key = AUDIENCE_ID_FIELDS[kind]

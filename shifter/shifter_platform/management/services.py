@@ -61,6 +61,7 @@ resolve_principal = _principals.resolve_principal
 resolve_principal_uuid = _principals.resolve_principal_uuid
 human_principal_user_id = _principals.human_principal_user_id
 active_human_user_ids = _principals.active_human_user_ids
+active_human_user_ids_by_principal = _principals.active_human_user_ids_by_principal
 resolve_verified_principal = _principals.resolve_verified_principal
 resolve_service_credential = _principals.resolve_service_credential
 resolve_service_credential_reference = _principals.resolve_service_credential_reference
