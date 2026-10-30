@@ -6,7 +6,15 @@ release manifest, and the deployer image. A deployment trusts a release only
 through the provenance that this workflow signs, so the workflow must keep these
 properties. The check reads the workflow as data and fails closed:
 
-- only ``workflow_dispatch`` starts the workflow (ADR-004-R23);
+- only ``workflow_dispatch`` and ``workflow_call`` start the workflow
+  (ADR-004-R23, #2660). The ``workflow_call`` trigger requires the
+  ``source_revision`` input;
+- the only caller is one job of ``release-please.yml``. That workflow starts
+  only on a push to ``main``. The calling job needs the Release Please job and
+  runs only when a release tag points at the commit. That fact, the version,
+  and the commit (``source_revision``) come from the unconditional
+  ``release-commit`` step after the Release Please action. The job inherits no
+  secrets (ADR-004-R23, #2660);
 - every job that publishes (it logs in to a registry, authenticates to a cloud,
   or pushes an image) binds the ``gcp-release`` Environment (ADR-004-R23) and
   runs on a GitHub-hosted runner (ADR-003-R5);
@@ -34,14 +42,21 @@ from .._workflow_model import _dw_is_self_hosted, _dw_load_workflow, _DwShapeErr
 from ._deploy_workflow_action_pin import (
     _dw_iter_uses_refs,
     _dw_job_steps,
-    _dw_step_uses,
     _dw_step_uses_cloud_auth,
     _dw_uses_is_sha_pinned,
 )
+from ._release_workflow_caller import _caller_violations
+from ._release_workflow_common import (
+    RELEASE_WORKFLOW_PATH,
+    _is_true,
+    _step_with,
+    _uses_action,
+    _violation,
+)
 
-RELEASE_WORKFLOW_PATH = ".github/workflows/release-gcp.yml"
+_WORKFLOWS_PREFIX = ".github/workflows/"
+RELEASE_TRIGGERS = frozenset({"workflow_dispatch", "workflow_call"})
 RELEASE_ENVIRONMENT = "gcp-release"
-_CHECK = "release-workflow-provenance"
 _BUILD_ACTION = "docker/build-push-action@"
 _ATTEST_ACTION = "actions/attest-build-provenance@"
 _LOGIN_ACTION = "docker/login-action@"
@@ -66,21 +81,14 @@ _DEPLOYER_SCAN_TOKENS = (
 )
 
 
-def _violation(rule_id: str, message: str) -> Violation:
-    """Build one violation of this check against the release workflow."""
-    return Violation(_CHECK, rule_id, RELEASE_WORKFLOW_PATH, message)
-
-
 def _relevant(files: list[str] | None) -> bool:
-    """True when a changed file can affect the release workflow contract."""
+    """True when a changed file can affect the release workflow contract.
+
+    Any workflow file can add a caller of the release workflow.
+    """
     if files is None:
         return True
-    return any(path == RELEASE_WORKFLOW_PATH or is_guard_source_path(path) for path in files)
-
-
-def _is_true(value: object) -> bool:
-    """True for a YAML boolean true or the string ``"true"``."""
-    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+    return any(path.startswith(_WORKFLOWS_PREFIX) or is_guard_source_path(path) for path in files)
 
 
 def _trigger_events(on: object) -> set[str]:
@@ -113,18 +121,6 @@ def _rejects_non_release_refs(step: object) -> bool:
         and set(match.group("refs").split("|")) <= RELEASE_REFS
         and re.search(r"\bexit\s+1\b", match.group("fallback"))
     )
-
-
-def _step_with(step: object) -> dict[str, object]:
-    """Return a step's ``with:`` mapping, or an empty mapping."""
-    if isinstance(step, dict) and isinstance(step.get("with"), dict):
-        return step["with"]
-    return {}
-
-
-def _uses_action(step: object, action: str) -> bool:
-    """True when the step uses ``action`` at any ref."""
-    return (_dw_step_uses(step) or "").startswith(action)
 
 
 def _subject_build_ids(step: object) -> list[str]:
@@ -257,17 +253,29 @@ def _deployer_scan_violations(job_id: str, steps: list[object]) -> list[Violatio
     return violations
 
 
+def _call_requires_source_revision(on: object) -> bool:
+    """True when the ``workflow_call`` trigger declares a required ``source_revision`` input."""
+    call = on.get("workflow_call") if isinstance(on, dict) else None
+    inputs = call.get("inputs") if isinstance(call, dict) else None
+    revision = inputs.get("source_revision") if isinstance(inputs, dict) else None
+    return isinstance(revision, dict) and _is_true(revision.get("required"))
+
+
 def _trigger_violations(workflow: dict[str, object]) -> list[Violation]:
-    """Only workflow_dispatch starts the release workflow."""
-    events = _trigger_events(workflow.get("on"))
-    if events == {"workflow_dispatch"}:
-        return []
-    return [
-        _violation(
-            "ADR-004-R23",
-            f"the release workflow must start only from workflow_dispatch, not {sorted(events) or 'no event'}",
-        )
-    ]
+    """Only workflow_dispatch and workflow_call start the release workflow."""
+    on = workflow.get("on")
+    events = _trigger_events(on)
+    if events != RELEASE_TRIGGERS:
+        return [
+            _violation(
+                "ADR-004-R23",
+                "the release workflow must start only from workflow_dispatch and workflow_call, "
+                f"not {sorted(events) or 'no event'}",
+            )
+        ]
+    if not _call_requires_source_revision(on):
+        return [_violation("ADR-004-R23", "the workflow_call trigger must require the source_revision input")]
+    return []
 
 
 def _job_violations(job_id: str, job: dict[str, object]) -> list[Violation]:
@@ -322,4 +330,4 @@ def check_release_workflow(repo_root: Path, files: list[str] | None) -> list[Vio
     workflow = _load_release_workflow(repo_root)
     if isinstance(workflow, Violation):
         return [workflow]
-    return _workflow_violations(workflow)
+    return [*_workflow_violations(workflow), *_caller_violations(repo_root)]

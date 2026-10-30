@@ -1,15 +1,15 @@
 # Security
 
-Report suspected BigRAE vulnerabilities privately to the repository maintainer,
-Brad Edwards, at [j.bradley.edwards@gmail.com](mailto:j.bradley.edwards@gmail.com).
-This is the contact published on the
-[maintainer's GitHub profile](https://github.com/Brad-Edwards).
+Report suspected BigRAE vulnerabilities privately. Use one of these channels:
+
+- GitHub private vulnerability reporting: open the
+  [vulnerability report form](https://github.com/OpenRAE/bigrae/security/advisories/new).
+- Email to the repository maintainer, Brad Edwards, at
+  [brad@autarchy.ai](mailto:brad@autarchy.ai).
 
 Do not report vulnerability details through public issues or pull requests.
-GitHub private vulnerability reporting is currently disabled for this repository;
-this policy does not assume that an advisory form is available. BigRAE security
-response is maintainer managed and best effort, with no guaranteed response or
-remediation deadline.
+The maintainer manages the BigRAE security response on a best-effort basis.
+There is no guaranteed response or remediation deadline.
 
 In the initial message, include the affected release/commit, a concise impact
 summary and a synthetic reproduction when possible. Omit credentials, customer

@@ -7,9 +7,9 @@ name: Release Please
 # Commit history since the last release. Merging that PR tags `vX.Y.Z` and cuts
 # the GitHub Release.
 #
-# Shifter is a deployed platform, not a published artifact, so there is no
-# PyPI/OCI publish step: a release is a source/provenance tag + GitHub Release
-# only. Deployment identity remains the exact source SHA + verified OCI digest
+# A release is a source/provenance tag and a GitHub Release. The release-gcp
+# job then publishes the GCP release for the tagged commit (ADR-070, #2660).
+# Deployment identity remains the exact source SHA + verified OCI digest
 # (ADR-037); a SemVer tag is never a deploy trigger or image selector (ADR-042).
 #
 # Feature PRs never touch CHANGELOG.md (release-please owns it) — no changelog
@@ -24,19 +24,26 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: release-please
-  cancel-in-progress: false
-
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    # Serialize the Release Please writes. The group holds only this job, so the
+    # GCP release build does not hold it. GitHub replaces a pending run in the
+    # group. The next run then creates the release, and the release-superseded
+    # job names the run to re-run.
+    concurrency:
+      group: release-please
+      cancel-in-progress: false
     permissions:
       contents: write        # create/maintain the release PR, tag, and Release
       pull-requests: write   # maintain the release PR
     outputs:
       release_created: ${{ steps.rp.outputs.release_created }}
       tag_name: ${{ steps.rp.outputs.tag_name }}
+      release_sha: ${{ steps.rp.outputs.sha }}
+      release_commit: ${{ steps.release-commit.outputs.release_commit }}
+      version: ${{ steps.release-commit.outputs.version }}
+      sha: ${{ steps.release-commit.outputs.sha }}
     steps:
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: rp
@@ -44,6 +51,82 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      # Decide from the release tag, not from the action output, whether a
+      # release tags this commit. A re-run of this run then publishes the GCP
+      # release again, also after an earlier run created the release.
+      - name: Find the release of this commit
+        id: release-commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(gh api -H 'Accept: application/vnd.github.raw' \
+            "repos/${GITHUB_REPOSITORY}/contents/version.txt?ref=${GITHUB_SHA}" | tr -d '[:space:]')"
+          # The release manifest pattern (shifter/installation/gcp_release.py).
+          if ! [[ "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$ ]]; then
+            echo "::error::version.txt at ${GITHUB_SHA} does not hold a valid version."
+            exit 1
+          fi
+          tag="refs/tags/v${version}"
+          object="$(gh api "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/v${version}" \
+            | jq -r --arg ref "${tag}" '.[] | select(.ref == $ref) | "\(.object.type) \(.object.sha)"')"
+          tagged=""
+          case "${object}" in
+            "commit "*) tagged="${object#commit }" ;;
+            "tag "*) tagged="$(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${object#tag }" --jq .object.sha)" ;;
+            "") ;;
+            *)
+              echo "::error::${tag} does not point at a commit."
+              exit 1
+              ;;
+          esac
+          release_commit=false
+          if [ "${tagged}" = "${GITHUB_SHA}" ]; then
+            release_commit=true
+          fi
+          {
+            echo "release_commit=${release_commit}"
+            echo "version=${version}"
+            echo "sha=${GITHUB_SHA}"
+          } >> "${GITHUB_OUTPUT}"
+
+  # Publish the GCP release when a release tags this commit (ADR-070-R1,
+  # ADR-004-R23, ADR-042-R2, #2660). Release Please creates the release with
+  # GITHUB_TOKEN. GitHub starts no workflow run for an event from that token, so
+  # a `release` trigger cannot start release-gcp.yml. The called workflow runs
+  # from this commit, and it stops when the tagged commit is not this commit.
+  # When the call fails, re-run the failed jobs of this run.
+  release-gcp:
+    needs: release-please
+    if: needs.release-please.outputs.release_commit == 'true'
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    uses: ./.github/workflows/release-gcp.yml
+    with:
+      version: ${{ needs.release-please.outputs.version }}
+      source_revision: ${{ needs.release-please.outputs.sha }}
+
+  # A run that creates the release of another commit did not publish it. This
+  # happens when GitHub replaced the pending run of the release commit. Fail
+  # visibly, so that the maintainer re-runs the run of that commit.
+  release-superseded:
+    needs: release-please
+    if: >-
+      needs.release-please.outputs.release_created == 'true'
+      && needs.release-please.outputs.release_sha != github.sha
+    runs-on: ubuntu-latest
+    permissions: {}
+    env:
+      TAG: ${{ needs.release-please.outputs.tag_name }}
+      RELEASE_SHA: ${{ needs.release-please.outputs.release_sha }}
+    steps:
+      - name: Report the unpublished GCP release
+        run: |
+          echo "::error::Release ${TAG} tags ${RELEASE_SHA}, not this commit. Re-run the Release Please run of ${RELEASE_SHA} to publish its GCP release."
+          exit 1
 
   # After a release is cut, the version bump + CHANGELOG land on `main`, so `dev`
   # falls one release commit behind. Open a back-merge PR so `dev` is resynced.

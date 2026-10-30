@@ -27,7 +27,6 @@ from ._inlines import (
 from ._misc import (
     CTFChallengeFileAdmin,
     CTFChallengePrerequisiteAdmin,
-    CTFEmailTemplateAdmin,
     CTFNotificationAdmin,
     CTFPublicRegistrationRequestAdmin,
     CTFScheduledTaskAdmin,
@@ -44,7 +43,6 @@ __all__ = (
     "CTFChallengeInline",
     "CTFChallengePrerequisiteAdmin",
     "CTFChallengePrerequisiteInline",
-    "CTFEmailTemplateAdmin",
     "CTFEventAdmin",
     "CTFNotificationAdmin",
     "CTFParticipantAdmin",

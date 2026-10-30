@@ -56,7 +56,7 @@ Use the `gcp-release` skill to publish the release that you deploy.
 
 | Step | Command | Check |
 | --- | --- | --- |
-| First install | `gcp-deploy --store gs://<bucket> --first-install` | Report the printed ingress address. The user points the DNS A record at it, unproxied. |
+| First install | `gcp-deploy --store gs://<bucket> --first-install --identity-cutover-facts <file> --identity-bootstrap-facts <file>` (gotchas: "Write the identity facts for a first install") | Report the printed ingress address. The user points the DNS A record at it, unproxied. |
 | Certificate and smoke | `gcp-deploy --store gs://<bucket>` | The certificate becomes `ACTIVE` and the post-deploy smoke passes. The smoke creates and destroys a range. |
 | Update | `gcp-deploy` with the manifest of the newer release | `Running workload images match the approved release` and the smoke pass. |
 | Teardown | `gcp-destroy --store gs://<bucket> --confirm <name>` | Only the foundation, the KMS key rings, the operator secret, and range images stay. |
@@ -69,6 +69,7 @@ Use the `gcp-release` skill to publish the release that you deploy.
 | Inputs, lock, identity | The command output. RB023 Investigation steps 1 to 4. |
 | Terraform | The apply output, which shows each retried error. RB023 for a state lock (force-unlock takes the lock-object generation) and a node-pool stockout. |
 | Scan | `release-scans/<revision>/` in the release-evidence bucket. Fix the vulnerable dependency; then publish a new release. |
+| Identity | The `portal` container log of the `identity-cutover` Job in Cloud Logging. RB023 Identity. |
 | Rollout | After an atomic Helm rollback the pods are gone; read the container logs in Cloud Logging (RB023). For a denied Job create, read the GKE audit log for `jobs.create` in the jobs namespace. Check a policy change with `kubectl apply --dry-run=server`. |
 | Smoke | The `worker-provisioner-launcher` logs and the provisioner Job pods in the jobs namespace. |
 | Certificate | RB023 and the gotchas: `FailedNotVisible` can last about 45 minutes after the record resolves. |

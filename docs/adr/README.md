@@ -865,7 +865,12 @@ The guardrails change as follows:
 
 - The `release-workflow-provenance` check runs at the fast and ci levels. It
   reads `.github/workflows/release-gcp.yml` as data and fails closed. It requires
-  `workflow_dispatch` as the only trigger. Each job that publishes must bind
+  `workflow_dispatch` and `workflow_call` as the only triggers (#2660). The only
+  caller is the `release-gcp` job of `release-please.yml`. That workflow starts
+  only on a push to `main`, and the job runs only when a release tag points at
+  the pushed commit. An unconditional `release-commit` step after the Release
+  Please action finds that tag and gives the version and the commit. The job
+  inherits no secrets. Each job that publishes must bind
   the `gcp-release` Environment, run on a GitHub-hosted runner, and reject every
   ref except the release refs before its first publishing step. It also requires SHA-pinned actions, an SBOM and
   maximum provenance for each pushed build, and an attestation of each built

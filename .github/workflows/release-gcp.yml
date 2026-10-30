@@ -3,6 +3,13 @@ name: Release (GCP)
 # Builds one GCP release from main, dev, or deploy-test (#2571, #2580, #2659,
 # ADR-070).
 #
+# Two events start the workflow (ADR-004-R23, #2660). The release-gcp job of
+# release-please.yml calls it when a release tag points at the pushed main
+# commit. A called workflow runs from the commit of the caller, with its github
+# context, so the run builds the tagged commit from refs/heads/main. The maintainer
+# dispatches it for a test build from dev or deploy-test, or to publish a
+# release again.
+#
 # A GitHub-less GCP deployment consumes a release; it builds nothing itself. This
 # workflow builds the five control-plane images once, pushes each image by
 # digest to the public release registry on GHCR, and stores the SBOM and the
@@ -30,18 +37,31 @@ on:
         required: false
         type: string
         default: ''
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version for the manifest. Empty uses version.txt.'
+        required: false
+        type: string
+        default: ''
+      source_revision:
+        description: 'Commit that the release tags. The run stops when it is not the built commit.'
+        required: true
+        type: string
 
 permissions: {}
-
-concurrency:
-  group: release-gcp
-  cancel-in-progress: false
 
 jobs:
   release:
     name: Build and publish the GCP release
     runs-on: ubuntu-latest
     environment: gcp-release
+    # One group per commit. GitHub cancels a pending run when a newer run joins
+    # its group, so a shared group could drop the release of another commit.
+    # Runs for different commits publish different tags and run in parallel.
+    concurrency:
+      group: release-gcp-${{ github.sha }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -49,6 +69,7 @@ jobs:
       packages: write
     env:
       RELEASE_VERSION_INPUT: ${{ inputs.version }}
+      RELEASE_SOURCE_REVISION_INPUT: ${{ inputs.source_revision }}
     steps:
       # Reject every ref except main, dev, and deploy-test BEFORE checkout and
       # the registry login. The gcp-release Environment branch policy admits
@@ -70,10 +91,31 @@ jobs:
       - name: Validate the release configuration
         env:
           REPOSITORY: ${{ github.repository }}
+          RELEASE_TRIGGER: ${{ github.event_name }}
         run: |
           set -euo pipefail
+          # A called run has the event of its caller, not workflow_dispatch. It
+          # builds the commit of the caller, so it must name the tagged commit,
+          # and that commit must be the built commit.
+          if [ "${RELEASE_TRIGGER}" != "workflow_dispatch" ] || [ -n "${RELEASE_SOURCE_REVISION_INPUT}" ]; then
+            if ! [[ "${RELEASE_SOURCE_REVISION_INPUT}" =~ ^[0-9a-f]{40}$ ]] || [ "${RELEASE_SOURCE_REVISION_INPUT}" != "${GITHUB_SHA}" ]; then
+              echo "::error::The source_revision input must be the full SHA of the built commit ${GITHUB_SHA}."
+              exit 1
+            fi
+          fi
           version="${RELEASE_VERSION_INPUT:-$(tr -d '[:space:]' < version.txt)}"
           chart_version="$(awk '$1 == "version:" { print $2; exit }' platform/charts/shifter/Chart.yaml)"
+          # Check the values against the release manifest patterns
+          # (shifter/installation/gcp_release.py) before they reach GITHUB_ENV.
+          # A newline in a value could otherwise add an environment variable.
+          if ! [[ "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$ ]]; then
+            echo "::error::The release version is not valid. Use 1 to 64 letters, digits, '.', '+', '_', or '-'."
+            exit 1
+          fi
+          if ! [[ "${chart_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::The chart version in platform/charts/shifter/Chart.yaml is not valid."
+            exit 1
+          fi
           {
             echo "RELEASE_REGISTRY=ghcr.io/${REPOSITORY,,}"
             echo "RELEASE_VERSION=${version}"

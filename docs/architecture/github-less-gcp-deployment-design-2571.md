@@ -58,6 +58,7 @@ Kustomize, and it built images on the operator workstation.
 | Component | Location | Responsibility |
 | --- | --- | --- |
 | Release workflow | `.github/workflows/release-gcp.yml` | Builds, attests, and publishes the five control-plane images and the deployer image for one source revision. Development surface. |
+| Release trigger | `.github/workflows/release-please.yml` | Calls the release workflow for each release that Release Please creates on `main` (#2660). |
 | Release registry | `ghcr.io/<owner>/<repository>` | Public registry for release artifacts (#2659). The release workflow writes it with the workflow `GITHUB_TOKEN`. Every deployment reads it, or reads an operator mirror of the same digests. |
 | Deployer image | `platform/deployer/gcp/Dockerfile` | The bootstrap CLI, the installation package, the GCP scripts, the Terraform roots and modules, a Terraform provider mirror, the Helm chart, the smoke script, and pinned tools. It embeds the release manifest. |
 | Release manifest | `/opt/bigrae/release.json` in the deployer image, or a file | Schema `bigrae.gcp-release.v1`: version, source revision, exact image identities, and chart version. |
@@ -70,8 +71,45 @@ Kustomize, and it built images on the operator workstation.
 ### Release
 
 The release workflow runs only from protected `refs/heads/main`,
-`refs/heads/dev`, or `refs/heads/deploy-test` through `workflow_dispatch`. Its
-`gcp-release` Environment admits only those branches. The first step of the
+`refs/heads/dev`, or `refs/heads/deploy-test`. Two events start it:
+
+- `workflow_call` from the `release-gcp` job of `release-please.yml` (#2660).
+  That job runs on a push to `main` only when a release tag points at the pushed
+  commit. The `release-commit` step finds the tag from the repository, not from
+  the action output, so a re-run of that run publishes the release again. The
+  job passes the version and the commit. The run stops when that commit is not
+  the commit that it builds.
+- `workflow_dispatch` by the maintainer. Use it for test builds from `dev` or
+  `deploy-test`, or to publish a release again.
+
+Release Please creates the release with the workflow `GITHUB_TOKEN`. GitHub
+starts no workflow run for an event from this token, except
+`workflow_dispatch` and `repository_dispatch`. Thus a `release` event trigger
+cannot start the release workflow. A called workflow in the same repository
+runs from the commit of the caller, with the `github` context of the caller.
+Thus the run builds the tagged commit, and `GITHUB_REF` is `refs/heads/main`.
+
+Before it writes `GITHUB_ENV`, the run checks the version and the chart
+version against the release manifest patterns. A value with a newline cannot
+add an environment variable. A called run must name a full 40-character commit
+SHA, and that SHA must be `github.sha`.
+
+Each run has a concurrency group for its commit. GitHub cancels a pending run
+when a newer run joins its group. One shared group could thus drop the release
+of another commit. Runs for different commits publish different tags and run in
+parallel.
+
+The Release Please job has the `release-please` concurrency group. The GCP
+release build does not hold that group. GitHub can still replace a pending run
+of a release commit. The next run then creates the release of that commit. Its
+`release-superseded` job fails and names the run to re-run. A re-run finds the
+tag and publishes the release.
+
+A GitHub Release stays when its GCP release fails. To recover, re-run the
+Release Please run of the release commit. A dispatch from `main` builds the
+current head of `main` instead.
+
+The `gcp-release` Environment admits only the release branches. The first step of the
 job rejects every other ref before checkout and the registry login. The job
 publishes to the public release registry `ghcr.io/<owner>/<repository>` with
 the workflow `GITHUB_TOKEN` and uses no cloud identity (#2659).
@@ -345,6 +383,8 @@ workflow.
 | Deploy identity | An unauthorized person deploys | `roles/iam.serviceAccountTokenCreator` only for named principals; no keys | Native Terraform tests check the bindings; no key resource exists |
 | Deployment inputs | Secret values leak through files, argv, logs, or Helm history | References in config; values from Secret Manager into environment variables and 0600 temporary files; Guacamole secret outside Helm | Tests check file modes, argv, and that values never reach Helm values |
 | Deployment state | Two deploys race on Terraform state or the cluster | GCS lock with generation preconditions, or the CI concurrency group | Unit tests cover create, conflict, release, and break |
+| Release workflow | An unreviewed ref, an unreviewed caller, or a mismatched commit starts a publishing run | Only `workflow_dispatch` and `workflow_call` start the workflow. Only the `release-gcp` job of `release-please.yml` calls it, after a release on `main`, with no inherited secrets. The ref check and the `gcp-release` Environment admit only the release branches. A called run stops when the tagged commit is empty or is not the built commit | The `release-workflow-provenance` check (ADR-004-R23) reads both workflows. Its unit tests reject other triggers, other callers, an ungated or secret-inheriting call, changed output wiring, and other `release-please.yml` events |
+| Release workflow | A crafted version adds a variable to `GITHUB_ENV` | The run checks the version and chart version against the manifest patterns before it writes `GITHUB_ENV` | Workflow review; the manifest model rejects the same values again |
 | Deployer image | A release ships deploy tooling with a known HIGH or CRITICAL finding | The release workflow scans the deployer image digest with the blocking Trivy gate before it attests the image. Time-boxed entries in `platform/deployer/gcp/trivyignore.yaml` (expiry 2026-11-30) are the only accepted exposures | The `release-workflow-provenance` check (ADR-070-R1) requires the scan step before the attestation. The quality workflow runs the same scan |
 | Deploy tooling | Modified tooling runs with deploy authority | Revision check and release provenance check before any change in every operator stage; operator verifies the deployer image | Tests reject a mismatched or unclean revision |
 | Cluster objects | The Helm move deletes or orphans live objects | Adoption by ownership metadata before upgrade; closed retired-object list after a successful upgrade | Tests cover adoption selection and the retired-object list |
@@ -365,7 +405,9 @@ Trust boundaries:
 
 ```mermaid
 flowchart LR
-  src[Protected main revision] --> wf[release-gcp.yml on GitHub-hosted runners]
+  rp[release-please.yml on push to main] -->|release tag on the commit: workflow_call| wf
+  mt[Maintainer] -->|workflow_dispatch: main, dev, deploy-test| wf
+  src[Protected release revision] --> wf[release-gcp.yml on GitHub-hosted runners]
   wf -->|GITHUB_TOKEN, push by digest| reg[(Public release registry)]
   wf -->|attest, push-to-registry| sig[Sigstore public-good]
   sig -->|bundle as OCI referrer| reg
@@ -422,12 +464,12 @@ flowchart LR
 ```mermaid
 flowchart TB
   subgraph Development surface
+    rp[release-please.yml]
     wf[release-gcp.yml]
     pk[packer-gcp.yml]
   end
-  subgraph Release project
-    reg[(Release Artifact Registry)]
-    rid[Release publisher identity]
+  subgraph GitHub Container Registry
+    reg[(Public release registry)]
   end
   subgraph Deployment project
     fid[Purpose identities]
@@ -438,7 +480,8 @@ flowchart TB
     gke[GKE: Helm release shifter]
     rng[GCE range cells]
   end
-  wf --> rid --> reg
+  rp -->|workflow_call| wf
+  wf -->|GITHUB_TOKEN| reg
   pk --> reg
   dep[Deployer image] --> reg
   dep --> fid
@@ -480,7 +523,9 @@ sequenceDiagram
   outside the checkout. They also check that the operator password never
   reaches argv.
 - The `release-workflow-provenance` adr-guard check reads `release-gcp.yml`:
-  `workflow_dispatch` only, the `gcp-release` Environment, GitHub-hosted
+  `workflow_dispatch` and `workflow_call` only, a single caller (the gated
+  `release-gcp` job of `release-please.yml` on a push to `main`, with no
+  inherited secrets), the `gcp-release` Environment, GitHub-hosted
   runners, the ref check before authentication, pinned actions, and an SBOM,
   maximum provenance, and a `push-to-registry: true` attestation for each
   build. It also requires the blocking scan of the deployer image digest
@@ -514,7 +559,8 @@ sequenceDiagram
 | --- | --- |
 | ADR-070 (new) | GitHub-less GCP deployment from published releases |
 | ADR-037 decision, R5, R6, R8 | Attestations stored with the image; verification without GitHub, bound to the deployment trust anchor; the gates run in the deploy command |
-| ADR-004-R23 | Impersonation-only purpose identities; optional federation |
+| ADR-004-R23 | Impersonation-only purpose identities; optional federation. #2660: Release Please calls the release workflow for each release on `main` |
+| ADR-042-R2 | #2660: a release on `main` publishes the GCP release through the release workflow, with no cloud identity |
 | ADR-069-R3 | The repository IDs are mandatory when federation exists; `settings.release_trust` is the provenance anchor |
 | ADR-033-R2, ADR-053-R3 | The product deployment model is the release-driven bootstrap CLI |
 | ADR-007-R1, R2 | The Helm chart is the only GCP renderer; first install and update share one entrypoint |

@@ -381,17 +381,6 @@
     ]
   },
   {
-    "rule_id": "ADR-040-R3",
-    "owner": "@Brad-Edwards",
-    "reason": "Issue #1924 deliberately narrows POST /api/v1/ctf/participants/{participant_id}/resend-invite/ from reset-and-email credentials to resend non-secret login information while preserving its operation, status, and response shape. The semantic break ends existing-password disclosure and reset-by-email behavior. The additive POST /api/v1/ctf/participants/{participant_id}/password/ operation is the replacement for explicit generated or organizer-set resets, and the organizer SPA list/detail flows migrate to it. Remove this exception after external consumers have migrated and the deprecated resend operation can be versioned or removed.",
-    "expires_on": "2026-10-29",
-    "paths": [
-      "shifter/shifter_platform/ctf/api/organizer/participants.py",
-      "shifter/shifter_platform/ctf/services/participant/accounts.py",
-      "shifter/shifter_platform/frontend/src/features/ctf/admin/ParticipantPasswordDialog.tsx"
-    ]
-  },
-  {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
     "reason": "CKV_AWS_91: the private model-broker NLB uses TCP passthrough so TLS terminates at the authenticated broker and the guest peer is preserved. AWS NLB access logs require a TLS listener and cannot log this TCP listener. Broker metadata-only request auditing and VPC flow logs provide observability. https://docs.aws.amazon.com/elasticloadbalancing/latest/network/load-balancer-access-logs.html",

@@ -173,7 +173,15 @@ class TestDockerfileNonRootUser:
 
     def test_tool_downloads_retry_transient_failures(self):
         content = _read_dockerfile()
-        assert content.count("--retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20") >= 2
+        helper = re.search(r"fetch\(\) \{(.*?)\n\s*\} &&", content, re.DOTALL)
+        assert helper is not None
+        assert "--proto '=https' --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 20" in helper.group(1)
+        # Every download goes through the helper, so each one retries.
+        downloads = re.findall(r"^\s*(\w+) \S+ \\?\s*\"https://", content, re.MULTILINE)
+        assert len(downloads) == 5
+        assert set(downloads) == {"fetch"}
+        instructions = "\n".join(line for line in content.splitlines() if not line.lstrip().startswith("#"))
+        assert len(re.findall(r"\bcurl -", instructions)) == 1
 
     def test_bakes_terraform_provider_mirror(self):
         content = _read_dockerfile()

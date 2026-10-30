@@ -14,7 +14,7 @@ GitHub Actions with self-hosted runners.
 ├── _shifter-platform.yml   # Portal infrastructure and app deployment
 ├── _gcp-dev.yml            # GCP CI wrapper over the gcp-deploy commands
 ├── gcp-dev-destroy.yml     # GCP CI wrapper over gcp-destroy
-├── release-gcp.yml         # GCP release: images, attestations, deployer image
+├── release-gcp.yml         # GCP release: images, attestations, deployer image (release-please.yml calls it)
 ├── packer.yml              # AMI builds (AWS)
 └── packer-promote.yml      # AMI promotion to prod (AWS)
 ```

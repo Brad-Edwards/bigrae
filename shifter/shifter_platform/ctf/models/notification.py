@@ -1,4 +1,4 @@
-"""CTFNotification, CTFEmailTemplate, CTFWebhook — admin and automation models.
+"""CTFNotification, CTFWebhook — admin and automation models.
 
 Split from monolithic ctf/models.py (PR #856) to satisfy python:S104
 (file too large); CTFScheduledTask was further extracted to
@@ -126,86 +126,6 @@ class CTFNotification(CTFBaseModel):
     def __str__(self) -> str:
         """Return notification description."""
         return f"[{self.notification_type}] {self.subject}"
-
-
-class CTFEmailTemplate(CTFBaseModel):
-    """Per-event email template override.
-
-    Organizers can customise email templates for specific notification types
-    within their event.  When a custom template exists it is rendered instead
-    of the default filesystem template.
-
-    Attributes:
-        event: The event this template belongs to.
-        notification_type: Which notification type this template overrides.
-        subject: Custom subject line (optional — falls back to default).
-        html_body: Custom HTML body using Django template syntax.
-        text_body: Custom plain-text body using Django template syntax.
-    """
-
-    event = models.ForeignKey(
-        "CTFEvent",
-        on_delete=models.CASCADE,
-        related_name="email_templates",
-        help_text="Event this template belongs to",
-    )
-    notification_type = models.CharField(
-        max_length=20,
-        choices=NotificationType.choices(),
-        help_text="Notification type this template overrides",
-    )
-    subject = models.CharField(
-        max_length=200,
-        blank=True,
-        default="",
-        help_text="Custom subject line (leave blank to use default)",
-    )
-    html_body = models.TextField(
-        help_text="Custom HTML email body (Django template syntax)",
-    )
-    text_body = models.TextField(
-        help_text="Custom plain-text email body (Django template syntax)",
-    )
-
-    class Meta:
-        """Django model metadata."""
-
-        db_table = "ctf_email_template"
-        ordering = ["notification_type"]
-        verbose_name = "CTF Email Template"
-        verbose_name_plural = "CTF Email Templates"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["event", "notification_type"],
-                condition=models.Q(deleted_at__isnull=True),
-                name="unique_active_email_template_per_event_type",
-            ),
-        ]
-
-    def clean(self) -> None:
-        """Reject unsafe placeholder syntax in custom bodies (issue #1095).
-
-        Defense-in-depth alongside the API validator: enforces the flat
-        ``{{ name }}`` placeholder policy for admin and direct model saves
-        that call ``full_clean()``.
-        """
-        super().clean()
-        from django.core.exceptions import ValidationError
-
-        from ctf.services.email_template import allowed_placeholders, find_template_violations
-
-        allowed = allowed_placeholders(self.notification_type)
-        errors = {}
-        for field in ("html_body", "text_body"):
-            violations = find_template_violations(getattr(self, field) or "", allowed)
-            if violations:
-                errors[field] = violations[0]
-        if errors:
-            raise ValidationError(errors)
-
-    def __str__(self) -> str:
-        """Return template description."""
-        return f"{self.event.name} - {self.notification_type}"
 
 
 class CTFWebhook(CTFBaseModel):
