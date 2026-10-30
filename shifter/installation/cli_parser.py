@@ -294,6 +294,18 @@ def _add_release_manifest_parser(subcommands: argparse._SubParsersAction) -> Non
         metavar="NAME=REPOSITORY@sha256:DIGEST",
         help="Exact identity of one release image (portal, provisioner, guacd, guacamole-client, openvpn).",
     )
+    manifest.add_argument(
+        "--base-image",
+        action="append",
+        default=[],
+        metavar="ROLE=REPOSITORY@sha256:DIGEST",
+        help="Exact identity of one base range image (kali, ubuntu, dc) that tenants import.",
+    )
+    manifest.add_argument(
+        "--authorization-model-stdin",
+        action="store_true",
+        help="Read the OpenFGA authorization model (API JSON form) from standard input; each deploy publishes it.",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:

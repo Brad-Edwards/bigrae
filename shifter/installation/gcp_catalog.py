@@ -5,18 +5,22 @@ from copy import deepcopy
 from installation.gcp_identity_cutover import render as render_portal_job
 
 
-def render_catalog_job(manifest: str, *, job_name: str, secret_name: str) -> dict[str, object]:
-    """Keep native runtime admission and copy the bearer into a private file."""
+def render_catalog_job(
+    manifest: str, *, job_name: str, secret_name: str, bootstrap_facts: bool = False
+) -> dict[str, object]:
+    """Keep native runtime admission and copy the private input into a private file.
+
+    The input is an issued bearer proof, or the bootstrap administrator facts of
+    a GitHub-less install (#2679). Both arrive as the Secret key ``credential``.
+    """
     job = render_portal_job(manifest, job_name=job_name, status_only=True)
     pod = job["spec"]["template"]["spec"]
     portal = pod["containers"][0]
-    portal["args"] = [
-        "python",
-        "manage.py",
-        "bootstrap_inbox_catalog",
-        "--credential-file",
-        "/run/catalog-private/credential",
-    ]
+    portal["args"] = (
+        ["python", "manage.py", "initialize_installation_catalog", "--bootstrap-facts"]
+        if bootstrap_facts
+        else ["python", "manage.py", "bootstrap_inbox_catalog", "--credential-file"]
+    ) + ["/run/catalog-private/credential"]
     portal["env"] = [
         item
         for item in portal.get("env", [])

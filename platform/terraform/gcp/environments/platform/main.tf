@@ -49,15 +49,15 @@ locals {
   }
 }
 
-# Packer build-infra for the GCE image bakes (.github/workflows/packer-gcp.yml):
-# the dedicated builder subnet, the IAP-scoped ingress firewall, and the GCS
-# image bucket. It is network-coupled (needs the platform VPC + Cloud NAT), so it
-# stays in the platform root. The GitHub Actions WIF pool/provider and the packer
-# build service account it references now live in the foundational root
-# platform/terraform/gcp/global/cicd-oidc so they survive a platform destroy (the
-# credentials CI authenticates as). This references that SA by its deterministic
-# email rather than creating it.
+# Image-build infrastructure for the GCE image bakes (.github/workflows/packer-gcp.yml):
+# the dedicated builder subnet, the IAP-scoped ingress firewall, and the image
+# buckets. Only a maintainer image-build environment opts in; a tenant install
+# never builds images and imports the release's pinned base images instead
+# (#2679). The build service account lives in the foundational root
+# platform/terraform/gcp/global/cicd-oidc; this root references it by its
+# deterministic email.
 module "packer_build_infra" {
+  count  = var.enable_image_build_infra ? 1 : 0
   source = "../../modules/packer-build-infra"
 
   project_id                   = var.project_id
@@ -70,6 +70,13 @@ module "packer_build_infra" {
   # unless a GDC deployment sets it (ADR: GDC plumbing must not be selected by
   # default). See the gdc_vm_runtime_image_readers variable.
   image_reader_service_accounts = var.gdc_vm_runtime_image_readers
+}
+
+# Existing image-build environments keep their resources at the counted address;
+# a tenant without image builds removes them on its next deploy (#2679).
+moved {
+  from = module.packer_build_infra
+  to   = module.packer_build_infra[0]
 }
 
 module "platform_core" {

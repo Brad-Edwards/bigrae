@@ -1,7 +1,7 @@
 # RB023: GitHub-less GCP deploy, update, or teardown failed
 
 Applicability: GCP deployments that use the GitHub-less deploy path (ADR-070).
-Operator: platform owner. Verified against the repository: 2026-10-29.
+Operator: platform owner. Verified against the repository: 2026-10-30.
 
 The procedures are in the
 [GitHub-less GCP deployment guide](../technical/handbook/gcp-github-less-deployment.md).
@@ -33,8 +33,9 @@ messages identify the stage:
 | Scan | `exact-release scan failed; the rollout is blocked`; `failed to store the redacted release verdict` |
 | Verify | `no attestation is stored with ...`; `no attestation of ... satisfies the release trust policy` |
 | Rollout | `... belongs to another Helm release; refusing to adopt it`; `running workloads do not match the approved release`; `ingress platform-external did not receive a load-balancer address within 10 minutes`; `certificate platform-managed-cert did not appear for ... within 2 minutes`; `certificate platform-managed-cert is not Active for ... after 60 minutes`; `OpenVPN pool servers did not all report healthy within 10 minutes` |
-| Identity | `Legacy identity conversion requires both private facts files`; `Identity status probe was inconclusive; workloads remain unchanged`; `kubectl wait` fails on job `identity-cutover-status-*` or `identity-cutover-*` |
-| Catalog | Native application activation and readiness succeeded, but catalog initialization requires a current admitted credential. Preserve the active application, complete DNS and TLS, obtain a native credential, and retry with `--catalog-credential-file`. Workload IAM or an actor username is not a substitute. |
+| Identity | `Legacy identity conversion requires both private facts files`; `Identity status probe was inconclusive; workloads remain unchanged`; `A fresh install needs settings.operator_bootstrap`; `kubectl wait` fails on job `identity-cutover-status-*` or `identity-cutover-*` |
+| Policy | `Only some OpenFGA secrets exist`; `This release has no authorization model`; `The OpenFGA publisher returned no binding`; `kubectl wait` fails on job `openfga-publish-*` |
+| Catalog | The deploy completes, then warns `The in-box catalog may be incomplete` or `Automatic catalog registration did not complete`. The application is active. |
 | Teardown | `--confirm must equal the deployment name`; `terraform destroy failed after 6 attempts` |
 
 ## Investigation
@@ -192,12 +193,25 @@ release. Use the guide for each step that changes the deployment.
   Helm release. Fix the cause that the events and the rollout status show, and
   deploy again. For a running-image mismatch, find the owner of the unexpected
   image before you deploy again.
-- **Identity:** A first install needs the identity facts files
+- **Identity:** On an empty database the deploy writes the identity facts
+  from `settings.operator_bootstrap.admin_email`; set that block. A database
+  with users needs the reviewed legacy conversion facts
   ([First install](../technical/handbook/gcp-github-less-deployment.md#first-install)).
-  The gotchas show how to write them. When a cutover Job fails, read its
-  `portal` container log in Cloud Logging
+  When a cutover Job fails, read its `portal` container log in Cloud Logging
   (`resource.labels.pod_name:"identity-cutover"`). The Job is gone after the
   command stops.
+- **Policy:** The deploy generates the three OpenFGA secrets
+  (`shifter-<environment>-openfga-runtime`, `-admin`, `-ca`) only when none
+  exists. When only some exist, restore the missing ones, or delete all three
+  to regenerate them; then deploy again. A release built before #2679 has no
+  authorization model: deploy a newer release, or pin
+  `settings.openfga.store_id` and `model_id`. When the publisher Job fails,
+  read its `publisher` container log in Cloud Logging
+  (`resource.labels.pod_name:"openfga-publish"`).
+- **Catalog:** The catalog Job acts as the bootstrap administrator that the
+  cutover recorded, so `settings.operator_bootstrap.admin_email` must name
+  that account. Otherwise sign in, issue a content credential, and deploy
+  again with `--catalog-credential-file <private 0600 file>`.
 - **Certificate:** Point the DNS A record of the hostname at the ingress
   address, with no proxy. Then deploy again without `--first-install`
   ([First install](../technical/handbook/gcp-github-less-deployment.md#first-install)).

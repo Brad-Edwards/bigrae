@@ -4,8 +4,8 @@ output "workload_identity_provider" {
 }
 
 output "packer_build_service_account_email" {
-  description = "Packer build identity (GCP_PACKER_BUILD_SERVICE_ACCOUNT); federated only for enabled build contexts."
-  value       = google_service_account.packer_build.email
+  description = "Packer build identity (GCP_PACKER_BUILD_SERVICE_ACCOUNT); null when no build purpose or image-build network exists."
+  value       = try(google_service_account.packer_build[0].email, null)
 }
 
 output "packer_validate_service_account_email" {

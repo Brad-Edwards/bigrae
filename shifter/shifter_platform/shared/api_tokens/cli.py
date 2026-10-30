@@ -19,6 +19,23 @@ class CredentialFileError(ValueError):
     """One bounded error; paths, proof bytes and provider diagnostics stay private."""
 
 
+def credential_from_proof(proof: str) -> CredentialContext:
+    """Authenticate one bearer proof through the existing authenticator."""
+    try:
+        if not proof or len(proof) > _MAX_BYTES or any(character.isspace() for character in proof):
+            raise CredentialFileError(_UNAVAILABLE)
+        raw_request = HttpRequest()
+        raw_request.META["HTTP_AUTHORIZATION"] = f"Bearer {proof}"
+        request = Request(raw_request)
+        ApiTokenAuthentication().authenticate(request)
+        credential = getattr(request, "credential_context", None)
+        if not isinstance(credential, CredentialContext):
+            raise CredentialFileError(_UNAVAILABLE)
+        return credential
+    except AuthenticationFailed:
+        raise CredentialFileError(_UNAVAILABLE) from None
+
+
 def credential_from_file(path: str | Path) -> CredentialContext:
     """Authenticate actual bearer proof, never a credential reference or a username."""
     try:
@@ -33,15 +50,6 @@ def credential_from_file(path: str | Path) -> CredentialContext:
             ):
                 raise CredentialFileError(_UNAVAILABLE)
             proof = handle.read(_MAX_BYTES + 1).decode("ascii").strip()
-        if not proof or len(proof) > _MAX_BYTES or any(character.isspace() for character in proof):
-            raise CredentialFileError(_UNAVAILABLE)
-        raw_request = HttpRequest()
-        raw_request.META["HTTP_AUTHORIZATION"] = f"Bearer {proof}"
-        request = Request(raw_request)
-        ApiTokenAuthentication().authenticate(request)
-        credential = getattr(request, "credential_context", None)
-        if not isinstance(credential, CredentialContext):
-            raise CredentialFileError(_UNAVAILABLE)
-        return credential
-    except (OSError, UnicodeError, AuthenticationFailed):
+    except (OSError, UnicodeError):
         raise CredentialFileError(_UNAVAILABLE) from None
+    return credential_from_proof(proof)

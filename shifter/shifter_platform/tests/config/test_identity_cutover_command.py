@@ -22,7 +22,18 @@ def test_status_probe_recognizes_an_absent_legacy_table(monkeypatch):
     monkeypatch.setattr(connection.introspection, "table_names", lambda: [])
     output = StringIO()
     call_command("identity_cutover", "status", probe=True, stdout=output)
-    assert json.loads(output.getvalue()) == {"state": "absent"}
+    # #2679: before the first migration no user table exists, so the installation is empty.
+    assert json.loads(output.getvalue()) == {"state": "absent", "users": 0}
+
+
+def test_status_probe_counts_users_for_the_fresh_install_decision():
+    get_user_model().objects.create_user(username="retained")
+    output = StringIO()
+    call_command("identity_cutover", "status", probe=True, stdout=output)
+    assert json.loads(output.getvalue()) == {"state": "absent", "users": 1}
+    plain = StringIO()
+    call_command("identity_cutover", "status", stdout=plain)
+    assert "users" not in json.loads(plain.getvalue())
 
 
 def test_status_probe_does_not_convert_database_failure_to_absence(monkeypatch):
@@ -265,6 +276,60 @@ def test_preparation_never_creates_an_administrator_beside_existing_users(tmp_pa
     assert json.loads(prepared.getvalue()) == {"prepared": False}
     assert not ProviderBinding.objects.exists()
     assert get_user_model().objects.count() == 1
+
+
+def _activated_fresh_install(tmp_path, monkeypatch):
+    """Activate an empty database through the generated fresh-install flow (#2679)."""
+    facts, bootstrap = _facts(tmp_path, bootstrap_personal_token_eligibility=True), _bootstrap_facts(tmp_path)
+    call_command("identity_cutover_bootstrap", facts=str(bootstrap), prepare=True, stdout=StringIO())
+    planned = StringIO()
+    call_command("identity_cutover", "plan", facts=str(facts), stdout=planned)
+    digest = json.loads(planned.getvalue())["plan_digest"]
+    call_command("identity_cutover", "apply", facts=str(facts), plan_digest=digest, stdout=StringIO())
+    provider = _PolicyProvider()
+    for module in ("identity_cutover", "identity_cutover_bootstrap"):
+        monkeypatch.setattr(f"config.management.commands.{module}.configured_authorization_provider", lambda: provider)
+    call_command("identity_cutover_bootstrap", facts=str(bootstrap), plan_digest=digest, stdout=StringIO())
+    call_command("identity_cutover", "verify", facts=str(facts), plan_digest=digest, stdout=StringIO())
+    return bootstrap
+
+
+def test_installation_catalog_acts_only_as_the_bootstrap_administrator(tmp_path, monkeypatch) -> None:
+    """#2679: the in-box catalog registers with a short-lived credential that is always revoked."""
+    from shared.api_tokens.models import ApiToken
+
+    bootstrap = _activated_fresh_install(tmp_path, monkeypatch)
+    command = "config.management.commands.initialize_installation_catalog"
+    actors = []
+    monkeypatch.setattr(f"{command}.credential_from_proof", lambda proof: ("actor", proof))
+    monkeypatch.setattr(f"{command}.register_inbox_catalog", lambda *, actor: actors.append(actor) or ["pack"])
+    output = StringIO()
+    call_command("initialize_installation_catalog", bootstrap_facts=str(bootstrap), stdout=output)
+    assert "Registered 1 in-box pack(s)." in output.getvalue()
+    token = ApiToken.objects.get(name="installation-catalog")
+    assert token.revoked_at is not None and actors[0][0] == "actor"
+    assert token.expires_at is not None and token.expires_at <= token.created_at + timedelta(minutes=15)
+    assert set(token.scopes) == {
+        f"authorization:installation.{action}"
+        for action in ("read_content", "manage_content", "manage_sources", "prepare_content", "publish_content")
+    }
+
+    def broken(*, actor):
+        raise ValueError("pack qualification pending")
+
+    monkeypatch.setattr(f"{command}.register_inbox_catalog", broken)
+    with pytest.raises(CommandError, match="Catalog initialization incomplete"):
+        call_command("initialize_installation_catalog", bootstrap_facts=str(bootstrap), stdout=StringIO())
+    assert not ApiToken.objects.filter(name="installation-catalog", revoked_at__isnull=True).exists()
+    (tmp_path / "other").mkdir()
+    other = _bootstrap_facts(tmp_path / "other", subject="another-subject")
+    with pytest.raises(CommandError, match="do not name the installation's bootstrap administrator"):
+        call_command("initialize_installation_catalog", bootstrap_facts=str(other), stdout=StringIO())
+
+
+def test_installation_catalog_requires_the_activated_cutover(tmp_path) -> None:
+    with pytest.raises(CommandError, match="requires the activated identity cutover"):
+        call_command("initialize_installation_catalog", bootstrap_facts=str(_bootstrap_facts(tmp_path)))
 
 
 def test_apply_maps_unambiguous_personal_hierarchy_without_deleting_it(tmp_path, monkeypatch) -> None:

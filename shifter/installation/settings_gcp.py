@@ -71,10 +71,17 @@ GcpNamedResourceRef = Annotated[
 
 
 class GcpOpenFgaSettings(BaseModel):
-    """Operator references for the private released policy service; no payloads."""
+    """Operator references for the private released policy service; no payloads.
+
+    OpenFGA is required. Leave the references empty to let the deploy generate
+    them, and leave the store and model IDs empty to publish the release model.
+    """
+
+    # The current release has no authorization fallback (#2321). A fresh install
+    # sets none of these fields (#2679).
 
     model_config = ConfigDict(extra="forbid")
-    enabled: bool = False
+    enabled: bool = True
     store_id: str = Field(default="", pattern=r"^$|^[0-9A-HJKMNP-TV-Z]{26}$")
     model_id: str = Field(default="", pattern=r"^$|^[0-9A-HJKMNP-TV-Z]{26}$")
     runtime_secret_ref: GcpNamedResourceRef | None = None
@@ -83,16 +90,39 @@ class GcpOpenFgaSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_enabled_boundary(self) -> GcpOpenFgaSettings:
-        if self.enabled and (
-            not all((self.runtime_secret_ref, self.admin_secret_ref, self.ca_secret_ref))
-            or bool(self.store_id) != bool(self.model_id)
-            or self.runtime_secret_ref == self.admin_secret_ref
-            or self.ca_secret_ref in {self.runtime_secret_ref, self.admin_secret_ref}
+        if not self.enabled:
+            raise ValueError("The current release requires OpenFGA; remove openfga.enabled: false")
+        references = (self.runtime_secret_ref, self.admin_secret_ref, self.ca_secret_ref)
+        if any(references) and not all(references):
+            raise ValueError("Set all three OpenFGA secret references, or none to let the deploy generate them")
+        if (
+            bool(self.store_id) != bool(self.model_id)
+            or (self.runtime_secret_ref and self.runtime_secret_ref == self.admin_secret_ref)
+            or (self.ca_secret_ref and self.ca_secret_ref in {self.runtime_secret_ref, self.admin_secret_ref})
         ):
             raise ValueError(
                 "OpenFGA requires distinct runtime, admin and CA references and either both store/model IDs or neither"
             )
         return self
+
+    @property
+    def pinned_binding(self) -> tuple[str, str] | None:
+        """Return the operator-pinned store and model IDs, or None to publish the release model."""
+        return (self.store_id, self.model_id) if self.store_id else None
+
+
+def resolve_openfga_settings(policy: GcpOpenFgaSettings, *, project_id: str, deployment: str) -> GcpOpenFgaSettings:
+    """Fill absent secret references with the names that the deploy generates (#2679)."""
+    if policy.runtime_secret_ref:
+        return policy
+    prefix = f"projects/{project_id}/secrets/shifter-{deployment}-openfga"
+    return policy.model_copy(
+        update={
+            "runtime_secret_ref": f"{prefix}-runtime",
+            "admin_secret_ref": f"{prefix}-admin",
+            "ca_secret_ref": f"{prefix}-ca",
+        }
+    )
 
 
 class GcpBackendSettings(BaseModel):
@@ -144,17 +174,20 @@ class GcpBackendSettings(BaseModel):
         description="Lowercase GCP region/location token (letters, digits, and internal hyphens), e.g. 'us-central1'.",
     )
     cloud_sql_iam_auth: bool = Field(
-        default=False,
+        default=True,
         description=(
-            "Use attached workload identities and the official native Cloud SQL proxy for runtime database login."
+            "Use attached workload identities and the official native Cloud SQL proxy for runtime database login. "
+            "The current release requires it."
         ),
     )
     openfga: GcpOpenFgaSettings = Field(default_factory=GcpOpenFgaSettings)
 
     @model_validator(mode="after")
     def validate_native_policy_datastore(self) -> GcpBackendSettings:
-        if self.openfga.enabled and not self.cloud_sql_iam_auth:
-            raise ValueError("The GCP OpenFGA deployment requires cloud_sql_iam_auth")
+        # OpenFGA is mandatory (#2321) and needs native SQL, so a password-auth
+        # install cannot run the current release. Stop before any change (#2679).
+        if not self.cloud_sql_iam_auth:
+            raise ValueError("The current release requires cloud_sql_iam_auth: true (native SQL for OpenFGA)")
         return self
 
     shared_service_capacity_profile: CapacityProfileId = Field(

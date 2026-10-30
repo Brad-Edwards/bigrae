@@ -58,7 +58,16 @@ def test_native_owner_job_retains_password_duty_without_an_iam_login():
 
 
 def test_runtime_projection_rejects_a_login_for_another_workload_identity():
-    roles = ("portal", "workers", "ctf-scheduler", "provisioner-launcher", "provisioner")
+    roles = (
+        "portal",
+        "workers",
+        "ctf-scheduler",
+        "provisioner-launcher",
+        "provisioner",
+        "openfga-runtime",
+        "openfga-admin",
+        "openfga-migrator",
+    )
     users = {role: f"synthetic-{role}@synthetic-project.iam" for role in roles}
     outputs = {
         "identity_platform_project_id": {"value": "synthetic-project"},
@@ -67,6 +76,7 @@ def test_runtime_projection_rejects_a_login_for_another_workload_identity():
         "native_identity": {
             "value": {
                 "enabled": True,
+                "openfga_enabled": True,
                 "database_users": users,
                 "instance_connection_name": "synthetic-project:us-central1:platform-pg",
             }

@@ -497,3 +497,9 @@ variable "adopt_artifact_registry_kms" {
   type        = bool
   default     = false
 }
+
+variable "enable_image_build_infra" {
+  description = "Create the image-build subnet, IAP firewalls, and image buckets. Only maintainer image-build environments set this (#2679)."
+  type        = bool
+  default     = false
+}

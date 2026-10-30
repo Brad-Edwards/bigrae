@@ -145,6 +145,24 @@ class TestRunDeploy:
         assert "--if-generation-match=7" in runner.find("gcloud", "storage", "rm")[0].argv
         assert IMPERSONATION_KEY not in os.environ
 
+    def test_the_rollout_receives_the_release_authorization_model(self, bundle, tmp_path, stages, monkeypatch):
+        """#2679: each deploy publishes the model that the release carries."""
+        model = {"schema_version": "1.1", "type_definitions": [{"type": "principal"}]}
+        release = write_manifest(tmp_path / "release-with-model.json", authorization_model=model)
+        requests = []
+        monkeypatch.setattr(
+            gcp_deploy, "rollout_stage", lambda runner, inputs, infra, request: requests.append(request) or True
+        )
+        monkeypatch.setattr(
+            gcp_deploy,
+            "load_deployment_inputs",
+            lambda *args, **kwargs: load_deployment_inputs(str(bundle), Path(args[1]), FakeRunner(), {}),
+        )
+        runner = FakeRunner().on(["gcloud", "storage", "objects", "describe"], ProcessResult(0, "7\n"))
+        options = DeployOptions(source="gs://acme-shifter-deployment-config", release_manifest=str(release))
+        assert run_deploy(options, runner=runner) == 0
+        assert requests[0].authorization_model == model
+
     def test_a_failed_lock_release_never_hides_the_run_error(self, bundle, manifest, stages, monkeypatch, capsys):
         """#2676: the original failure propagates; a successful run still fails on a stuck lock."""
         from gcp_process import GcpCommandError
@@ -363,11 +381,20 @@ class TestStageHelpers:
         runner = FakeRunner()
         retire_inventoried_artifacts(runner, inputs, "ctx")
         assert runner.calls == []
-        assert sync_policy_credentials(runner, inputs, sample_gcp_outputs(PROJECT)) is False
+        disabled = {"native_identity": {"value": {"openfga_enabled": False}}}
+        assert sync_policy_credentials(runner, inputs, disabled) is False
         assert (
             sync_policy_credentials(runner, inputs, {"native_identity": {"value": {"openfga_enabled": True}}}) is True
         )
-        assert "sync_openfga_secrets.py" in runner.calls[0].argv[1]
+        # The three derived OpenFGA secrets exist (#2679), so nothing is generated before the sync.
+        describes = runner.find("gcloud", "secrets", "versions", "describe")
+        assert [call.argv[call.argv.index("--secret") + 1] for call in describes] == [
+            "shifter-acme-openfga-runtime",
+            "shifter-acme-openfga-admin",
+            "shifter-acme-openfga-ca",
+        ]
+        assert not runner.find("gcloud", "secrets", "create")
+        assert "sync_openfga_secrets.py" in runner.calls[-1].argv[1]
         with pytest.raises(DeployStageError, match="foundation-inputs"):
             reconcile_foundation_image_network(runner, inputs)
 

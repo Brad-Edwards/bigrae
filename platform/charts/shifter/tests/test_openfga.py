@@ -210,6 +210,12 @@ def test_native_policy_servers_and_migration_use_their_attached_database_logins(
     migration = objects["Job", "openfga-datastore-migrate"]["spec"]["template"]["spec"]
     assert migration["initContainers"][0]["name"] == "cloud-sql-proxy"
     assert migration["initContainers"][1]["name"] == "migrate"
+    # The migrator creates the datastore as the reconciled owner role (#2688).
+    migrate_env = {item["name"]: item for item in migration["initContainers"][1]["env"]}
+    assert migrate_env["OPENFGA_DATASTORE_URI"]["value"] == (
+        "postgres://" + users["openfga-migrator"].replace("@", "%40")
+        + "@127.0.0.1:5432/openfga?sslmode=disable&options=-c%20role%3Dshifter_openfga_owner"
+    )
     assert migration["volumes"][0]["configMap"]["name"] == "openfga-migration-connection"
     service = objects["ConfigMap", "openfga-migration-connection"]["data"]["pg-service.conf"]
     assert f'user={users["openfga-migrator"]}' in service
@@ -258,3 +264,49 @@ def test_policy_administration_network_is_separate_from_runtime_clients(tmp_path
                     if any("namespaceSelector" not in peer and "podSelector" in peer
                            and selected(peer["podSelector"], {"app.kubernetes.io/component": component}) for peer in peers)}
         assert admitted == allowed
+
+
+def test_catalog_initializer_reaches_the_native_database(tmp_path) -> None:
+    """#2679: the catalog Job registers content through the same native SQL lane as the portal."""
+    values = _values()
+    users = {
+        role: f"synthetic-{role}@synthetic-project.iam"
+        for role in (
+            "portal",
+            "workers",
+            "ctf-scheduler",
+            "provisioner-launcher",
+            "provisioner",
+            "openfga-runtime",
+            "openfga-admin",
+            "openfga-migrator",
+        )
+    }
+    values["openfga"].update(
+        {
+            "runtimeDatabaseUser": users["openfga-runtime"],
+            "adminDatabaseUser": users["openfga-admin"],
+            "migrationDatabaseUser": users["openfga-migrator"],
+        }
+    )
+    values["cloudSqlProxy"] = {
+        "enabled": True,
+        "instanceConnectionName": "synthetic-project:us-central1:platform-pg",
+        "databaseUsers": users,
+        "databaseCidrs": ["10.60.0.12/32"],
+    }
+    generated = tmp_path / "native.json"
+    generated.write_text(json.dumps(values))
+    result = subprocess.run(
+        ["helm", "template", "native-test", str(CHART), "-f", str(CHART / "values-gcp-dev.yaml"), "-f", str(generated)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    lane = next(
+        item
+        for item in yaml.safe_load_all(result.stdout)
+        if item and item.get("kind") == "NetworkPolicy" and item["metadata"]["name"] == "allow-platform-native-sql-egress"
+    )
+    assert "catalog-initializer" in lane["spec"]["podSelector"]["matchExpressions"][0]["values"]

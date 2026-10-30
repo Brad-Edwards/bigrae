@@ -84,3 +84,6 @@ messaging_alarm_queue_depth_threshold = 100
 messaging_alarm_message_age_threshold = 300
 messaging_alarm_dlq_threshold         = 1
 messaging_notification_channels       = []
+
+# This environment builds the GCE base images (packer-gcp.yml, #2679).
+enable_image_build_infra = true

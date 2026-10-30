@@ -109,6 +109,22 @@ def test_native_policy_migrator_owns_existing_datastore_without_application_acce
                 "SELECT rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname=%s", [users["openfga-migrator"]]
             )
             assert cursor.fetchone() == (False, False)
+            # An earlier release left the datastore owned by the migrator login (#2688).
+            cursor.execute('ALTER TABLE public."tuple" OWNER TO "' + users["openfga-migrator"] + '"')
+        call_command("reconcile_gcp_database_duties")
+        with (
+            psycopg.connect(**{**connection.get_connection_params(), "dbname": "openfga"}) as policy,
+            policy.cursor() as cursor,
+        ):
+            cursor.execute("SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = 'public.tuple'::regclass")
+            assert cursor.fetchone() == ("shifter_openfga_owner",)
+            # The temporary membership is gone; a superuser test login needs none.
+            cursor.execute(
+                "SELECT count(*) FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid "
+                "JOIN pg_roles u ON u.oid = m.member WHERE r.rolname = %s AND u.rolname = current_user",
+                [users["openfga-migrator"]],
+            )
+            assert cursor.fetchone() == (0,)
             cursor.execute('GRANT CONNECT ON DATABASE openfga TO "' + users["portal"] + '"')
         try:
             with pytest.raises(CommandError, match="SQL duty reconciliation failed"):

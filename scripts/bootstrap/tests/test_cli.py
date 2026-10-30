@@ -20,6 +20,7 @@ from unittest.mock import Mock, patch
 import pytest
 
 import deploy
+import gcp_base_images
 import gcp_base_images as gbi
 
 PINNED_IMAGE_TAG = "abc1234"
@@ -574,13 +575,13 @@ class TestMainCLI:
             "GCP_RANGE_KALI_IMAGE": "projects/p/global/images/k",
             "GCP_RANGE_DC_IMAGE": "projects/p/global/images/d",
         }
-        assert deploy.range_images_from_imports(complete) == {
+        assert gcp_base_images.range_images_from_imports(complete) == {
             "linux": "projects/p/global/images/l",
             "kali": "projects/p/global/images/k",
             "dc": "projects/p/global/images/d",
         }
         with pytest.raises(gbi.BaseImageError):
-            deploy.range_images_from_imports({"GCP_RANGE_LINUX_IMAGE": "x"})
+            gcp_base_images.range_images_from_imports({"GCP_RANGE_LINUX_IMAGE": "x"})
 
     def test_gcp_images_requires_an_active_gcloud_identity_before_mutation(self):
         def fake_run(cmd, **_kwargs):

@@ -242,17 +242,22 @@ separate release-scan job, which the rollout job needs.
 
 | Stage | Identity | Steps |
 | --- | --- | --- |
-| Inputs | Operator for the bundle, or the deploy identity when `--deploy-service-account` is set; deploy for the lock | Check the required tools, load and validate the bundle, load the release manifest, check the tooling revision (operator mode), resolve the trust anchor, and take the deployment lock. |
+| Inputs | Operator for the bundle and the base images, or the deploy identity when `--deploy-service-account` is set; deploy for the lock | Check the required tools, load and validate the bundle, load the release manifest, check the tooling revision (operator mode), resolve the trust anchor, import the release's pinned base range images when the bundle has none (operator mode), and take the deployment lock. |
 | Infrastructure | Deploy | Read the operator password, initialize Identity Platform, optionally reconcile the foundation image network, apply the broker overlay of an existing cluster, create and harden the state bucket, ensure the Artifact Registry service identity, render the Terraform inputs, initialize Terraform, import the Identity Platform config, release a disabled broker load balancer, apply Terraform, read the outputs, verify range audit telemetry, create an isolated kubeconfig, and seed the bootstrap operator. |
 | Images | Deploy | Check the GCE range preconditions. Copy each release image and its referrers by digest into the deployment Artifact Registry. CI-built images are already there. |
 | Scan | Release scan | Scan each exact digest with the pinned Trivy for fixed HIGH and CRITICAL findings, with the repository ignore file. Write raw evidence and the redacted verdict to the release-evidence bucket, and stop on a finding. Only the full deploy runs this stage; CI runs `gcp-release-scan`. |
 | Provenance | Deploy | Verify the provenance of each image against the trust anchor and the manifest revision. |
-| Rollout | Deploy | Read the broker overlay, ensure the OpenVPN PKI, render the runtime environment and the Helm values, create the namespaces, adopt existing objects, run migrations, sync the Guacamole secret and the policy credentials, run `helm upgrade --install --atomic`, retire inventoried artifacts, remove retired objects, restart workloads, wait for rollouts and superseded pods, roll out the OpenVPN pool, record running-image evidence, and wait for the ingress address and the managed certificate. |
+| Rollout | Deploy | Read the broker overlay, ensure the OpenVPN PKI, render the runtime environment and the Helm values, create the namespaces, generate the OpenFGA credentials on first use, adopt existing objects, run migrations, publish the release's authorization model and render again with its IDs, sync the Guacamole secret and the policy credentials, run `helm upgrade --install --atomic`, retire inventoried artifacts, remove retired objects, restart workloads, wait for rollouts and superseded pods, roll out the OpenVPN pool, record running-image evidence, and wait for the ingress address and the managed certificate. |
 | Smoke | Deploy | Run the post-deploy range smoke. An empty `settings.post_deploy_smoke.user_email` or `--no-smoke` skips it. It is advisory: a failure returns exit status 3 after the deployment completes. |
 
 `gcp-release-scan` runs the scan stage alone. `gcp-smoke` runs the smoke stage
 alone. `gcp-destroy` runs the teardown. `gcp-config` publishes, pulls, and
-shows the bundle and sets range image references.
+shows the bundle and sets range image references. `gcp-install` applies the
+foundation from the bundle and the operator's identity, creates the initial
+operator password secret, publishes the bundle, and runs the first install
+(#2679). On an empty database, the first install writes the identity facts
+from the configured operator account, and the catalog Job registers the in-box
+catalog as the recorded bootstrap administrator.
 
 ### Identity
 
@@ -348,7 +353,9 @@ equals that revision: the deployer image or a clean checkout.
 ### Base guest images
 
 `packer-gcp.yml` publishes each base image artifact to the public GHCR package
-`shifter-gce-<role>`. `gcp-images` takes an explicit `--source` registry prefix. It no longer
+`shifter-gce-<role>`. Each release pins the newest validated digest of each
+role in its manifest, and `gcp-deploy` imports the pinned images as the operator
+when the bundle has none (#2679). `gcp-images` takes an explicit `--source` registry prefix. It no longer
 derives a source from the GitHub repository owner. It keeps the digest pins and the OCI contract checks.
 It writes the imported references to `range-images.json` in the input bundle.
 

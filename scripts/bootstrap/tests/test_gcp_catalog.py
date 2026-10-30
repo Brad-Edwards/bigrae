@@ -76,17 +76,11 @@ def test_proof_only_enters_secret_stdin_and_is_cleaned_after_job(chart, tmp_path
     assert [call[2] for call in deletes] == ["job", "secret"]
 
 
-def test_missing_proof_does_not_start_a_catalog_job(chart):
+def test_missing_proof_does_not_start_a_catalog_job(chart, capsys):
+    """#2679: the application is active, so missing proof is a warning with the next step."""
     runner = FakeRunner()
-    with pytest.raises(
-        IdentityCutoverError, match="Native application is active; catalog setup is incomplete"
-    ) as error:
-        initialize_catalog(runner, chart, credential_file=None, hostname="portal.example.test")
-    assert str(error.value) == (
-        "Native application is active; catalog setup is incomplete. Finish DNS/TLS for https://portal.example.test, "
-        "sign in as a native administrator and obtain a current content credential. "
-        "Rerun this deployment with --catalog-credential-file <private 0600 bearer file>."
-    )
+    initialize_catalog(runner, chart, credential_file=None, hostname="portal.example.test")
+    assert "Sign in at https://portal.example.test as a native administrator" in capsys.readouterr().out
     assert runner.calls == []
 
 

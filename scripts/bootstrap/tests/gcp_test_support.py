@@ -19,6 +19,35 @@ RELEASE_REGISTRY = "us-central1-docker.pkg.dev/acme-release/bigrae-release"
 IMAGE_NAMES = ("portal", "provisioner", "guacd", "guacamole-client", "openvpn")
 
 
+NATIVE_WORKLOAD_ACCOUNTS = (
+    ("portal", "shiftergcpdev-portal"),
+    ("workers", "shiftergcpdev-workers"),
+    ("ctf-scheduler", "shiftergcpdev-ctf-scheduler"),
+    ("provisioner-launcher", "shiftergcpdev-prov-launcher"),
+    ("provisioner", "shiftergcpdev-provisioner"),
+    ("openfga-runtime", "shiftergcpdev-openfga-runtime"),
+    ("openfga-admin", "shiftergcpdev-openfga-admin"),
+    ("openfga-migrator", "shiftergcpdev-openfga-migrator"),
+)
+
+
+def native_identity_value(project_id: str) -> dict[str, object]:
+    """Return the native SQL and OpenFGA readback that the current release requires (#2679)."""
+    return {
+        "enabled": True,
+        "openfga_enabled": True,
+        "instance_connection_name": f"{project_id}:us-central1:shifter-gcp-dev-pg",
+        "database_users": {workload: f"{account}@{project_id}.iam" for workload, account in NATIVE_WORKLOAD_ACCOUNTS},
+    }
+
+
+def native_workload_accounts(project_id: str) -> dict[str, str]:
+    """Return the attached service account of each native SQL workload."""
+    return {
+        workload: f"{account}@{project_id}.iam.gserviceaccount.com" for workload, account in NATIVE_WORKLOAD_ACCOUNTS
+    }
+
+
 def sample_gcp_outputs(project_id: str = "example-gcp-project") -> dict[str, dict[str, object]]:
     """Return representative Terraform outputs for the GCP control-plane path."""
     return {
@@ -116,8 +145,13 @@ def sample_gcp_outputs(project_id: str = "example-gcp-project") -> dict[str, dic
                 # localpart is shortened to prov-launcher (#1719).
                 "provisioner-launcher": (f"shiftergcpdev-prov-launcher@{project_id}.iam.gserviceaccount.com"),
                 "provisioner": f"shiftergcpdev-provisioner@{project_id}.iam.gserviceaccount.com",
+                "openfga-runtime": f"shiftergcpdev-openfga-runtime@{project_id}.iam.gserviceaccount.com",
+                "openfga-admin": f"shiftergcpdev-openfga-admin@{project_id}.iam.gserviceaccount.com",
+                "openfga-migrator": f"shiftergcpdev-openfga-migrator@{project_id}.iam.gserviceaccount.com",
             }
         },
+        # The current release requires native SQL and OpenFGA (#2321, #2679).
+        "native_identity": {"value": native_identity_value(project_id)},
     }
 
 
@@ -243,15 +277,23 @@ def release_images(registry: str = RELEASE_REGISTRY) -> dict[str, str]:
     return {name: f"{registry}/{name}@sha256:{str(index) * 64}" for index, name in enumerate(IMAGE_NAMES, 1)}
 
 
-def write_manifest(path: Path, *, images: Mapping[str, str] | None = None, revision: str = REVISION) -> Path:
+def write_manifest(
+    path: Path,
+    *,
+    images: Mapping[str, str] | None = None,
+    revision: str = REVISION,
+    authorization_model: Mapping[str, object] | None = None,
+) -> Path:
     """Write a valid release manifest file."""
-    payload = {
+    payload: dict[str, object] = {
         "schema": "bigrae.gcp-release.v1",
         "version": "1.4.0",
         "source_revision": revision,
         "chart_version": "0.2.0",
         "images": dict(images or release_images()),
     }
+    if authorization_model is not None:
+        payload["authorization_model"] = dict(authorization_model)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle)
     return path
