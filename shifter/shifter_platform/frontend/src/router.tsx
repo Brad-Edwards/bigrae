@@ -185,7 +185,6 @@ export const router = createBrowserRouter(
             { path: "events/:eventId/notifications", element: <MonitoringPage defaultTab="notifications" /> },
             { path: "events/:eventId/analytics", element: <MonitoringPage defaultTab="analytics" /> },
             { path: "events/:eventId/brackets", element: <MonitoringPage defaultTab="scoreboard" /> },
-            { path: "events/:eventId/email-templates", element: <MonitoringPage defaultTab="notifications" /> },
             { path: "communications", element: <CommunicationsPage /> },
             { path: "communications/:campaignId", element: <CommunicationDetailPage /> },
           ],
