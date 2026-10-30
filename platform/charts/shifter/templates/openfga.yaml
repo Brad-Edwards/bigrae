@@ -209,7 +209,10 @@ spec:
               value: postgres
             - name: OPENFGA_DATASTORE_URI
               {{- if .Values.cloudSqlProxy.enabled }}
-              value: {{ printf "postgres://%s@127.0.0.1:5432/openfga?sslmode=disable" (.Values.openfga.migrationDatabaseUser | urlquery) | quote }}
+              {{- /* The migrator creates the datastore as the owner role that the SQL duty
+                     reconciliation creates (shifter_openfga_owner), so a later deploy can
+                     reconcile ownership (#2688). */}}
+              value: {{ printf "postgres://%s@127.0.0.1:5432/openfga?sslmode=disable&options=-c%%20role%%3Dshifter_openfga_owner" (.Values.openfga.migrationDatabaseUser | urlquery) | quote }}
               {{- else if $password.enabled }}
               value: {{ printf "postgres://%s:%d/openfga?sslmode=verify-full&sslrootcert=/etc/openfga/rds-ca/ca.pem" $password.host (int .Values.openfga.databasePort) | quote }}
             {{- include "shifter.openfgaDatastoreLogin" "openfga-migrator-datastore" | nindent 12 }}

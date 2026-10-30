@@ -180,23 +180,34 @@ def _assert_no_application_policy_access(cursor: _DutyCursor, native_users: Mapp
                 raise ValueError("Application SQL duties must not inherit access to the policy database")
 
 
-def _transfer_released_policy_tables(cursor: _DutyCursor, owner: str) -> None:
-    """Transfer only released datastore tables in the dedicated policy database."""
+def _transfer_released_policy_tables(cursor: _DutyCursor, owner: str, migrator: str) -> None:
+    """Transfer only released datastore tables in the dedicated policy database.
+
+    The migration now creates its tables as the owner role. An earlier release
+    ran it as the migrator login itself, which then owned the tables; the
+    deployment owner briefly joins that login to adopt them (#2688).
+    """
     # Scope upgrades to released datastore tables in this database. A global
     # REASSIGN OWNED would also move other databases owned by the bootstrap
     # login, so it must never be used here.
     cursor.execute(
-        "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        "SELECT relname, pg_get_userbyid(relowner) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
         "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')"
     )
-    tables = {row[0] for row in cursor.fetchall()}
+    tables = {row[0]: row[1] for row in cursor.fetchall()}
     released_tables = {"store", "authorization_model", "assertion", "tuple", "changelog", "goose_db_version"}
-    if tables - released_tables:
+    if set(tables) - released_tables:
         raise ValueError("Policy database contains objects outside the released datastore")
+    cursor.execute("SELECT pg_has_role(current_user, %s, 'MEMBER')", [migrator])
+    adopt = migrator in tables.values() and not _required_row(cursor)[0]
+    if adopt:
+        cursor.execute(sql.SQL("GRANT {} TO CURRENT_USER").format(sql.Identifier(migrator)))
     for table in tables:
         cursor.execute(
             sql.SQL("ALTER TABLE public.{} OWNER TO {}").format(sql.Identifier(table), sql.Identifier(owner))
         )
+    if adopt:
+        cursor.execute(sql.SQL("REVOKE {} FROM CURRENT_USER").format(sql.Identifier(migrator)))
 
 
 def _grant_policy_migration_duties(cursor: _DutyCursor, owner: str, migrator: str) -> None:
@@ -218,5 +229,5 @@ def reconcile_policy_owner(connection_parameters: dict[str, Any], native_users: 
     with psycopg.connect(**parameters) as connection, connection.cursor() as cursor:
         owner = _prepare_policy_owner(cursor)
         _assert_no_application_policy_access(cursor, native_users)
-        _transfer_released_policy_tables(cursor, owner)
+        _transfer_released_policy_tables(cursor, owner, native_users["openfga-migrator"])
         _grant_policy_migration_duties(cursor, owner, native_users["openfga-migrator"])

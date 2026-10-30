@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from installation.settings_gcp import GcpBackendSettings
+from installation.settings_gcp import GcpBackendSettings, resolve_openfga_settings
 
 
 def _settings(**overrides: object) -> dict[str, object]:
@@ -55,6 +55,33 @@ class TestGcpBackendSettings:
         policy["admin_secret_ref"] = "projects/acme-shifter/secrets/policy-admin"
         with pytest.raises(ValidationError):
             GcpBackendSettings.model_validate(_settings(cloud_sql_iam_auth=False, openfga=policy))
+
+    def test_defaults_are_the_working_install_and_unworkable_values_fail_early(self):
+        """#2679: native SQL and OpenFGA are the defaults; a setting that cannot run fails before any change."""
+        settings = GcpBackendSettings.model_validate(_settings())
+        assert settings.cloud_sql_iam_auth is True
+        assert settings.openfga.enabled is True and settings.openfga.pinned_binding is None
+        with pytest.raises(ValidationError, match="cloud_sql_iam_auth: true"):
+            GcpBackendSettings.model_validate(_settings(cloud_sql_iam_auth=False))
+        with pytest.raises(ValidationError, match="requires OpenFGA"):
+            GcpBackendSettings.model_validate(_settings(openfga={"enabled": False}))
+        with pytest.raises(ValidationError, match="all three OpenFGA secret references"):
+            GcpBackendSettings.model_validate(
+                _settings(openfga={"runtime_secret_ref": "projects/acme-shifter/secrets/policy-runtime"})
+            )
+        pinned = GcpBackendSettings.model_validate(
+            _settings(openfga={"store_id": "01J00000000000000000000001", "model_id": "01J00000000000000000000000"})
+        )
+        assert pinned.openfga.pinned_binding == ("01J00000000000000000000001", "01J00000000000000000000000")
+
+    def test_absent_references_resolve_to_the_generated_secret_names(self):
+        policy = GcpBackendSettings.model_validate(_settings()).openfga
+        resolved = resolve_openfga_settings(policy, project_id="acme-shifter", deployment="acme")
+        assert resolved.runtime_secret_ref == "projects/acme-shifter/secrets/shifter-acme-openfga-runtime"
+        assert resolved.admin_secret_ref == "projects/acme-shifter/secrets/shifter-acme-openfga-admin"
+        assert resolved.ca_secret_ref == "projects/acme-shifter/secrets/shifter-acme-openfga-ca"
+        explicit = resolved.model_copy(update={"runtime_secret_ref": "projects/acme-shifter/secrets/own-runtime"})
+        assert resolve_openfga_settings(explicit, project_id="acme-shifter", deployment="acme") is explicit
 
     def test_minimal_valid_settings(self):
         settings = GcpBackendSettings.model_validate(_settings())

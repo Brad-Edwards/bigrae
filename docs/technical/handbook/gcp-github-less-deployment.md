@@ -5,9 +5,14 @@ Operator: platform owner. Verified against the repository: 2026-10-29.
 
 This guide stands up, updates, and tears down a GCP deployment from a
 published release. The deployment needs no GitHub access, no GitHub
-Environment, and no self-hosted runner. The commands are in
-`scripts/bootstrap/deploy.py`. The design is in
+Environment, no self-hosted runner, and no repository checkout. The commands
+are in `scripts/bootstrap/deploy.py`, and the deployer image of each release
+holds them. The design is in
 `docs/architecture/github-less-gcp-deployment-design-2571.md`.
+
+An operator installs with one bundle and one command, `gcp-install`
+([Install](#install)), and updates with `gcp-deploy`
+([Update and roll back](#update-and-roll-back)).
 
 A CI deployment (`deploy.yml` with `_gcp-dev.yml`) runs the same commands. Its
 GitHub inputs are in [deploy-secrets.md](../../dev/deploy-secrets.md#gcp-gcp-dev).
@@ -20,7 +25,7 @@ When a command fails, use [RB023](../../runbooks/rb023-gcp-deployment.md).
 | Release | One source revision: five control-plane images, one deployer image, and their attestations in the release registry. |
 | Release registry | The public registry `ghcr.io/<owner>/<repository>` that `release-gcp.yml` writes and every deployment reads. |
 | Mirror | A registry that an operator fills with the release images by digest, for a deployment that cannot reach the release registry. |
-| Release manifest | `bigrae.gcp-release.v1` JSON with the source revision, the chart version, and the exact image digests. The deployer image holds it at `/opt/bigrae/release.json`. |
+| Release manifest | `bigrae.gcp-release.v1` JSON with the source revision, the chart version, the exact image digests, the pinned base range images, and the authorization model. The deployer image holds it at `/opt/bigrae/release.json`. |
 | Deployer image | The container that holds the commands, the Terraform roots, the Helm chart, and the pinned tools of one release. |
 | Deployment input bundle | The objects that one deployment reads: `bigrae.yaml`, the Terraform values, and the range image references. |
 | Deployment config bucket | The GCS bucket that holds the deployment input bundle and the deployment lock. |
@@ -31,8 +36,11 @@ When a command fails, use [RB023](../../runbooks/rb023-gcp-deployment.md).
 1. Make sure that the GCP project exists and that billing is on.
 2. Enable every Vertex AI model that the deployment configuration uses. The
    Vertex AI API alone does not enable a model.
-3. Make sure that your Google identity is in `impersonation_principals` of the
-   foundation for each purpose: `deploy`, `release_scan`, and `destroy`. The
+3. Make sure that your Google identity can administer the project IAM:
+   `roles/owner`, or `roles/resourcemanager.projectIamAdmin`,
+   `roles/iam.roleAdmin`, and `roles/iam.serviceAccountAdmin`. `gcp-install`
+   applies the foundation and names your identity in
+   `impersonation_principals` for `deploy`, `release_scan`, and `destroy`. The
    foundation gives each listed principal
    `roles/iam.serviceAccountTokenCreator` on that purpose identity only.
 4. Make sure that you can pull from the release registry. It is public. A
@@ -105,7 +113,9 @@ Each entry expires on 2026-11-30. After that date, the gate blocks each release
 until a maintainer updates the tools.
 
 `packer-gcp.yml` publishes the base guest images to the public GHCR packages
-`ghcr.io/<owner>/shifter-gce-<role>`.
+`ghcr.io/<owner>/shifter-gce-<role>`. Each release pins the newest validated
+digest of each role, and the release manifest carries the authorization model
+that each deploy publishes. A release stops when a base image is missing.
 
 ## Get and verify the deployer image
 
@@ -186,6 +196,49 @@ Use a mirror when the deployment cannot reach the release registry.
 They read each image at `<mirror>/<name>@<release digest>`. The provenance
 check verifies the same digests, so a mirror cannot change the release.
 
+## Install
+
+1. Write the deployment input bundle in a private directory
+   ([Author and publish the deployment input bundle](#author-and-publish-the-deployment-input-bundle),
+   steps 1 to 4). It is the only configuration of the deployment.
+2. Run the install from the deployer image of the release:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-install --inputs /path/to/bundle
+   ```
+
+3. Read the ingress address in the command output.
+4. Create a DNS A record for `deployment.domain` at that address. Do not proxy
+   the record.
+5. Run the deploy. It waits up to 60 minutes for the managed certificate to
+   become Active, then runs the smoke:
+
+   ```bash
+   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<project>-deployment-config
+   ```
+
+`gcp-install` does these steps. Each step is idempotent, so run the same
+command again after a failure:
+
+1. It validates the bundle.
+2. It applies the foundation without GitHub. It derives the inputs from the
+   bundle and names your active gcloud account as the only impersonation
+   principal. Pass `--operator` to name another principal.
+3. It creates the initial operator password secret when it does not exist, and
+   prints the command that reads it.
+4. It publishes the bundle to `gs://<project>-deployment-config`.
+5. It runs `gcp-deploy --first-install`. On a new deployment, that deploy:
+   - imports the base range images that the release pins, as your identity;
+   - generates the OpenFGA CA, server certificates, and keys into Secret
+     Manager;
+   - publishes the release's authorization model to OpenFGA;
+   - creates the first administrator from
+     `settings.operator_bootstrap.admin_email`;
+   - registers the in-box catalog as that administrator.
+
+The sections that follow describe each part, for a manual install and for
+later changes.
+
 ## Apply the foundation without GitHub
 
 1. Copy `scripts/bootstrap/gcp-foundation.github-less.example.tfvars.json` to a
@@ -246,7 +299,11 @@ principals can read it.
 
 The platform Terraform creates and fills the runtime secrets: the Django key,
 the database credentials, the Guacamole keys, the Redis credentials, and the
-domain controller password. You create only the first operator password.
+domain controller password. The deploy generates the OpenFGA credentials.
+`gcp-install` creates the first operator password in
+`shifter-<environment>-operator-password` when
+`settings.operator_bootstrap.admin_password_secret_ref` is not set. To supply
+your own password instead, create the secret first:
 
 1. Create the secret in the deployment project:
 
@@ -305,7 +362,6 @@ Other inputs that refer to secrets:
        enabled: false
      operator_bootstrap:
        admin_email: <operator>@<your-domain>
-       admin_password_secret_ref: projects/<project>/secrets/<operator-password-secret>
      post_deploy_smoke:
        user_email: <smoke-account>@<your-domain>
      release_trust:
@@ -318,7 +374,9 @@ Other inputs that refer to secrets:
    | `range_cells` | `backend` (`gce` or `gdc`), `zone`, `zones`, `project_id`, `host_identity_pool_size`, `private_google_access`, and `image_key_profiles`. A GCE range needs `zone`. |
    | `participant_openvpn.enabled` | Deploys the shared participant OpenVPN pool. The default is `false`. |
    | `ctf_content_bucket` | The private CTF content bucket, when the app secret carries CTF content references. |
-   | `operator_bootstrap` | The first operator. `gcp-deploy` requires this block. `enabled` defaults to `true` and then requires `admin_email`. Set `enabled: false` to create no operator. |
+   | `operator_bootstrap` | The first operator and the first administrator. `gcp-deploy` requires this block. `enabled` defaults to `true` and then requires `admin_email`. `admin_password_secret_ref` defaults to the secret that `gcp-install` creates. |
+   | `openfga` | Optional. Leave it unset: the deploy generates the credentials and publishes the release model. To pin your own, set all three `*_secret_ref` values, and optionally `store_id` and `model_id`. |
+   | `cloud_sql_iam_auth` | Native SQL login. It defaults to `true`, which the current release requires. |
    | `post_deploy_smoke.user_email` | An existing portal account for the smoke. An empty value skips the smoke. |
    | `release_trust` | The numeric repository ID and owner ID of the repository that publishes the release. |
 
@@ -366,7 +424,9 @@ Other inputs that refer to secrets:
    ./scripts/bootstrap/deploy.py gcp-config show --store gs://<bucket>
    ```
 
-8. Import the base guest images and record their exact references:
+8. The deploy imports the base range images that the release pins when the
+   bundle has no `range-images.json` roles. To import from another source
+   instead, record the references first:
 
    ```bash
    ./scripts/bootstrap/deploy.py gcp-images --project-id <project> \
@@ -408,46 +468,34 @@ The deployer image embeds its source revision, so the check omits `git` there.
 
 ## First install
 
-The fresh-install personal catalog credential requires an explicit
-`"bootstrap_personal_token_eligibility": true` in the private cutover facts
-before planning. The retained plan binds this choice; the default is false.
-Bootstrap grants only that separate eligibility to the exact first administrator,
-then activation verifies provider readback. Sign in after activation to issue
-the credential through the ordinary service. Other administrators gain no
-implicit eligibility, and ordinary delegation cannot bypass the self-grant or
-grantor-possession checks.
+`gcp-install` runs the first install ([Install](#install)). To run it
+separately on a published bundle:
 
-The bootstrap facts name the issuer and subject of the first administrator's
-Identity Platform account. On an empty database, the cutover creates the user,
-principal, and provider binding for that account before it plans. On a
-database with users, the cutover facts bind them instead.
-
-1. Run the first deploy with `--first-install` and the reviewed identity facts:
-
-   ```bash
-   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket> --first-install \
-     --identity-cutover-facts /run/operator/cutover.json \
-     --identity-bootstrap-facts /run/operator/bootstrap.json
-   ```
-
-2. Read the ingress address in the command output.
-3. Create a DNS A record for `deployment.domain` at that address. Do not proxy
-   the record.
-4. After DNS and the managed certificate are ready, sign in as the explicitly
-   granted native administrator and issue a current credential for catalog setup.
-   Keep its bearer value in an owner-only file.
-5. Run the deploy again without `--first-install`, adding
-   `--catalog-credential-file /run/operator/catalog-token`. The command waits up
-   to 60 minutes for the managed certificate to become Active and completes the
-   native catalog setup.
+```bash
+./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket> --first-install
+```
 
 In `--first-install` mode, the command accepts a certificate that covers the
-hostname but is not Active yet. It prints a DNS instruction. Missing catalog
-proof leaves the native application active but returns an explicit incomplete
-catalog result. The first-administrator grant does not create a credential.
-Cutover revokes pre-existing personal proofs. An already admitted service can
-supply a current proof through the same private-file option. See
-[native identity operations](../../ops/gcp-native-identity.md) for prerequisites.
+hostname but is not Active yet. It prints a DNS instruction.
+
+On an empty database, the deploy writes the identity facts itself. The cutover
+facts have no organizations, workspaces, or users to map. The bootstrap facts
+name the Identity Platform account that the infrastructure stage creates for
+`settings.operator_bootstrap.admin_email`. That account becomes the first
+administrator, with the separate personal-credential eligibility. Other
+administrators gain no implicit eligibility.
+
+A database with users needs the reviewed legacy conversion facts. Pass them
+with `--identity-cutover-facts` and `--identity-bootstrap-facts`. See
+[native identity operations](../../ops/gcp-native-identity.md).
+
+After activation, the deploy registers the release's in-box catalog as the
+bootstrap administrator: it issues a credential that holds only the
+installation content actions, lasts 15 minutes, and is revoked after the
+registration. When the configured operator is not the bootstrap administrator,
+or the registration fails, the deploy completes with a warning. Then sign in,
+issue a content credential, and run the deploy again with
+`--catalog-credential-file <private 0600 file>`.
 
 ## Update and roll back
 
@@ -457,9 +505,11 @@ supply a current proof through the same private-file option. See
 3. Run the deploy:
 
    ```bash
-   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket> \
-     --catalog-credential-file /run/operator/catalog-token
+   ./scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket>
    ```
+
+   The deploy publishes the release's authorization model, re-binds the
+   application to it, and registers new in-box packs.
 
 To roll back, deploy the deployer image of an earlier verified release. Do not
 retag an image.
@@ -470,14 +520,14 @@ The command runs these stages in order:
 
 | Stage | Identity | Steps |
 | --- | --- | --- |
-| Inputs | Your identity, then deploy | Load and validate the bundle, check the tooling revision, verify the provenance of the release images, and take the lock. |
+| Inputs | Your identity, then deploy | Load and validate the bundle, check the tooling revision, verify the provenance of the release images, import the release's base range images when the bundle has none, and take the lock. |
 | Infrastructure | Deploy | Initialize Identity Platform, harden the state bucket, apply Terraform, verify range audit telemetry, and seed the provider account without an application grant. |
 | Preconditions | Deploy | Check the GCE range inputs and images. |
 | Images | Deploy | Copy each release image and its attestations into the deployment registry by digest. |
 | Scan | Release scan | Scan each exact digest with Trivy for HIGH and CRITICAL findings. |
 | Verify | Deploy | Verify the provenance of each image. There is no bypass. |
-| Rollout | Deploy | Probe and drain when required, migrate storage, verify native activation, restore the Helm release, wait for readiness, roll out the OpenVPN pool, record the running images, and wait for the ingress and certificate. |
-| Catalog | Native application proof | Initialize the declared installation catalog after readiness through ordinary registration, conformance and publication. Missing or denied proof leaves this phase incomplete. |
+| Rollout | Deploy | Create the OpenFGA credentials on first use, probe and drain when required, migrate storage, publish the release's authorization model, verify native activation, restore the Helm release, wait for readiness, roll out the OpenVPN pool, record the running images, and wait for the ingress and certificate. |
+| Catalog | Bootstrap administrator, or a supplied native credential | Register the in-box catalog after readiness through ordinary registration, conformance and publication. A failure leaves catalog work pending with a warning; the application stays active. |
 | Smoke | Deploy | Run the advisory range smoke. |
 
 `--stage infrastructure` and `--stage rollout` run one stage. Each still

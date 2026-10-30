@@ -145,8 +145,11 @@ class TestDeploymentInputs:
         inputs = load_deployment_inputs(
             str(write_bundle(tmp_path / "d", config=no_ref)), tmp_path / "y", FakeRunner(), {}
         )
-        with pytest.raises(DeploymentInputError, match="admin_password_secret_ref"):
-            resolve_operator_password(inputs, FakeRunner(), {})
+        # Without a reference, the deploy reads the secret that gcp-install creates (#2679).
+        runner = FakeRunner().on(["gcloud", "secrets", "versions", "access"], ProcessResult(0, "generated\n"))
+        assert resolve_operator_password(inputs, runner, {}) == "generated"
+        access = runner.find("gcloud", "secrets", "versions", "access")[0].argv
+        assert access[access.index("--secret") + 1] == f"shifter-{inputs.environment}-operator-password"
 
 
 class TestDeployLock:

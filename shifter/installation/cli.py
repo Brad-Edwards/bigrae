@@ -346,6 +346,46 @@ def _release_images(items: list[str]) -> dict[str, str]:
     return images
 
 
+_RELEASE_MANIFEST_SUBJECT = "GCP release manifest"
+
+
+def _base_images(pairs: list[str]) -> dict[str, str]:
+    """Parse ``ROLE=IDENTITY`` base image arguments; a repeated role is an error."""
+    images: dict[str, str] = {}
+    for pair in pairs:
+        role, separator, identity = pair.partition("=")
+        if not separator or role in images:
+            raise InstallationConfigError(
+                [ConfigIssue("release.base_images", f"invalid or repeated --base-image {role!r}")],
+                subject=_RELEASE_MANIFEST_SUBJECT,
+            )
+        images[role] = identity
+    return images
+
+
+def _authorization_model(from_stdin: bool) -> dict[str, object] | None:
+    """Read the authorization model JSON from standard input, when requested.
+
+    Like the manifest output, the model input uses a shell redirect: the command
+    opens no caller-named file.
+    """
+    if not from_stdin:
+        return None
+    try:
+        model = json.loads(sys.stdin.read())
+    except (OSError, json.JSONDecodeError):
+        raise InstallationConfigError(
+            [ConfigIssue("release.authorization_model", "standard input is not authorization model JSON")],
+            subject=_RELEASE_MANIFEST_SUBJECT,
+        ) from None
+    if not isinstance(model, dict):
+        raise InstallationConfigError(
+            [ConfigIssue("release.authorization_model", "the authorization model must be a JSON object")],
+            subject=_RELEASE_MANIFEST_SUBJECT,
+        )
+    return model
+
+
 def _cmd_gcp_release_manifest(args: argparse.Namespace) -> int:
     """Write one validated GCP release manifest from explicit image identities to stdout."""
     try:
@@ -354,6 +394,8 @@ def _cmd_gcp_release_manifest(args: argparse.Namespace) -> int:
             source_revision=args.source_revision,
             chart_version=args.chart_version,
             images=_release_images(args.image),
+            base_images=_base_images(args.base_image),
+            authorization_model=_authorization_model(args.authorization_model_stdin),
         )
     except InstallationConfigError as exc:
         print(str(exc), file=sys.stderr)

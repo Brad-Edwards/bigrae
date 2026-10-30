@@ -6,7 +6,8 @@ architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-30 for the AWS native identity bindings (#2313).
+**Reviewed:** 2026-10-30 for the AWS native identity bindings (#2313) and the
+one-command GCP install (#2679).
 This describes source behavior, not a certificate of a live deployment.
 
 BigRAE is the current product name. Public BigRAE config, SDK, client and plugin
@@ -127,7 +128,12 @@ hosting separate from the range guest backend. `gcp-destroy` keeps the Artifact
 Registry key ring and key, which GCP can not delete. A later install adopts them
 with import blocks. The range network peers with the platform network after the
 Service Networking connection, because GCP runs one peering operation for each
-network at a time (#2643).
+network at a time (#2643). `deploy.py gcp-install` installs a tenant from a
+release and one bundle with no checkout (#2679). The release manifest pins the
+base range images and carries the OpenFGA authorization model. The first deploy
+generates the OpenFGA credentials, publishes the model, and creates the first
+administrator from the configured operator account. A tenant platform creates no
+image-build infrastructure; only maintainer build environments opt in.
 
 | Boundary | GCP | AWS |
 | --- | --- | --- |

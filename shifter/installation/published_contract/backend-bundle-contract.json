@@ -4590,7 +4590,7 @@
           },
           "GcpOpenFgaSettings": {
             "additionalProperties": false,
-            "description": "Operator references for the private released policy service; no payloads.",
+            "description": "Operator references for the private released policy service; no payloads.\n\nOpenFGA is required. Leave the references empty to let the deploy generate\nthem, and leave the store and model IDs empty to publish the release model.",
             "properties": {
               "admin_secret_ref": {
                 "anyOf": [
@@ -4621,7 +4621,7 @@
                 "title": "Ca Secret Ref"
               },
               "enabled": {
-                "default": false,
+                "default": true,
                 "title": "Enabled",
                 "type": "boolean"
               },
@@ -5073,8 +5073,8 @@
         "description": "Closed operator-intent settings for the ``gcp`` backend bundle (PLAT-2003, #729).\n\nOnly genuine operator intent lives here (projects and region). Terraform variables,\ngenerated runtime outputs, and provider SDK payloads are not settings — copying them in\nwould turn ``settings`` into a second provider schema. ``extra='forbid'`` fails unknown\nGCP settings closed. The shared cross-backend ``range_egress`` policy is deliberately not\ndeclared; the loader validates it separately for every backend (see the module docstring).",
         "properties": {
           "cloud_sql_iam_auth": {
-            "default": false,
-            "description": "Use attached workload identities and the official native Cloud SQL proxy for runtime database login.",
+            "default": true,
+            "description": "Use attached workload identities and the official native Cloud SQL proxy for runtime database login. The current release requires it.",
             "title": "Cloud Sql Iam Auth",
             "type": "boolean"
           },

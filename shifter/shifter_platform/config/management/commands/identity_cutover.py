@@ -34,6 +34,7 @@ from management.services import (
     PrincipalConflictError,
     apply_identity_provider_bindings,
     identity_cutover_principals,
+    installation_user_count,
     invalidate_pre_cutover_admission,
 )
 from shared.authorization import AuthorizationProvider, CutoverRelationshipChange
@@ -214,6 +215,9 @@ def _status_result(probe: bool) -> dict[str, object]:
     """Report persisted state and optionally require the activated runtime probe."""
     state = get_identity_cutover_state(allow_missing_schema=probe)
     result: dict[str, object] = {"state": "absent"} if state is None else _state_result(state)
+    if probe and result["state"] != "activated":
+        # Only a count: the deploy generates fresh-install facts for an empty installation (#2679).
+        result["users"] = installation_user_count()
     if probe and result["state"] == "activated":
         from config.identity_runtime import IdentityRuntimeNotReady, require_identity_runtime_ready
 

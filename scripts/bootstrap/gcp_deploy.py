@@ -17,6 +17,7 @@ CI runs the same stages in separate jobs (``--stage``) with ``--identity ambient
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import secrets
 import shutil
@@ -27,7 +28,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from bootstrap_core import error, get_repo_root, header, info, success, warn
 from gcp_deploy_stages import (
@@ -309,6 +310,37 @@ def _verify(runner: ProcessRunner, identities: Mapping[str, str], trust: Release
     verify_release_provenance(identities, trust, token_provider=lambda: access_token(runner, {}))
 
 
+def import_release_base_images(
+    options: DeployOptions, inputs: DeploymentInputs, manifest: GcpReleaseManifest | None
+) -> DeploymentInputs:
+    """Import the release's pinned base range images when the bundle has none yet (#2679).
+
+    The import runs as the operator: the deploy identity holds no image
+    administration (ADR-004-R23). An unchanged digest reuses the existing image,
+    and the references go to ``range-images.json`` in the store.
+    """
+    if (
+        manifest is None
+        or not manifest.base_images
+        or inputs.settings.range_cells.backend != "gce"  # type: ignore[attr-defined]
+        or {"linux", "kali", "dc"} <= set(inputs.range_images)
+    ):
+        return inputs
+    from gcp_base_images import import_pinned, range_images_from_imports, render_range_image_env
+
+    imported = import_pinned(
+        project=inputs.project_id,
+        region=str(inputs.settings.region),  # type: ignore[attr-defined]
+        base_images=dict(manifest.base_images),
+    )
+    images = range_images_from_imports(render_range_image_env(imported))
+    if options.source.startswith("gs://"):
+        from gcp_config_store import write_range_images
+
+        write_range_images(options.source, images)
+    return cast(DeploymentInputs, dataclasses.replace(inputs, range_images={**inputs.range_images, **images}))
+
+
 def _release(options: DeployOptions, inputs: DeploymentInputs) -> tuple[GcpReleaseManifest | None, ReleaseTrust | None]:
     """Load the release manifest and its trust anchor when the run needs them.
 
@@ -416,6 +448,7 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
             # the release revision and that the release images verify against the
             # deployment trust anchor (ADR-070-R6).
             _operator_gates(runner, *_required_release(manifest, trust), deploy_env, options.release_source)
+            inputs = import_release_base_images(options, inputs, manifest)
         lock = acquire_deploy_lock(runner, options, inputs, deploy_env, "gcp-deploy", run_id)
         with scoped_environment(deploy_env):
             inputs, infrastructure = _infrastructure(runner, options, inputs)
@@ -444,6 +477,7 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
                 identity_cutover_facts=options.identity_cutover_facts,
                 identity_bootstrap_facts=options.identity_bootstrap_facts,
                 catalog_credential_file=options.catalog_credential_file,
+                authorization_model=manifest.authorization_model,
             )
             rollout_stage(runner, inputs, infrastructure, request)
             smoke_ok = _smoke(runner, options, inputs, infrastructure, run_id)

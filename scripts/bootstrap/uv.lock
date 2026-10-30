@@ -25,6 +25,7 @@ name = "bootstrap"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "cryptography" },
     { name = "installation" },
     { name = "sigstore" },
 ]
@@ -39,6 +40,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "cryptography", specifier = ">=50.0.2" },
     { name = "installation", editable = "../../shifter/installation" },
     { name = "sigstore", specifier = ">=4.5.1" },
 ]

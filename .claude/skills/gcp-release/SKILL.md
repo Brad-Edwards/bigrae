@@ -45,7 +45,8 @@ deploy-test branch" section of the
    `Attestation created for <registry>/deployer-gcp@sha256:<digest>`.
 5. Read the release manifest from the deployer image (gotchas: "Read the
    release manifest without Docker"). Check that `source_revision` equals the
-   commit that you released.
+   commit that you released, and that `base_images` and
+   `authorization_model` are present.
 6. After the first release of a repository, ask the user to make the six
    packages public (gotchas: "Make new release packages public").
 
@@ -56,4 +57,6 @@ deploy-test branch" section of the
 | Deployer provider mirror | A Terraform root or module lock file does not record a provider. Run `terraform init -backend=false` for that directory and commit the lock change. |
 | Scan the deployer image | A tool binary has a fixable HIGH or CRITICAL finding. Bump the tool, or build it from a pinned source commit when no fixed vendor build exists. |
 | A build stage that fetches source | Check the pinned commit. An annotated tag object SHA is not the commit SHA. |
+| Pin the base range images | A `shifter-gce-<role>` package is missing under `ghcr.io/<owner>` (gotchas: "Base images must exist under the release owner"). |
+| Render the authorization model | The platform environment did not sync, or the OpenFGA CLI image did not run. |
 | Control-plane image scan at deploy time | A bundled dependency is vulnerable. Fix it in the image build; see the Guacamole bundled-jar patch for the pattern. |

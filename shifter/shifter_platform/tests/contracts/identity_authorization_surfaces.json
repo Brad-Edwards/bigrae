@@ -4046,6 +4046,14 @@
       "disposition": "retained",
       "kind": "management-command",
       "scope": "deployment-operator",
+      "surface": "config:initialize_installation_catalog",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
       "surface": "ctf:ctf_recompute_leaderboard",
       "target": "installation"
     },

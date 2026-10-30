@@ -8,7 +8,7 @@ from pathlib import Path
 
 from installation.loader import load_root_config
 from installation.openfga_bundles import policy_documents
-from installation.settings_gcp import GcpBackendSettings, GcpOpenFgaSettings
+from installation.settings_gcp import GcpBackendSettings, GcpOpenFgaSettings, resolve_openfga_settings
 
 
 def fetch_secret(reference: str) -> dict:
@@ -53,8 +53,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     args = parser.parse_args()
-    settings = GcpBackendSettings.from_root_settings(load_root_config(args.config).settings)
-    sync(settings.openfga.model_dump())
+    root = load_root_config(args.config)
+    settings = GcpBackendSettings.from_root_settings(root.settings)
+    # A fresh install sets no references; the deploy generated the derived ones (#2679).
+    policy = resolve_openfga_settings(settings.openfga, project_id=settings.project_id, deployment=root.deployment.name)
+    sync(policy.model_dump())
     return 0
 
 

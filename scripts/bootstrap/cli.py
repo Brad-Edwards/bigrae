@@ -1,6 +1,7 @@
 """Command-line wiring for the bootstrap deployment CLI."""
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -33,7 +34,13 @@ from bootstrap_core import (
     success,
     warn,
 )
-from gcp_base_images import BaseImageError, discover_and_import, render_range_image_env
+from gcp_base_images import (
+    BaseImageError,
+    discover_and_import,
+    range_images_from_imports,
+    render_range_image_env,
+    resolve_release_base_images,
+)
 from gcp_cli import LIFECYCLE_COMMANDS, add_lifecycle_subparsers, dispatch_lifecycle
 from gcp_config_store import write_range_images
 from gcp_control_plane import gdc_bootstrap_cluster
@@ -68,7 +75,6 @@ HELP_YES = (
     "Assume 'yes' for routine confirmation prompts so the bootstrap can run without a TTY "
     "(issue #1639). Does NOT authorize destructive cleanup; the leftover sweep has its own opt-in."
 )
-_RANGE_IMAGE_ENV_KEYS = frozenset({"GCP_RANGE_LINUX_IMAGE", "GCP_RANGE_KALI_IMAGE", "GCP_RANGE_DC_IMAGE"})
 _AWS_COMPONENTS = ("core", "range", "portal")
 _PREFLIGHT_COMPONENTS = (*_AWS_COMPONENTS, "deploy")
 
@@ -235,6 +241,18 @@ def gcp_runners_deployment(
     )
 
 
+def print_release_base_images(source: str) -> dict[str, str]:
+    """Print the exact base images that a release pins (#2679); it needs no GCP project.
+
+    Standard output carries only the JSON, so the release workflow can parse it;
+    the progress lines go to standard error.
+    """
+    with _registry_credentials(source), contextlib.redirect_stdout(sys.stderr):
+        pinned = resolve_release_base_images(source)
+    print(json.dumps(pinned, indent=2, sort_keys=True))
+    return pinned
+
+
 def gcp_base_images_import(
     project_id: str,
     region: str,
@@ -266,20 +284,6 @@ def gcp_base_images_import(
     else:
         print(json.dumps(images, indent=2, sort_keys=True))
     return images
-
-
-_RANGE_ENV_TO_ROLE = {
-    "GCP_RANGE_LINUX_IMAGE": "linux",
-    "GCP_RANGE_KALI_IMAGE": "kali",
-    "GCP_RANGE_DC_IMAGE": "dc",
-}
-
-
-def range_images_from_imports(range_image_env: dict[str, str]) -> dict[str, str]:
-    """Convert imported ``GCP_RANGE_*_IMAGE`` values to ``range-images.json`` roles."""
-    if set(range_image_env) != _RANGE_IMAGE_ENV_KEYS:
-        raise BaseImageError("public base-image import did not return the complete range-image set")
-    return {_RANGE_ENV_TO_ROLE[key]: value for key, value in range_image_env.items()}
 
 
 @contextmanager
@@ -484,6 +488,11 @@ def _add_gcp_images_subparser(subparsers: argparse._SubParsersAction) -> None:
     )
     images_parser.add_argument("--region", default="us-central1", help="Region for the temporary transfer bucket")
     images_parser.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
+    images_parser.add_argument(
+        "--resolve",
+        action="store_true",
+        help="Print the newest validated <package>@<digest> of each role as JSON, for a release to pin; import nothing",
+    )
 
 
 def _add_eks_subparsers(subparsers: argparse._SubParsersAction) -> None:
@@ -787,12 +796,16 @@ _COMMAND_HANDLERS = {
     "full": _handle_full,
     "runners": _dispatch_runners,
     "gdc-bootstrap": _handle_gdc_bootstrap,
-    "gcp-images": lambda args: gcp_base_images_import(
-        args.project_id,
-        args.region,
-        source=args.source,
-        store=args.store,
-        dry_run=args.dry_run,
+    "gcp-images": lambda args: (
+        print_release_base_images(args.source)
+        if args.resolve
+        else gcp_base_images_import(
+            args.project_id,
+            args.region,
+            source=args.source,
+            store=args.store,
+            dry_run=args.dry_run,
+        )
     ),
 }
 

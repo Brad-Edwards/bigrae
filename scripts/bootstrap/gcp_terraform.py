@@ -67,6 +67,12 @@ _RETRYABLE_PERMISSION_MARKERS = (
     "error 403",
     " denied on resource ",
 )
+# A Compute Engine stockout is transient too. Its text also contains "does not
+# have", so it is checked first (#2685).
+_RETRYABLE_CAPACITY_MARKERS = (
+    "does not have enough resources available",
+    "zone_resource_pool_exhausted",
+)
 _DESTROY_ATTEMPTS = 6
 
 
@@ -214,10 +220,14 @@ def state_addresses(runner: ProcessRunner, ctx: TerraformContext) -> list[str]:
     return [line.strip() for line in result.stdout.splitlines() if line.strip()]
 
 
-def _is_permission_propagation(text: str) -> bool:
-    """Return True when ``text`` shows an IAM change that has not propagated yet."""
+def _transient_cause(text: str) -> str | None:
+    """Return the transient cause that ``text`` shows, or None for a failure to report."""
     lowered = text.lower()
-    return any(marker in lowered for marker in _RETRYABLE_PERMISSION_MARKERS)
+    if any(marker in lowered for marker in _RETRYABLE_CAPACITY_MARKERS):
+        return "a Compute Engine capacity shortage"
+    if any(marker in lowered for marker in _RETRYABLE_PERMISSION_MARKERS):
+        return "an IAM propagation error"
+    return None
 
 
 def terraform_apply(
@@ -229,7 +239,7 @@ def terraform_apply(
     sleep: Callable[[float], None] = time.sleep,
     variables: Mapping[str, str] | None = None,
 ) -> None:
-    """Apply the platform root, retrying only IAM propagation failures.
+    """Apply the platform root, retrying only IAM propagation and capacity failures.
 
     ``variables`` are command-owned values that the command decides at apply time.
     """
@@ -241,14 +251,12 @@ def terraform_apply(
             print(result.stdout, end="")
         if result.returncode == 0:
             return
-        combined = f"{result.stdout}\n{result.stderr}"
-        if attempt < max_attempts and _is_permission_propagation(combined):
-            # Show the error, so an operator can tell propagation from a real failure (#2601).
+        cause = _transient_cause(f"{result.stdout}\n{result.stderr}")
+        if attempt < max_attempts and cause:
+            # Show the error, so an operator can tell a transient cause from a real failure (#2601).
             if result.stderr:
                 print(result.stderr, end="")
-            warn(
-                f"Terraform apply hit an IAM propagation error; retrying in {sleep_seconds}s ({attempt}/{max_attempts})"
-            )
+            warn(f"Terraform apply hit {cause}; retrying in {sleep_seconds}s ({attempt}/{max_attempts})")
             sleep(sleep_seconds)
             continue
         if result.stderr:

@@ -366,3 +366,9 @@ variable "enable_gcs_usage_log_delivery" {
   type        = bool
   default     = false
 }
+
+variable "image_builder_enabled" {
+  description = "Create the image-builder identity for a foundation image-build network. A federated build purpose also creates it (#2679)."
+  type        = bool
+  default     = false
+}

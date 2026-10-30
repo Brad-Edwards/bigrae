@@ -269,6 +269,13 @@ def load_deployment_inputs(
     )
 
 
+def operator_password_reference(inputs: DeploymentInputs) -> str:
+    """Return the operator password secret: the configured one, or the one that gcp-install creates (#2679)."""
+    operator = inputs.settings.operator_bootstrap  # type: ignore[attr-defined]
+    configured = operator.admin_password_secret_ref if operator is not None else None
+    return configured or f"projects/{inputs.project_id}/secrets/shifter-{inputs.environment}-operator-password"
+
+
 def resolve_operator_password(
     inputs: DeploymentInputs,
     runner: ProcessRunner,
@@ -294,11 +301,7 @@ def resolve_operator_password(
         if not value:
             raise DeploymentInputError(f"operator password environment variable {password_env} is empty")
         return value
-    reference = operator.admin_password_secret_ref
-    if not reference:
-        raise DeploymentInputError(
-            "settings.operator_bootstrap.admin_password_secret_ref is required when operator bootstrap is enabled"
-        )
+    reference = operator_password_reference(inputs)
     _, project, _, secret = reference.split("/", 3)
     try:
         result = runner.run(

@@ -59,4 +59,5 @@ module "cicd_oidc_identity" {
   impersonation_principals               = var.impersonation_principals
   deployment_config_bucket_name          = var.deployment_config_bucket_name
   enable_gcs_usage_log_delivery          = var.enable_gcs_usage_log_delivery
+  image_builder_enabled                  = var.enable_image_build_network
 }
