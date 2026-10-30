@@ -11,7 +11,7 @@ import pytest
 
 import gcp_terraform
 from gcp_inputs import load_deployment_inputs
-from gcp_kube import apply_manifest, cluster_name, kube_env, kubectl_json
+from gcp_kube import apply_manifest, cluster_name, kube_env, kubectl_json, read_job_log
 from gcp_prereqs import (
     STATE_RETENTION_SECONDS,
     PrerequisiteError,
@@ -19,7 +19,7 @@ from gcp_prereqs import (
     ensure_state_bucket,
     release_disabled_broker_load_balancer,
 )
-from gcp_process import ProcessResult
+from gcp_process import GcpCommandError, ProcessResult
 from gcp_terraform import (
     TerraformStepError,
     apply_destroy_settings,
@@ -346,3 +346,20 @@ class TestKube:
         apply_manifest(applier, {}, {"kind": "Secret", "data": {"k": "v"}})
         assert applier.calls[0].argv == ["kubectl", "apply", "-f", "-"]
         assert json.loads(applier.calls[0].input_text)["kind"] == "Secret"
+
+    def test_job_log_read_retries_and_reports_only_kubectl_errors(self, capsys):
+        """#2687: the read is idempotent; container output stays out of the failure."""
+        tunnel = 'Error from server: Get "https://10.0.0.5:10250/containerLogs/x": No agent available'
+        attempts = iter([ProcessResult(1, "", tunnel), ProcessResult(0, "BIGRAE_RESULT=ok\n")])
+        runner = FakeRunner().on(["kubectl", "logs"], lambda a, e, s: next(attempts))
+        sleeps = []
+        assert read_job_log(runner, "probe", namespace="ns", container="portal", sleep=sleeps.append) == (
+            "BIGRAE_RESULT=ok\n"
+        )
+        assert runner.calls[0].argv == ["kubectl", "logs", "job/probe", "-n", "ns", "-c", "portal"]
+        assert sleeps == [15] and "No agent available; retrying in 15s (1/5)" in capsys.readouterr().out
+        failing = FakeRunner().on(["kubectl", "logs"], ProcessResult(1, "private container output", "pod not found"))
+        with pytest.raises(GcpCommandError) as caught:
+            read_job_log(failing, "probe", namespace="ns", sleep=sleeps.append)
+        assert "pod not found" in str(caught.value) and "private" not in str(caught.value)
+        assert len(failing.calls) == 5 and "-c" not in failing.calls[0].argv

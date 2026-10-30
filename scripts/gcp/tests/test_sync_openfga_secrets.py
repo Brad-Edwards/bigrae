@@ -101,3 +101,33 @@ def test_policy_secret_delivery_is_separate_and_rejects_overlapping_authority(mo
     with pytest.raises(ValueError, match="separate"):
         module.sync(policy)
     assert delivered == []
+
+
+def test_fresh_install_reads_the_derived_secret_references(monkeypatch, tmp_path):
+    """#2679: a config without OpenFGA references syncs the secrets that the deploy generates."""
+    spec = importlib.util.spec_from_file_location(
+        "policy_secrets_main", Path(__file__).resolve().parents[1] / "sync_openfga_secrets.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    config = tmp_path / "bigrae.yaml"
+    config.write_text(
+        "version: 1\n"
+        "backend: gcp\n"
+        "deployment:\n  name: acme\n  domain: portal.example.test\n  profile: prod\n"
+        "secrets:\n  django_secret_key: prompt\n"
+        "settings:\n"
+        "  project_id: acme-shifter\n"
+        "  region: us-central1\n"
+        "  dynamic_secret_project_id: acme-shifter\n"
+        "  range_cells:\n    zone: us-central1-a\n"
+        "  operator_bootstrap:\n    admin_email: ops@example.com\n"
+        '  release_trust:\n    github_repository_id: "123"\n    github_owner_id: "456"\n'
+    )
+    synced = []
+    monkeypatch.setattr(module, "sync", synced.append)
+    monkeypatch.setattr("sys.argv", ["sync_openfga_secrets.py", "--config", str(config)])
+    assert module.main() == 0
+    assert synced[0]["runtime_secret_ref"] == "projects/acme-shifter/secrets/shifter-acme-openfga-runtime"
+    assert synced[0]["admin_secret_ref"] == "projects/acme-shifter/secrets/shifter-acme-openfga-admin"
+    assert synced[0]["ca_secret_ref"] == "projects/acme-shifter/secrets/shifter-acme-openfga-ca"

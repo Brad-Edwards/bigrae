@@ -5,8 +5,11 @@
 locals {
   # An empty purpose_contexts map disables GitHub federation: no pool, no
   # provider, and no federated binding exist.
-  federation_enabled   = length(var.purpose_contexts) > 0
-  build_enabled        = contains(keys(var.purpose_contexts), "build")
+  federation_enabled = length(var.purpose_contexts) > 0
+  build_enabled      = contains(keys(var.purpose_contexts), "build")
+  # A tenant install never builds images (#2679): the builder identity exists
+  # only for a federated build purpose or a foundation image-build network.
+  builder_enabled      = local.build_enabled || var.image_builder_enabled
   validate_enabled     = contains(keys(var.purpose_contexts), "validate")
   promote_enabled      = contains(keys(var.purpose_contexts), "promote")
   release_scan_enabled = contains(keys(var.purpose_contexts), "release_scan") || contains(keys(var.impersonation_principals), "release_scan")
@@ -125,9 +128,15 @@ moved {
 }
 
 resource "google_service_account" "packer_build" {
+  count        = local.builder_enabled ? 1 : 0
   project      = var.project_id
   account_id   = "${replace(var.name_prefix, "-", "")}-packer"
   display_name = "Shifter ${var.environment} GCE image builder"
+}
+
+moved {
+  from = google_service_account.packer_build
+  to   = google_service_account.packer_build[0]
 }
 
 resource "google_service_account" "validate" {
@@ -569,7 +578,7 @@ resource "google_storage_bucket_iam_member" "packer_build_evidence_reader" {
   count  = local.build_enabled ? 1 : 0
   bucket = google_storage_bucket.release_evidence.name
   role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${google_service_account.packer_build.email}"
+  member = "serviceAccount:${local.service_account_emails.build}"
 }
 
 resource "google_storage_bucket_iam_member" "validate_evidence_reader" {

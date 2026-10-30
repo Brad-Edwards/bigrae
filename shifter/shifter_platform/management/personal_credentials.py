@@ -275,3 +275,63 @@ def rotate_personal_token(credential_uuid: UUID, **kwargs: Unpack[RotateArgument
             actor_principal_uuid=actor.principal.uuid,
         )
     return token, raw
+
+
+# The in-box catalog registration of a GitHub-less install (#2679) acts as the
+# bootstrap administrator that the identity cutover recorded. The credential
+# carries only the installation content actions, lives for minutes, never
+# leaves the deploy Job process, and is revoked when registration ends.
+_CATALOG_ACTIONS = (
+    "installation.read_content",
+    "installation.manage_content",
+    "installation.manage_sources",
+    "installation.prepare_content",
+    "installation.publish_content",
+)
+_CATALOG_CREDENTIAL_MINUTES = 15
+
+
+def issue_installation_catalog_credential(principal_uuid: UUID) -> tuple[ApiToken, str]:
+    """Issue a short-lived installation content credential for the bootstrap administrator."""
+    from datetime import timedelta
+
+    from .models import Principal
+
+    principal = (
+        Principal.objects.select_related("user")
+        .filter(uuid=principal_uuid, is_active=True, kind=Principal.Kind.HUMAN, user__is_active=True)
+        .first()
+    )
+    if principal is None or principal.user is None:
+        raise ValueError(_CREDENTIAL_OPERATION_DENIED)
+    scopes = [AUTHORIZATION_ACTION_SCOPES[action] for action in _CATALOG_ACTIONS]
+    with transaction.atomic():
+        token, raw = ApiToken.create_token(
+            name="installation-catalog",
+            created_by=principal.user,
+            scopes=scopes,
+            expires_at=timezone.now() + timedelta(minutes=_CATALOG_CREDENTIAL_MINUTES),
+            target=TargetRef("installation"),
+        )
+        record_token_event(
+            TokenEvent.CREATED,
+            token_id=token.token_id,
+            token_pk=token.pk,
+            actor_id=principal.user.pk,
+            actor_principal_uuid=principal.uuid,
+            context="installation catalog initialization",
+        )
+    return token, raw
+
+
+def revoke_installation_catalog_credential(token: ApiToken) -> None:
+    """Revoke the installation catalog credential and record the revocation."""
+    token.revoke()
+    record_token_event(
+        TokenEvent.REVOKED,
+        token_id=token.token_id,
+        token_pk=token.pk,
+        actor_id=token.created_by_id,
+        actor_principal_uuid=token.principal_uuid,
+        context="installation catalog initialization",
+    )

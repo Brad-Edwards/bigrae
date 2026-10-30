@@ -762,7 +762,14 @@ class TestGcpPurposeIdentityWorkflows:
         assert 'resource "google_iam_workload_identity_pool_provider" "github"' in module
         assert 'resource "google_service_account" "packer_build"' in module
         packer_block = module.split('resource "google_service_account" "packer_build"', 1)[1].split("}\n", 1)[0]
-        assert re.search(r"^\s*count\s*=", packer_block, re.MULTILINE) is None
+        # A tenant foundation has no builder identity (#2679); a moved block keeps
+        # the existing state address of a build environment's identity.
+        if re.search(r"^\s*count\s*=", packer_block, re.MULTILINE):
+            moved = re.sub(r"\s+", " ", module)
+            assert (
+                "moved { from = google_service_account.packer_build to = google_service_account.packer_build[0] }"
+                in moved
+            )
         assert "github_gcp_dev" not in module
 
     def test_no_sa_validator_has_dedicated_iap_firewall_target(self):
