@@ -31,6 +31,7 @@ _GATEWAY_CONTROL_PATH = "/api/v1/mission-control/guacamole/control/authority/"
 
 
 def _output(outputs: Mapping[str, object], name: str) -> object:
+    """Return the value of a required Terraform output."""
     raw = outputs.get(name)
     if not isinstance(raw, Mapping) or "value" not in raw:
         raise ValueError(f"missing required EKS Terraform output {name!r}")
@@ -38,6 +39,7 @@ def _output(outputs: Mapping[str, object], name: str) -> object:
 
 
 def _string_output(outputs: Mapping[str, object], name: str) -> str:
+    """Return a required Terraform output that must be a non-empty string."""
     value = _output(outputs, name)
     if not isinstance(value, str) or not value:
         raise ValueError(f"EKS Terraform output {name!r} must be a non-empty string")
@@ -113,6 +115,7 @@ def chart_values(
 
 
 def _datastore_document(duty: str, payload: str) -> dict[str, object]:
+    """Return the named Kubernetes Secret for one validated datastore login."""
     credential = json.loads(payload)
     username, password = credential.get("username"), credential.get("password")
     if (

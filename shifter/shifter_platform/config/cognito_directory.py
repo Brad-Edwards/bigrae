@@ -14,7 +14,8 @@ from dataclasses import dataclass
 from typing import Any, Protocol
 
 _ISSUER = re.compile(
-    r"https://cognito-idp\.(?P<region>[a-z]{2}(?:-[a-z]+)+-\d)\.amazonaws\.com/(?P<pool>[a-z]{2}(?:-[a-z]+)+-\d_[A-Za-z0-9]{1,55})",
+    r"https://cognito-idp\.(?P<region>[a-z]{2}(?:-[a-z]+)+-\d)\.amazonaws\.com/"
+    r"(?P<pool>[a-z]{2}(?:-[a-z]+)+-\d_[A-Za-z0-9]{1,55})",
     flags=re.ASCII,
 )
 _clients: dict[str, Any] = {}
@@ -40,6 +41,8 @@ def user_pool(issuer: str) -> tuple[str, str]:
 
 
 class _CognitoErrors(Protocol):
+    """The Cognito error that marks a deleted user."""
+
     UserNotFoundException: type[Exception]
 
 
@@ -48,8 +51,8 @@ class CognitoClient(Protocol):
 
     exceptions: _CognitoErrors
 
-    def admin_get_user(self, *, UserPoolId: str, Username: str) -> Mapping[str, Any]:
-        """Return one user's lifecycle state."""
+    def admin_get_user(self, **request: str) -> Mapping[str, Any]:
+        """Return one user's lifecycle state; ``request`` holds ``UserPoolId`` and ``Username``."""
 
 
 def _client(region: str) -> CognitoClient:

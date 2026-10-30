@@ -19,6 +19,8 @@ from shared.aws_web_identity import verify_aws_web_identity_token
 from shared.model_access import ContractError
 from shared.model_access.control_identity import verify_google_control_assertion
 
+_UNAUTHORIZED = "control.unauthorized"
+
 
 @dataclass(frozen=True)
 class GatewayIdentity:
@@ -52,7 +54,7 @@ class GatewayAuthentication(BaseAuthentication):
             elif email and subject:
                 self._verify_google(assertion, audience, email, subject)
             else:
-                raise ContractError("control.unauthorized")
+                raise ContractError(_UNAUTHORIZED)
         except (UnicodeError, ContractError):
             raise AuthenticationFailed("Gateway authentication failed") from None
         return GatewayIdentity(), None
@@ -72,7 +74,7 @@ class GatewayAuthentication(BaseAuthentication):
     @staticmethod
     def _verify_aws(assertion: str, audience: str, role: str) -> None:
         if not assertion.startswith("Bearer "):
-            raise ContractError("control.unauthorized")
+            raise ContractError(_UNAUTHORIZED)
         try:
             verified = verify_aws_web_identity_token(
                 assertion[7:],
@@ -81,9 +83,9 @@ class GatewayAuthentication(BaseAuthentication):
                 account_id=str(getattr(settings, "AWS_ACCOUNT_ID", "") or ""),
             )
         except ValueError:
-            raise ContractError("control.unauthorized") from None
+            raise ContractError(_UNAUTHORIZED) from None
         if verified != role:
-            raise ContractError("control.unauthorized")
+            raise ContractError(_UNAUTHORIZED)
 
     def authenticate_header(self, request: Request) -> str:
         return 'Bearer realm="guacamole-control"'

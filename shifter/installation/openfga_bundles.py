@@ -12,11 +12,14 @@ from __future__ import annotations
 import base64
 from collections.abc import Mapping
 
-BUNDLE_KEYS = frozenset({"server-preshared-keys", "api-token", "tls.crt", "tls.key"})
+TLS_KEY = "tls.key"
+CA_CERTIFICATE = "ca.crt"
+BUNDLE_KEYS = frozenset({"server-preshared-keys", "api-token", "tls.crt", TLS_KEY})
 NAMESPACE = "shifter-platform"
 
 
 def _bundle_keys(bundle: object) -> set[str]:
+    """Return the server authentication keys of a well-formed runtime or admin bundle."""
     if (
         not isinstance(bundle, dict)
         or set(bundle) != BUNDLE_KEYS
@@ -33,11 +36,16 @@ def validate_policy_bundles(runtime: object, admin: object, ca: object) -> None:
     """Require separate runtime/admin keys and TLS keys and a public-only CA bundle."""
     runtime_keys, admin_keys = _bundle_keys(runtime), _bundle_keys(admin)
     assert isinstance(runtime, dict) and isinstance(admin, dict)
-    if runtime_keys & admin_keys or runtime["tls.key"] == admin["tls.key"]:
+    if runtime_keys & admin_keys or runtime[TLS_KEY] == admin[TLS_KEY]:
         raise ValueError("Runtime and administration require separate authentication and TLS keys")
     if runtime["api-token"] not in runtime_keys or admin["api-token"] not in admin_keys:
         raise ValueError("Policy client token must match its own native server authentication keys")
-    if not isinstance(ca, dict) or set(ca) != {"ca.crt"} or not isinstance(ca["ca.crt"], str) or not ca["ca.crt"]:
+    if (
+        not isinstance(ca, dict)
+        or set(ca) != {CA_CERTIFICATE}
+        or not isinstance(ca[CA_CERTIFICATE], str)
+        or not ca[CA_CERTIFICATE]
+    ):
         raise ValueError("Policy CA publication accepts only the public CA certificate")
 
 

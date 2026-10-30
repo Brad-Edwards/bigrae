@@ -23,6 +23,7 @@ from typing import Any
 
 import psycopg
 from psycopg import sql
+from shared.aws_database_duties import rds_ca_path
 from shared.enums import ResourceStatus
 
 from config import has_ngfw_attachment_state
@@ -79,27 +80,12 @@ def _rds_tls_options() -> dict[str, str]:
     configuration. Encryption without certificate and host-name checks does not
     prove the server identity, so a missing or malformed bundle refuses (#2313).
     """
-    import base64
-    import binascii
-    import hashlib
-    import tempfile
-
-    encoded = os.environ.get("DB_SSL_ROOT_CERT_PEM_B64", "").strip()
-    if os.environ.get("DB_SSLMODE", "").strip() != "verify-full" or not encoded:
+    if os.environ.get("DB_SSLMODE", "").strip() != "verify-full":
         raise RuntimeError("RDS connections require verify-full TLS and the RDS CA bundle")
     try:
-        bundle = base64.b64decode(encoded, validate=True)
-    except (binascii.Error, ValueError):
-        raise RuntimeError("RDS CA bundle is not valid base64") from None
-    if b"-----BEGIN CERTIFICATE-----" not in bundle:
-        raise RuntimeError("RDS CA bundle holds no certificate")
-    path = os.path.join(tempfile.gettempdir(), f"rds-ca-{hashlib.sha256(bundle).hexdigest()[:16]}.pem")
-    if not os.path.exists(path):
-        descriptor, staged = tempfile.mkstemp(dir=tempfile.gettempdir(), suffix=".pem")
-        with os.fdopen(descriptor, "wb") as handle:
-            handle.write(bundle)
-        os.replace(staged, path)
-    return {"sslmode": "verify-full", "sslrootcert": path}
+        return {"sslmode": "verify-full", "sslrootcert": rds_ca_path()}
+    except ValueError as invalid:
+        raise RuntimeError(str(invalid)) from None
 
 
 def get_db_connection() -> psycopg.Connection:

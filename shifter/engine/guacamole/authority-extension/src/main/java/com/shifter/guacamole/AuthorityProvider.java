@@ -21,11 +21,14 @@ public final class AuthorityProvider extends AbstractAuthenticationProvider {
     /** Build renewals from deployment settings; incomplete or unknown settings leave sessions refused. */
     static GatewayRenewals configuredRenewals(String endpoint, String audience, String kind) {
         if (endpoint == null || audience == null) return null;
-        try {
-            return new GatewayRenewals(new GatewayControl(endpoint, audience, kind), System::nanoTime,
-                                       Duration.ofSeconds(90), 512);
-        }
+        GatewayControl control;
+        try { control = new GatewayControl(endpoint, audience, kind); }
         catch (IllegalArgumentException unsupported) { return null; }
+        try { return new GatewayRenewals(control, System::nanoTime, Duration.ofSeconds(90), 512); }
+        catch (RuntimeException failed) {
+            control.close();
+            throw failed;
+        }
     }
 
     AuthorityProvider(boolean enabled, GatewayRenewals renewals) {

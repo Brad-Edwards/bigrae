@@ -58,12 +58,10 @@ AWS_REFERENCE_GRAMMAR = (
 
 
 # An exact Secrets Manager secret ARN in one account and region, without a version.
-# The ``SECRET`` in the name trips the hardcoded-secret heuristics; this is a regex,
-# not a credential.
-AWS_SECRET_ARN_PATTERN = r"^arn:aws:secretsmanager:[a-z]{2}(?:-[a-z]+)+-\d+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+$"  # noqa: S105 # nosec B105
+AWS_SECRETS_MANAGER_ARN_PATTERN = r"^arn:aws:secretsmanager:[a-z]{2}(?:-[a-z]+)+-\d+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+$"
 AwsSecretArn = Annotated[
     str,
-    Field(pattern=AWS_SECRET_ARN_PATTERN, description="Exact Secrets Manager secret ARN without a version."),
+    Field(pattern=AWS_SECRETS_MANAGER_ARN_PATTERN, description="Exact Secrets Manager secret ARN without a version."),
 ]
 
 

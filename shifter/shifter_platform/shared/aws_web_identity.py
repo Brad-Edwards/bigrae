@@ -48,14 +48,10 @@ def valid_issuer(issuer: object) -> bool:
     parts = urlsplit(issuer)
     return (
         parts.scheme == "https"
-        and bool(parts.hostname)
-        and str(parts.hostname).endswith(".tokens.sts.global.api.aws")
+        and (parts.hostname or "").endswith(".tokens.sts.global.api.aws")
         and parts.port is None
-        and not parts.username
-        and not parts.password
         and parts.path in {"", "/"}
-        and not parts.query
-        and not parts.fragment
+        and not any((parts.username, parts.password, parts.query, parts.fragment))
     )
 
 
@@ -92,6 +88,36 @@ def _exact_audience(claims: dict[str, Any], audience: str) -> bool:
     return value == audience or value == [audience]
 
 
+def _valid_request(token: object, *, issuer: str, audience: str, account_id: str) -> bool:
+    """Return whether the token and the deployment configuration are fit to verify."""
+    return (
+        isinstance(token, str)
+        and token.isascii()
+        and len(token) <= _MAX_TOKEN_BYTES
+        and valid_issuer(issuer)
+        and valid_account(account_id)
+        and audience.startswith("https://")
+    )
+
+
+def _verified_subject(claims: dict[str, Any], *, audience: str, account_id: str) -> str:
+    """Return the IAM role ARN from signature-checked claims, or raise ``ValueError``."""
+    namespace = claims.get(_CLAIMS_NAMESPACE)
+    subject = claims.get("sub")
+    lifetime = claims["exp"] - claims["iat"]
+    if (
+        not _exact_audience(claims, audience)
+        or not isinstance(namespace, dict)
+        or namespace.get("aws_account") != account_id
+        or not isinstance(subject, str)
+        or not valid_role_arn(subject, account_id=account_id)
+        or not isinstance(lifetime, int)
+        or not 0 < lifetime <= _MAX_LIFETIME_SECONDS
+    ):
+        raise ValueError(_DENIED)
+    return subject
+
+
 def verify_aws_web_identity_token(
     token: str,
     *,
@@ -104,14 +130,7 @@ def verify_aws_web_identity_token(
     import jwt
 
     try:
-        if (
-            not isinstance(token, str)
-            or not token.isascii()
-            or len(token) > _MAX_TOKEN_BYTES
-            or not valid_issuer(issuer)
-            or not valid_account(account_id)
-            or not audience.startswith("https://")
-        ):
+        if not _valid_request(token, issuer=issuer, audience=audience, account_id=account_id):
             raise ValueError(_DENIED)
         signing_key = (keys or _signing_keys(issuer)).get_signing_key_from_jwt(token)
         claims = jwt.decode(
@@ -123,21 +142,8 @@ def verify_aws_web_identity_token(
             leeway=30,
             options={"require": ["exp", "iat", "iss", "aud", "sub", "jti"]},
         )
-        namespace = claims.get(_CLAIMS_NAMESPACE)
-        subject = claims.get("sub")
-        lifetime = claims["exp"] - claims["iat"]
-        if (
-            not _exact_audience(claims, audience)
-            or not isinstance(namespace, dict)
-            or namespace.get("aws_account") != account_id
-            or not valid_role_arn(subject, account_id=account_id)
-            or not isinstance(lifetime, int)
-            or not 0 < lifetime <= _MAX_LIFETIME_SECONDS
-        ):
-            raise ValueError(_DENIED)
+        return _verified_subject(claims, audience=audience, account_id=account_id)
     except (jwt.PyJWTError, ValueError, TypeError, KeyError):
         # PyJWT wraps key-set, signature and transport failures in PyJWTError.
         # Never surface key-set, token, claim or transport detail to callers.
         raise ValueError(_DENIED) from None
-    assert isinstance(subject, str)
-    return subject

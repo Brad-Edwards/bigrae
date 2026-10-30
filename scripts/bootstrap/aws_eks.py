@@ -14,7 +14,10 @@ import re
 import sys
 import tempfile
 from collections.abc import Mapping
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import yaml
 
@@ -40,6 +43,9 @@ from installation.schema import RootConfig  # noqa: E402
 
 import aws_native_identity  # noqa: E402
 import openfga_rotation_package  # noqa: E402
+
+if TYPE_CHECKING:
+    from gcp_process import ProcessRunner
 
 _LOWERCASE_HEX = frozenset("0123456789abcdef")
 _EKS_NAMESPACE = "shifter-system"
@@ -1805,15 +1811,22 @@ def _write_private_api_kubeconfig(
     return path
 
 
+@dataclass(frozen=True)
+class IdentityFiles:
+    """Private 0600 operator files for the identity cutover and catalog setup (#2313)."""
+
+    cutover_facts: str | Path | None = None
+    bootstrap_facts: str | Path | None = None
+    catalog_credential: str | Path | None = None
+
+
 def deploy_eks(
     config_path: str | Path,
     images_path: str | Path,
     *,
     backend_config_path: str | Path | None = None,
     terraform_inputs_path: str | Path | None = None,
-    identity_cutover_facts: str | Path | None = None,
-    identity_bootstrap_facts: str | Path | None = None,
-    catalog_credential_file: str | Path | None = None,
+    identity_files: IdentityFiles | None = None,
     aws_profile: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, str]:
@@ -1834,6 +1847,7 @@ def deploy_eks(
     )
     from gcp_process import ProcessRunner
 
+    files = identity_files or IdentityFiles()
     config = load_root_config(config_path)
     _validate_config(config)
     profile = config.deployment.profile
@@ -1841,8 +1855,8 @@ def deploy_eks(
     # Select the EKS component so preflight validates the isolated EKS root's inputs, not the
     # legacy core/range/portal defaults (#1828).
     preflight_gate(Cloud.AWS, Mode.LOCAL, profile, component="eks", headless=True)
-    validate_fact_paths(identity_cutover_facts, identity_bootstrap_facts)
-    validate_catalog_credential_path(catalog_credential_file)
+    validate_fact_paths(files.cutover_facts, files.bootstrap_facts)
+    validate_catalog_credential_path(files.catalog_credential)
     root = eks_root(profile)
     allowed_roots = _protected_input_roots()
     backend_config = _required_file(
@@ -1856,14 +1870,9 @@ def deploy_eks(
         allowed_roots=allowed_roots,
     )
     workdir = Path(tempfile.mkdtemp(prefix="shifter-eks-"))
-    if dry_run:
-        # A preview prints the plan command only; it needs no network or build.
-        rds_ca_bundle = b""
-        rotation_package = openfga_rotation_package.package_path(workdir)
-    else:
-        rds_ca_bundle = openfga_rotation_package.fetch_rds_ca_bundle(region)
-        rotation_package = openfga_rotation_package.build_rotation_package(workdir, rds_ca_bundle)
-    rotation_scheduled = _apply_eks_terraform(
+    rds_ca_bundle, rotation_package = _rotation_inputs(workdir, region, dry_run=dry_run)
+    apply_terraform = partial(
+        _apply_eks_terraform,
         root,
         backend_config=backend_config,
         terraform_inputs=terraform_inputs,
@@ -1871,11 +1880,85 @@ def deploy_eks(
         aws_profile=aws_profile,
         dry_run=dry_run,
     )
+    rotation_scheduled = apply_terraform()
     health_url = f"https://{config.deployment.domain}/health/"
     if dry_run:
         return {"backend": "aws", "profile": profile, "health_url": health_url}
 
     outputs = _terraform_outputs(root, aws_profile=aws_profile)
+    images = _read_images(images_path, allowed_roots=allowed_roots)
+    policy_enabled = _prepare_cluster(config, outputs, images, aws_profile=aws_profile, rds_ca_bundle=rds_ca_bundle)
+    if not rotation_scheduled:
+        # The logins exist now, so the schedules' first test can sign in.
+        apply_terraform(rotation_schedule=True)
+    values = render_aws_values(config, outputs, images, rds_ca_bundle=rds_ca_bundle)
+    chart = get_repo_root() / "platform" / "charts" / "shifter"
+    provider_values = chart / f"values-aws-{profile}.yaml"
+    runner = ProcessRunner()
+    documents = _release_documents(runner, chart, provider_values, values)
+    with identity_cutover_boundary(
+        runner,
+        documents,
+        workdir,
+        cutover_facts=files.cutover_facts,
+        bootstrap_facts=files.bootstrap_facts,
+    ) as cutover:
+        # Migrate the schema and reconcile owner duties once, before the chart
+        # install. Deployed pods then skip per-pod startup migrations
+        # (SKIP_MIGRATIONS=1), which previously crash-looped the provisioner-launcher
+        # under DB load (#1826).
+        _run_database_migrations(values, database_secret_arn=_workload_secret_arns(outputs)["database"])
+        if policy_enabled and cutover.required:
+            migrate_policy_datastore(runner, documents)
+            # A required cutover entered maintenance by applying the quiesced
+            # release, which keeps both policy Deployments running, so they
+            # exist here even on a first installation.
+            _restart_policy_servers(runner)
+        activate_identity_cutover(runner, cutover)
+        # The cutover applies chart objects before Helm; Helm must own them.
+        adopt_objects(runner, {}, documents)
+        _helm_upgrade(chart, provider_values, values)
+        # Policy servers read their bundle and datastore login at start. Without
+        # a cutover they restart here so republished credentials take effect.
+        if policy_enabled and not cutover.required:
+            _restart_policy_servers(runner)
+    _verify_release(outputs, values, health_url)
+    initialize_catalog(
+        runner,
+        documents,
+        credential_file=files.catalog_credential,
+        hostname=config.deployment.domain,
+    )
+    return {"backend": "aws", "profile": profile, "health_url": health_url}
+
+
+def _rotation_inputs(workdir: Path, region: str, *, dry_run: bool) -> tuple[bytes, Path]:
+    """Return the region's RDS CA bundle and the built datastore rotation package.
+
+    A preview prints the plan command only; it needs no network or build.
+    """
+    if dry_run:
+        return b"", openfga_rotation_package.package_path(workdir)
+    rds_ca_bundle = openfga_rotation_package.fetch_rds_ca_bundle(region)
+    return rds_ca_bundle, openfga_rotation_package.build_rotation_package(workdir, rds_ca_bundle)
+
+
+def _prepare_cluster(
+    config: RootConfig,
+    outputs: Mapping[str, object],
+    images: Mapping[str, object],
+    *,
+    aws_profile: str | None,
+    rds_ca_bundle: bytes,
+) -> bool:
+    """Make the cluster ready for the release; return whether the policy service is enabled.
+
+    The steps connect through the private API, install the cluster add-ons and
+    publish the workload, Guacamole and policy credentials. Then one Job creates
+    the databases and the runtime SQL logins.
+    """
+    profile = config.deployment.profile
+    region = str(config.settings["region"])
     _write_private_api_kubeconfig(
         outputs,
         alias=f"shifter-{profile}",
@@ -1890,7 +1973,6 @@ def deploy_eks(
         aws_profile=aws_profile,
     )
     _bootstrap_cluster(outputs, region)
-    images = _read_images(images_path, allowed_roots=allowed_roots)
     # Guacamole (AWS EKS parity with GCP): create the guacamole-runtime Secret and
     # provision the guacamole database + guacamole_admin role in-cluster before Helm,
     # so guacamole-client can start and initialise its schema during --wait.
@@ -1915,85 +1997,53 @@ def deploy_eks(
         platform_image=str(_validated_images(images)["platform"]),
         rds_ca_bundle=rds_ca_bundle,
     )
-    if not rotation_scheduled:
-        # The logins exist now, so the schedules' first test can sign in.
-        _apply_eks_terraform(
-            root,
-            backend_config=backend_config,
-            terraform_inputs=terraform_inputs,
-            rotation_package=rotation_package,
-            aws_profile=aws_profile,
-            dry_run=dry_run,
-            rotation_schedule=True,
-        )
-    values = render_aws_values(config, outputs, images, rds_ca_bundle=rds_ca_bundle)
-    chart = get_repo_root() / "platform" / "charts" / "shifter"
-    provider_values = chart / f"values-aws-{profile}.yaml"
+    return policy_enabled
+
+
+def _release_documents(
+    runner: ProcessRunner, chart: Path, provider_values: Path, values: Mapping[str, object]
+) -> list[dict[str, object]]:
+    """Lint the chart and return the release objects that the identity cutover reads."""
     _run_helm_with_values(["helm", "lint", str(chart), "--values", str(provider_values)], values)
-    runner = ProcessRunner()
     rendered = runner.run(
         ["helm", "template", _HELM_RELEASE, str(chart), "--values", str(provider_values), "--values", "-"],
         input_text=json.dumps(values, sort_keys=True),
         sensitive=True,
     ).stdout
-    documents = [document for document in yaml.safe_load_all(rendered) if isinstance(document, dict)]
-    with identity_cutover_boundary(
-        runner,
-        documents,
-        workdir,
-        cutover_facts=identity_cutover_facts,
-        bootstrap_facts=identity_bootstrap_facts,
-    ) as cutover:
-        # Migrate the schema and reconcile owner duties once, before the chart
-        # install. Deployed pods then skip per-pod startup migrations
-        # (SKIP_MIGRATIONS=1), which previously crash-looped the provisioner-launcher
-        # under DB load (#1826).
-        _run_database_migrations(values, database_secret_arn=_workload_secret_arns(outputs)["database"])
-        if policy_enabled and cutover.required:
-            migrate_policy_datastore(runner, documents)
-            # A required cutover entered maintenance by applying the quiesced
-            # release, which keeps both policy Deployments running, so they
-            # exist here even on a first installation.
-            _restart_policy_servers(runner)
-        activate_identity_cutover(runner, cutover)
-        # The cutover applies chart objects before Helm; Helm must own them.
-        adopt_objects(runner, {}, documents)
-        _run_helm_with_values(
-            [
-                "helm",
-                "upgrade",
-                "--install",
-                _HELM_RELEASE,
-                str(chart),
-                "--namespace",
-                _EKS_NAMESPACE,
-                "--create-namespace",
-                "--values",
-                str(provider_values),
-                "--atomic",
-                "--wait",
-                "--timeout",
-                "15m",
-            ],
-            values,
-        )
-        # Policy servers read their bundle and datastore login at start. Without
-        # a cutover they restart here so republished credentials take effect.
-        if policy_enabled and not cutover.required:
-            _restart_policy_servers(runner)
+    return [document for document in yaml.safe_load_all(rendered) if isinstance(document, dict)]
+
+
+def _helm_upgrade(chart: Path, provider_values: Path, values: Mapping[str, object]) -> None:
+    """Install or upgrade the release atomically and wait until it is ready."""
+    _run_helm_with_values(
+        [
+            "helm",
+            "upgrade",
+            "--install",
+            _HELM_RELEASE,
+            str(chart),
+            "--namespace",
+            _EKS_NAMESPACE,
+            "--create-namespace",
+            "--values",
+            str(provider_values),
+            "--atomic",
+            "--wait",
+            "--timeout",
+            "15m",
+        ],
+        values,
+    )
+
+
+def _verify_release(outputs: Mapping[str, object], values: Mapping[str, Any], health_url: str) -> None:
+    """Prove pod security enforcement, effective IRSA and the public health endpoint."""
     roles = _output(outputs, "workload_role_arns")
     if not isinstance(roles, Mapping):
         raise RuntimeError("workload_role_arns must be a mapping for effective IRSA readiness")
     _verify_kubernetes_security_enforcement(str(values["images"]["platform"]))
     _verify_effective_irsa(roles, str(values["images"]["platform"]))
     run_cmd(["curl", "--fail", "--silent", "--show-error", "--max-time", "30", health_url])
-    initialize_catalog(
-        runner,
-        documents,
-        credential_file=catalog_credential_file,
-        hostname=config.deployment.domain,
-    )
-    return {"backend": "aws", "profile": profile, "health_url": health_url}
 
 
 def _apply_secret_document(document: dict[str, object]) -> None:
@@ -2003,12 +2053,12 @@ def _apply_secret_document(document: dict[str, object]) -> None:
         raise RuntimeError("failed to publish a policy credential object")
 
 
-def _restart_policy_servers(runner: object) -> None:
+def _restart_policy_servers(runner: ProcessRunner) -> None:
     """Restart the policy servers after datastore migration; only they restart here."""
     for deployment in ("openfga", "openfga-admin"):
-        runner.run(["kubectl", "rollout", "restart", f"deployment/{deployment}", "-n", _PLATFORM_NAMESPACE])  # type: ignore[attr-defined]
+        runner.run(["kubectl", "rollout", "restart", f"deployment/{deployment}", "-n", _PLATFORM_NAMESPACE])
     for deployment in ("openfga", "openfga-admin"):
-        runner.run(  # type: ignore[attr-defined]
+        runner.run(
             ["kubectl", "rollout", "status", f"deployment/{deployment}", "-n", _PLATFORM_NAMESPACE, "--timeout=10m"]
         )
 

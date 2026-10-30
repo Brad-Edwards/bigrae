@@ -34,6 +34,7 @@ DUTIES = ("runtime", "admin", "migrator")
 SERVERS = ("openfga", "openfga-admin")
 RESTART_ANNOTATION = "shifter.dev/policy-credentials-refreshed-at"
 _LOGIN = re.compile(r"[a-z][a-z0-9_]{0,62}", flags=re.ASCII)
+_INVALID_REFERENCES = "Datastore secret references are invalid"
 _SECRET_ARN = re.compile(r"arn:aws:secretsmanager:[a-z0-9-]+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+", flags=re.ASCII)
 
 
@@ -44,8 +45,8 @@ class RefreshError(RuntimeError):
 class SecretReader(Protocol):
     """The Secrets Manager read that the refresh uses."""
 
-    def get_secret_value(self, *, SecretId: str) -> Mapping[str, Any]:
-        """Return one secret version."""
+    def get_secret_value(self, **request: str) -> Mapping[str, Any]:
+        """Return one secret version; ``request`` holds the ``SecretId`` keyword."""
 
 
 class SecretPatcher(Protocol):
@@ -72,13 +73,13 @@ def parse_references(raw: str) -> dict[str, str]:
     try:
         references = json.loads(raw)
     except (TypeError, ValueError):
-        raise RefreshError("Datastore secret references are invalid") from None
+        raise RefreshError(_INVALID_REFERENCES) from None
     if (
         not isinstance(references, dict)
         or set(references) != set(DUTIES)
         or not all(isinstance(value, str) and _SECRET_ARN.fullmatch(value) for value in references.values())
     ):
-        raise RefreshError("Datastore secret references are invalid")
+        raise RefreshError(_INVALID_REFERENCES)
     return {duty: references[duty] for duty in DUTIES}
 
 
@@ -116,7 +117,7 @@ def refresh(
     ``api_errors`` are the Kubernetes client's request and transport errors.
     """
     if set(references) != set(DUTIES):
-        raise RefreshError("Datastore secret references are invalid")
+        raise RefreshError(_INVALID_REFERENCES)
     credentials = {duty: _credential(secrets, references[duty]) for duty in DUTIES}
     publication_errors: tuple[type[Exception], ...] = (*api_errors, OSError)
     try:
@@ -148,8 +149,9 @@ def main() -> int:
             now=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             api_errors=(OpenApiException, HTTPError),
         )
-    except RefreshError as error:
-        logger.error("policy credential refresh failed: %s", error)
+    except RefreshError:
+        # The error and its traceback hold only bounded messages; ``from None`` drops provider detail.
+        logger.exception("policy credential refresh failed")
         return 1
     except (ConfigException, BotoCoreError, KeyError):
         # In-cluster configuration, SDK setup or a missing region; no detail is logged.

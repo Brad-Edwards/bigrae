@@ -24,7 +24,8 @@ final class GatewayControl implements GatewayRenewals.Control, AutoCloseable {
         .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
 
     GatewayControl(String endpoint, String audience, String kind) {
-        this(URI.create(endpoint), identity(kind, audience));
+        // Check the origin before the identity exists, so a refused origin leaks no identity.
+        this(origin(URI.create(endpoint)), identity(kind, audience));
     }
 
     /** Select the configured native workload identity; an unknown kind fails closed. */
@@ -35,13 +36,18 @@ final class GatewayControl implements GatewayRenewals.Control, AutoCloseable {
     }
 
     GatewayControl(URI endpoint, Identity identity) {
+        this.endpoint = origin(endpoint);
+        this.identity = identity;
+    }
+
+    /** Accept only an HTTPS origin, or HTTP to the loopback address. */
+    private static URI origin(URI endpoint) {
         String host = endpoint.getHost();
         if (host == null || endpoint.getUserInfo() != null || endpoint.getFragment() != null
             || endpoint.getQuery() != null || !("https".equals(endpoint.getScheme())
                 || ("http".equals(endpoint.getScheme()) && "127.0.0.1".equals(host))))
             throw new IllegalArgumentException("Invalid gateway control origin");
-        this.endpoint = endpoint;
-        this.identity = identity;
+        return endpoint;
     }
 
     public boolean authorize(UUID bootstrap) throws IOException {

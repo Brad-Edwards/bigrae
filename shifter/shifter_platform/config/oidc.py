@@ -155,15 +155,7 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
         if not expected_issuer or not issuer or issuer != expected_issuer:
             raise SuspiciousOperation("OIDC ID token issuer does not match the expected issuer")
 
-        client_id = self.OIDC_RP_CLIENT_ID
-        audience = payload.get("aud")
-        audience_values = audience if isinstance(audience, list) else [audience]
-        if client_id not in audience_values:
-            raise SuspiciousOperation("OIDC ID token audience does not match the configured client")
-
-        authorized_party = payload.get("azp")
-        if authorized_party is not None and authorized_party != client_id:
-            raise SuspiciousOperation("OIDC ID token authorized party does not match the configured client")
+        self._require_client_binding(payload)
 
         subject = payload.get("sub")
         if not subject:
@@ -178,6 +170,18 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
         self._verified_subject = subject
         self._verified_auth_time = auth_time
         return payload
+
+    def _require_client_binding(self, payload: dict[str, Any]) -> None:
+        """Require this deployment's client as an audience and as any authorized party."""
+        client_id = self.OIDC_RP_CLIENT_ID
+        audience = payload.get("aud")
+        audience_values = audience if isinstance(audience, list) else [audience]
+        if client_id not in audience_values:
+            raise SuspiciousOperation("OIDC ID token audience does not match the configured client")
+
+        authorized_party = payload.get("azp")
+        if authorized_party is not None and authorized_party != client_id:
+            raise SuspiciousOperation("OIDC ID token authorized party does not match the configured client")
 
     def verify_claims(self, claims: dict[str, Any]) -> bool:
         """Require present email/sub and a verified email.

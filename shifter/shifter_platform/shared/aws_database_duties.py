@@ -14,7 +14,6 @@ connection verifies the server certificate and host name with the RDS CA.
 from __future__ import annotations
 
 import base64
-import binascii
 import hashlib
 import json
 import os
@@ -37,12 +36,16 @@ _RESERVED = frozenset({"portal_runtime", "provisioner_lambda", "guacamole_admin"
 
 
 class _Cursor(Protocol):
+    """The database cursor operations that the duty setup uses."""
+
     def execute(self, query: str | sql.SQL | sql.Composed, params: list[str] | None = None, /) -> object: ...
 
     def fetchone(self) -> TupleRow | None: ...
 
 
 class _PgConn(Protocol):
+    """The libpq operation that computes a password verifier on the client."""
+
     def encrypt_password(self, password: bytes, user: bytes, algorithm: bytes | None = None) -> bytes: ...
 
 
@@ -64,6 +67,7 @@ def parse_iam_users(raw: str) -> dict[str, str]:
 
 
 def _role_exists(cursor: _Cursor, role: str) -> bool:
+    """Return whether the database role exists."""
     cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", [role])
     return cursor.fetchone() is not None
 
@@ -116,7 +120,7 @@ def rds_ca_path(environ: Mapping[str, str] = os.environ) -> str:
         return configured
     try:
         bundle = base64.b64decode(environ.get("DB_SSL_ROOT_CERT_PEM_B64", "").strip(), validate=True)
-    except (binascii.Error, ValueError):
+    except ValueError:  # binascii.Error is a ValueError.
         raise ValueError("RDS CA bundle is not valid base64") from None
     if b"-----BEGIN CERTIFICATE-----" not in bundle:
         raise ValueError("RDS CA bundle holds no certificate")
