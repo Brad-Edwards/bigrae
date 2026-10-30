@@ -12,7 +12,7 @@ import os
 import stat
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
@@ -48,7 +48,12 @@ class CutoverRun:
 
     def with_documents(self, documents: Sequence[dict[str, object]]) -> CutoverRun:
         """Return the run bound to a re-rendered release, for example with the published policy IDs."""
-        return replace(self, manifest=yaml.safe_dump_all(documents, sort_keys=False))
+        return CutoverRun(
+            self.required,
+            yaml.safe_dump_all(documents, sort_keys=False),
+            fresh_install=self.fresh_install,
+            bootstrap_facts=self.bootstrap_facts,
+        )
 
 
 #: Generates the cutover and bootstrap facts files of an empty installation.

@@ -23,7 +23,7 @@ from management.services import (
     issue_installation_catalog_credential,
     revoke_installation_catalog_credential,
 )
-from shared.api_tokens.cli import CredentialFileError, credential_from_proof
+from shared.api_tokens.cli import credential_from_proof
 from shared.exceptions import CMSError, ValidationError
 from workspaces.services import get_identity_cutover_state
 
@@ -54,7 +54,8 @@ class Command(BaseCommand):
         token, proof = issue_installation_catalog_credential(principal_uuid)
         try:
             registered = register_inbox_catalog(actor=credential_from_proof(proof))
-        except (CredentialFileError, CMSError, ValidationError, DatabaseError, TypeError, ValueError) as exc:
+        except (CMSError, ValidationError, DatabaseError, TypeError, ValueError) as exc:
+            # CredentialFileError is a ValueError.
             raise CommandError(_INCOMPLETE) from exc
         finally:
             revoke_installation_catalog_credential(token)

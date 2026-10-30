@@ -9,6 +9,7 @@ separate jobs.
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
 import os
 from collections.abc import Mapping
@@ -361,6 +362,68 @@ class RolloutRequest:
     authorization_model: Mapping[str, object] | None = None
 
 
+@dataclass(frozen=True)
+class RenderedRelease:
+    """One local render of the Helm release and the values that produced it."""
+
+    values: dict[str, object]
+    values_file: Path
+    values_files: list[Path]
+    documents: list[dict[str, object]]
+
+
+def render_release(
+    runner: ProcessRunner,
+    inputs: DeploymentInputs,
+    outputs: Mapping[str, Mapping[str, object]],
+    *,
+    runtime_env: Mapping[str, str],
+    identities: Mapping[str, str],
+    binding: tuple[str, str] | None,
+) -> RenderedRelease:
+    """Write the generated values and render the chart with the given policy binding."""
+    from gcp_helm import build_values, profile_values_path, render_chart, write_values
+
+    values = build_values(inputs, outputs, runtime_env=runtime_env, identities=identities, policy_binding=binding)
+    values_file = write_values(inputs.workdir, values)
+    values_files = [profile_values_path(inputs.profile), values_file]
+    return RenderedRelease(values, values_file, values_files, render_chart(runner, {}, values_files))
+
+
+def _finish_rollout(
+    runner: ProcessRunner,
+    inputs: DeploymentInputs,
+    request: RolloutRequest,
+    *,
+    pool: object,
+    pki_changed: bool,
+    broker_enabled: bool,
+) -> None:
+    """Restart and wait for the workloads, roll the VPN pool, and record the running images."""
+    from gcp_openvpn import roll_out_pool
+    from gcp_rollout import record_running_images, restart_workloads, wait_for_rollouts
+
+    restart_workloads(runner, {}, model_broker_enabled=broker_enabled)
+    wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled)
+    if pool:
+        roll_out_pool(
+            runner,
+            {},
+            pool=pool,
+            image=request.identities["openvpn"],
+            project_id=inputs.project_id,
+            pki_changed=pki_changed,
+        )
+    record_running_images(
+        runner,
+        {},
+        identities=request.identities,
+        model_broker_enabled=broker_enabled,
+        evidence=request.evidence,
+        workdir=inputs.workdir,
+    )
+
+
 def rollout_stage(
     runner: ProcessRunner,
     inputs: DeploymentInputs,
@@ -374,30 +437,16 @@ def rollout_stage(
         run_gcp_database_migrations,
         sync_gcp_guacamole_runtime_secret,
     )
-    from gcp_helm import (
-        adopt_objects,
-        build_values,
-        helm_upgrade,
-        profile_values_path,
-        remove_retired_objects,
-        render_chart,
-        write_values,
-    )
+    from gcp_helm import adopt_objects, helm_upgrade, remove_retired_objects
     from gcp_identity_cutover import (
         activate_identity_cutover,
         identity_cutover_boundary,
         migrate_policy_datastore,
         retire_disabled_broker,
     )
-    from gcp_openvpn import ensure_pki, pool_output, roll_out_pool
+    from gcp_openvpn import ensure_pki, pool_output
     from gcp_policy import publish_policy_model, release_model
-    from gcp_rollout import (
-        record_running_images,
-        restart_workloads,
-        wait_for_certificate,
-        wait_for_ingress_address,
-        wait_for_rollouts,
-    )
+    from gcp_rollout import wait_for_certificate, wait_for_ingress_address
     from gcp_runtime import compose_runtime_env, gdc_config
 
     header(f"Rollout: {inputs.environment}")
@@ -415,75 +464,51 @@ def rollout_stage(
         runtime_env = compose_runtime_env(
             runner, inputs, outputs, provisioner_digest=provisioner, workdir=inputs.workdir
         )
-
-        def render(binding: tuple[str, str] | None) -> tuple[dict[str, object], Path, list[Path], list[dict]]:
-            values = build_values(
-                inputs, outputs, runtime_env=runtime_env, identities=request.identities, policy_binding=binding
-            )
-            values_file = write_values(inputs.workdir, values)
-            values_files = [profile_values_path(inputs.profile), values_file]
-            return values, values_file, values_files, render_chart(runner, {}, values_files)
-
+        render = functools.partial(
+            render_release, runner, inputs, outputs, runtime_env=runtime_env, identities=request.identities
+        )
         # Pinned settings IDs bind the policy client now; otherwise each deploy
         # publishes the release model after the policy servers are ready (#2679).
         binding = policy_settings(inputs).pinned_binding  # type: ignore[attr-defined]
-        values, values_file, values_files, documents = render(binding)
-        broker_enabled = bool((values.get("modelBroker") or {}).get("enabled"))  # type: ignore[union-attr]
+        release = render(binding=binding)
+        broker_enabled = bool((release.values.get("modelBroker") or {}).get("enabled"))  # type: ignore[union-attr]
         ensure_gcp_control_plane_namespaces()
         # Only prerequisite bindings change before a conclusive probe. Policy
         # rotation that makes the incumbent runtime unverifiable stops here.
         policy_enabled = sync_policy_credentials(runner, inputs, outputs)
         with identity_cutover_boundary(
             runner,
-            documents,
+            release.documents,
             inputs.workdir,
             cutover_facts=request.identity_cutover_facts,
             bootstrap_facts=request.identity_bootstrap_facts,
             fresh_install_facts=lambda: fresh_install_facts(inputs, outputs),
         ) as cutover:
-            run_gcp_database_migrations(outputs, values_file)
+            run_gcp_database_migrations(outputs, release.values_file)
             if policy_enabled and cutover.required:
-                migrate_policy_datastore(runner, documents)
+                migrate_policy_datastore(runner, release.documents)
                 restart_policy_clients(runner)
             if policy_enabled and binding is None:
-                binding = publish_policy_model(runner, documents, release_model(request.authorization_model))
-                values, values_file, values_files, documents = render(binding)
-                cutover = cutover.with_documents(documents)
+                binding = publish_policy_model(runner, release.documents, release_model(request.authorization_model))
+                release = render(binding=binding)
+                cutover = cutover.with_documents(release.documents)
             activate_identity_cutover(runner, cutover)
             sync_gcp_guacamole_runtime_secret(gdc_config(inputs), outputs)
             retire_disabled_broker(runner, enabled=broker_enabled)
-            adopt_objects(runner, {}, documents)
-            helm_upgrade(runner, {}, values_files)
+            adopt_objects(runner, {}, release.documents)
+            helm_upgrade(runner, {}, release.values_files)
             retire_inventoried_artifacts(runner, inputs, context)
             remove_retired_objects(runner, {})
             if policy_enabled and not cutover.required:
                 restart_policy_clients(runner)
-        restart_workloads(runner, {}, model_broker_enabled=broker_enabled)
-        wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled)
-        if pool:
-            roll_out_pool(
-                runner,
-                {},
-                pool=pool,
-                image=request.identities["openvpn"],
-                project_id=inputs.project_id,
-                pki_changed=pki_changed,
-            )
-        record_running_images(
-            runner,
-            {},
-            identities=request.identities,
-            model_broker_enabled=broker_enabled,
-            evidence=request.evidence,
-            workdir=inputs.workdir,
-        )
+        _finish_rollout(runner, inputs, request, pool=pool, pki_changed=pki_changed, broker_enabled=broker_enabled)
         wait_for_ingress_address(runner, {})
         active = wait_for_certificate(
             runner, {}, hostname=inputs.public_hostname, require_active=not request.first_install
         )
         initialize_catalog(
             runner,
-            documents,
+            release.documents,
             credential_file=request.catalog_credential_file,
             bootstrap_facts=_catalog_bootstrap_facts(inputs, outputs, cutover, request.catalog_credential_file),
             hostname=inputs.public_hostname,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -119,7 +120,7 @@ class TestReleaseManifestCommand:
         with pytest.raises(SystemExit):
             main([*argv, "--output", "release.json"])
 
-    def test_pins_base_images_and_embeds_the_authorization_model(self, tmp_path: Path, capsys):
+    def test_pins_base_images_and_embeds_the_authorization_model(self, monkeypatch, capsys):
         """#2679: the release carries its install inputs."""
         argv = ["gcp-release-manifest", "--version", "1.4.0", "--source-revision", REVISION, "--chart-version", "0.2.0"]
         for name, identity in _images().items():
@@ -127,17 +128,20 @@ class TestReleaseManifestCommand:
         base = {role: f"ghcr.io/acme/shifter-gce-{role}@sha256:" + "c" * 64 for role in ("kali", "ubuntu", "dc")}
         for role, identity in base.items():
             argv += ["--base-image", f"{role}={identity}"]
-        model = tmp_path / "model.json"
-        model.write_text(json.dumps({"schema_version": "1.1", "type_definitions": [{"type": "principal"}]}))
-        assert main([*argv, "--authorization-model-file", str(model)]) == 0
+        model = json.dumps({"schema_version": "1.1", "type_definitions": [{"type": "principal"}]})
+        monkeypatch.setattr("sys.stdin", io.StringIO(model))
+        assert main([*argv, "--authorization-model-stdin"]) == 0
         manifest = parse_release_manifest(capsys.readouterr().out)
         assert manifest.base_images == base and manifest.authorization_model["schema_version"] == "1.1"
-        assert main([*argv, "--base-image", "kali=x", "--authorization-model-file", str(model)]) == 1
+        monkeypatch.setattr("sys.stdin", io.StringIO(model))
+        assert main([*argv, "--base-image", "kali=x", "--authorization-model-stdin"]) == 1
         assert "repeated --base-image" in capsys.readouterr().err
         for text in ("not json", "[]"):
-            model.write_text(text)
-            assert main([*argv, "--authorization-model-file", str(model)]) == 1
-        assert main([*argv, "--authorization-model-file", str(tmp_path / "missing.json")]) == 1
+            monkeypatch.setattr("sys.stdin", io.StringIO(text))
+            assert main([*argv, "--authorization-model-stdin"]) == 1
+        # The command opens no caller-named model file.
+        with pytest.raises(SystemExit):
+            main([*argv, "--authorization-model-file", "model.json"])
 
     def test_rejects_malformed_and_duplicate_images(self, capsys: pytest.CaptureFixture[str]):
         base = ["gcp-release-manifest", "--version", "1", "--source-revision", REVISION, "--chart-version", "0.2.0"]
