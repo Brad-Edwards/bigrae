@@ -118,6 +118,7 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
         # every hook below fails closed when it is absent.
         self._verified_issuer: str | None = None
         self._verified_subject: str | None = None
+        self._verified_auth_time: int | None = None
         self._last_verified_identity: VerifiedIdentity | None = None
 
     def get_user(self, user_id: int) -> Any:
@@ -168,8 +169,14 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
         if not subject:
             raise SuspiciousOperation("OIDC ID token is missing a subject")
 
+        # Session assurance measures the absolute limit from authentication time.
+        auth_time = payload.get("auth_time")
+        if type(auth_time) is not int or auth_time < 0:
+            raise SuspiciousOperation("OIDC ID token is missing an authentication time")
+
         self._verified_issuer = issuer
         self._verified_subject = subject
+        self._verified_auth_time = auth_time
         return payload
 
     def verify_claims(self, claims: dict[str, Any]) -> bool:
@@ -316,6 +323,13 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
 
             if self._last_verified_identity is not None:
                 attach_fresh_verified_identity(request, self._last_verified_identity)
+            if request is not None and self._verified_auth_time is not None:
+                # The login signal stores only this verified evidence, never the token.
+                request.verified_session_claims = {  # type: ignore[attr-defined]
+                    "iss": self._verified_issuer,
+                    "sub": self._verified_subject,
+                    "auth_time": self._verified_auth_time,
+                }
             # Successful authentication
             audit_auth_event(
                 action=AuditAction.LOGIN,

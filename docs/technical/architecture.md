@@ -6,7 +6,7 @@ architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-28 for the identity cutover and current development-branch integration.
+**Reviewed:** 2026-10-29 for the AWS native identity bindings (#2313).
 This describes source behavior, not a certificate of a live deployment.
 
 BigRAE is the current product name. Public BigRAE config, SDK, client and plugin
@@ -131,6 +131,15 @@ hosting separate from the range guest backend.
 | Event transport | Pub/Sub topic/subscriptions | SNS/SQS |
 | Artifacts and secrets | GCS / Secret Manager | S3 / Secrets Manager and SSM |
 | Human provider authentication | Identity Platform | Cognito/OIDC |
+| Human session recheck | Identity Platform user state | Cognito `AdminGetUser` |
+| Service principal proof | Google service ID token | STS `GetWebIdentityToken` JWT |
+| Runtime SQL login | Cloud SQL IAM through the Auth Proxy | RDS IAM, one login per workload |
+| Policy datastore login | Cloud SQL IAM | Rotated password logins |
+| Operator Kubernetes API path | Connect Gateway | Session Manager tunnel |
+
+Both providers use the same principal, credential and OpenFGA contracts. The
+[AWS native identity contract](platform_infrastructure/aws-native-identity.md)
+records the AWS bindings and their approved deviations.
 
 GCP shared-VPC range cells use per-range subnet/tag firewall policy and explicit
 NAT membership. Guests have no external NIC. Any attached identity is

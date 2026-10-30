@@ -51,8 +51,17 @@ resource "google_project_iam_custom_role" "directory_reader" {
   permissions = ["firebaseauth.users.get"]
 }
 
+# The portal and the delayed-work identities recheck stored session credentials
+# with Identity Platform (#2313).
 resource "google_project_iam_member" "directory_reader" {
+  for_each = toset(["portal", "workers", "ctf-scheduler", "provisioner-launcher"])
+
   project = var.project_id
   role    = google_project_iam_custom_role.directory_reader.id
-  member  = "serviceAccount:${google_service_account.workload["portal"].email}"
+  member  = "serviceAccount:${google_service_account.workload[each.key].email}"
+}
+
+moved {
+  from = google_project_iam_member.directory_reader
+  to   = google_project_iam_member.directory_reader["portal"]
 }

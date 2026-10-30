@@ -225,3 +225,51 @@ def test_gcp_legacy_iam_switch_cannot_select_the_aws_backend(monkeypatch):
     monkeypatch.setenv("DB_IAM_AUTH", "true")
     with pytest.raises(ImproperlyConfigured, match="DB_AUTH_MODE"):
         _build_databases()
+
+
+def test_rds_iam_mode_uses_iam_backend_with_verified_tls(monkeypatch):
+    _clear_db_env(monkeypatch)
+    _set_postgres_env(monkeypatch, password=False)
+    monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+    monkeypatch.setenv("DB_AUTH_MODE", "rds-iam")
+    monkeypatch.setenv("DB_SSLMODE", "verify-full")
+    monkeypatch.setenv("DB_SSL_ROOT_CERT", "/run/rds-ca/ca.pem")
+    default = _build_databases()["default"]
+    assert default["ENGINE"] == "config.db_backends.rds_iam"
+    assert default["PASSWORD"] is None
+    assert default["OPTIONS"]["sslmode"] == "verify-full"
+    assert default["OPTIONS"]["sslrootcert"] == "/run/rds-ca/ca.pem"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"CLOUD_PROVIDER": "gcp"},
+        {"DB_PASSWORD": "stored-password"},
+        {"DB_SSLMODE": "require"},
+        {"DB_SSL_ROOT_CERT": ""},
+    ],
+)
+def test_rds_iam_mode_refuses_other_providers_passwords_and_unverified_tls(monkeypatch, changes):
+    _clear_db_env(monkeypatch)
+    _set_postgres_env(monkeypatch, password=False)
+    monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+    monkeypatch.setenv("DB_AUTH_MODE", "rds-iam")
+    monkeypatch.setenv("DB_SSLMODE", "verify-full")
+    monkeypatch.setenv("DB_SSL_ROOT_CERT", "/run/rds-ca/ca.pem")
+    for key, value in changes.items():
+        monkeypatch.setenv(key, value)
+    with pytest.raises(ImproperlyConfigured):
+        _build_databases()
+
+
+def test_password_owner_path_verifies_tls_when_configured(monkeypatch):
+    _clear_db_env(monkeypatch)
+    _set_postgres_env(monkeypatch)
+    monkeypatch.setenv("CLOUD_PROVIDER", "aws")
+    monkeypatch.setenv("DB_SSLMODE", "verify-full")
+    monkeypatch.setenv("DB_SSL_ROOT_CERT", "/run/rds-ca/ca.pem")
+    default = _build_databases()["default"]
+    assert default["ENGINE"] == "django.db.backends.postgresql"
+    assert default["OPTIONS"]["sslmode"] == "verify-full"
+    assert default["OPTIONS"]["sslrootcert"] == "/run/rds-ca/ca.pem"

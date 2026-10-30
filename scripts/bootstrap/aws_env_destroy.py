@@ -58,12 +58,14 @@ import json
 import re
 import subprocess  # nosec B404 - imported only for the run_cmd return type; this module never executes subprocess.
 import sys
+import tempfile
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import openfga_rotation_package
 import terraform_backend as tb
 from account_recovery import account_recovery
 from bootstrap_core import error, info, run_cmd, subheader, success, warn
@@ -179,6 +181,9 @@ class Layer:
     empty_s3: bool = False  # empty state-owned S3 buckets before this destroy
     empty_ecr: bool = False  # empty state-owned ECR repos before this destroy
     topology_from_state: bool = False  # resolve runner network vars from state
+    # Build the OpenFGA rotation package; Terraform validates the function's
+    # code source while it refreshes before the destroy (#2313).
+    rotation_package: bool = False
     # `terraform destroy` -var flags this stack requires beyond its tfvars.
     var_flags: tuple[str, ...] = ()
 
@@ -192,7 +197,7 @@ def _layers(env: str, state_bucket: str) -> tuple[Layer, ...]:
     return (
         # EKS is parked (#1324); like every layer it is skipped when its state is
         # empty (the universal already-destroyed check in destroy_layer).
-        Layer("eks", "environments/{env}/eks"),
+        Layer("eks", "environments/{env}/eks", rotation_package=True),
         Layer(
             "portal",
             "environments/{env}/portal",
@@ -686,6 +691,14 @@ def _run_pre_destroy(ctx: TeardownContext, layer: Layer, stack_dir: str, var_fla
         empty_stack_ecr_repos(ctx, stack_dir)
 
 
+def _rotation_package(ctx: TeardownContext) -> Path:
+    """Build the EKS rotation package from the same inputs as deploy."""
+    workdir = Path(tempfile.mkdtemp(prefix="shifter-teardown-"))
+    if ctx.dry_run:
+        return openfga_rotation_package.package_path(workdir)
+    return openfga_rotation_package.prepare_rotation_package(workdir, ctx.region).resolve()
+
+
 def destroy_layer(ctx: TeardownContext, layer: Layer) -> str:
     """Destroy one layer with pre-destroy handling; return an outcome string."""
     stack_dir = layer.stack_dir(ctx.env)
@@ -701,6 +714,8 @@ def destroy_layer(ctx: TeardownContext, layer: Layer) -> str:
         return "skipped"
 
     var_flags = _runner_var_flags(ctx, stack_dir) if layer.topology_from_state else layer.var_flags
+    if layer.rotation_package:
+        var_flags = (*var_flags, f"-var=openfga_rotation_package={_rotation_package(ctx)}")
     _run_pre_destroy(ctx, layer, stack_dir, var_flags)
 
     destroy_args = ["destroy", "-auto-approve", _LOCK_TIMEOUT, *var_flags]

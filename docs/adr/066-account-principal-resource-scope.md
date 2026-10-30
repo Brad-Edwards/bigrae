@@ -200,6 +200,40 @@ claim server-enforced per-client model/store privileges. Enforcement must be
 reconciled with these documented choices without blanket exemptions. This
 clarification does not approve custom source or move S8 activation.
 
+### AWS conformance boundary (#2313)
+
+The [AWS conformance preflight](../architecture/aws-identity-conformance-preflight-2313.md)
+maps the merged S8 contracts to the existing AWS authentication, installation,
+IAM and runtime boundaries. AWS retains this Account/Principal model and the
+same OpenFGA application authorization semantics. Native cloud authority and
+application admission remain separate explicit grants. #2308 closed as
+complete on 2026-10-29.
+
+The owner approved these AWS bindings and deviations on 2026-10-29. The
+[AWS integration design](../design/aws-native-identity-integration-2313.md)
+records them:
+
+- Service principals prove identity with an AWS STS `GetWebIdentityToken`
+  JWT. The binding is the account issuer and the IAM role ARN. Unlike a Google
+  numeric subject, a role ARN is not immutable. A role created again with the
+  same name keeps its principal. Provider binding subjects hold up to 2048
+  characters, the IAM ARN maximum.
+- Cognito sessions keep idle and absolute limits and an `AdminGetUser`
+  recheck. A global sign-out made only in Cognito takes effect at the absolute
+  limit.
+- OpenFGA uses rotated password logins on AWS, because the released server
+  cannot create RDS IAM tokens. An in-repo rotation function follows the
+  documented Secrets Manager steps, because the AWS templates create Lambda roles
+  without the required CI permissions boundary. A weekly Job copies the current
+  credentials into named Secrets and restarts only the OpenFGA Deployments.
+- Named operator principals assume the deploy role. IAM users need MFA. A
+  Session Manager tunnel reaches the private EKS API. The CI deploy trust names
+  exact deploy Environments and protected refs. The legacy administrator-user
+  Terraform root is removed.
+
+These choices add no token format, policy engine or credential broker. Source
+delivery does not claim live AWS qualification.
+
 ### Administration at cutover
 
 At S8, every application administration operation, including its direct service
@@ -603,7 +637,8 @@ substitution remains denied. Deterministic Job recovery also verifies it.
 IAM connector/login bindings apply only to the installation instance. The
 Guacamole client and deployment owner receive connector transport only; guacd
 has its own KSA and no cloud identity. Existing WIF, operator and CI grants stay
-additive. The portal directory duty contains only `firebaseauth.users.get`.
+additive. The directory duty contains only `firebaseauth.users.get`. The portal
+and the delayed-work identities that recheck session credentials hold it.
 
 OpenFGA runtime and administration use separate private authenticated listeners,
 KSAs/GSAs and native database duties. Released PostgreSQL ACLs deny runtime

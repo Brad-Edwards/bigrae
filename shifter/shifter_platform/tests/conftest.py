@@ -172,6 +172,23 @@ def _native_service_credential_audience(settings):
     """Use one explicit synthetic audience for native credential reference tests."""
     if not settings.GCP_SERVICE_TOKEN_AUDIENCE:
         settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+    if not settings.AWS_SERVICE_TOKEN_AUDIENCE:
+        settings.AWS_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+
+
+@pytest.fixture(autouse=True)
+def _local_backend_for_generic_logins(settings):
+    """Give ``force_login(user)`` without a backend a local platform session.
+
+    Provider sessions (Cognito and Identity Platform) are valid only with the
+    assurance that a real provider login records. A generic test login must not
+    create a provider session that lacks it. Tests that exercise a provider
+    session name its backend and record assurance explicitly.
+    """
+    backends = list(settings.AUTHENTICATION_BACKENDS)
+    local = "config.auth.PlatformModelBackend"
+    if local in backends:
+        settings.AUTHENTICATION_BACKENDS = [local, *[item for item in backends if item != local]]
 
 
 @pytest.fixture

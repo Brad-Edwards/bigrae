@@ -161,12 +161,6 @@ roots:
     providers:
       - registry.terraform.io/hashicorp/aws
       - registry.terraform.io/hashicorp/random
-  - id: aws-global-se-admins
-    path: platform/terraform/global/se-admins
-    owner: "@Brad-Edwards"
-    toolchain: aws-1.13.3
-    providers:
-      - registry.terraform.io/hashicorp/aws
   - id: provisioner-range
     path: shifter/engine/provisioner/terraform/modules/range
     owner: "@Brad-Edwards"

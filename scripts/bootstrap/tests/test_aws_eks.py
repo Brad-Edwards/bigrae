@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import subprocess
@@ -28,6 +29,7 @@ def _config() -> SimpleNamespace:
 
 
 _SECRET_ARN_PREFIX = "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/dev/eks"
+_RDS_CA = b"-----BEGIN CERTIFICATE-----\nU3ludGhldGljIFJEUyBDQQ==\n-----END CERTIFICATE-----\n"
 
 
 def _terraform_outputs() -> dict[str, object]:
@@ -48,6 +50,25 @@ def _terraform_outputs() -> dict[str, object]:
                 },
                 "portal_db_address": "dev-portal-db.abcdef.us-east-2.rds.amazonaws.com",
                 "portal_db_port": 5432,
+                "portal_vpc_cidr": "10.0.0.0/16",
+            }
+        },
+        "aws_account_id": {"value": "123456789012"},
+        "service_token_issuer": {"value": "https://11111111-2222-3333-4444-555555555555.tokens.sts.global.api.aws"},
+        "gateway_control_audience": {"value": "https://shifter.example.com/guacamole-control"},
+        "database_iam_users": {
+            "value": {
+                "portal": "portal_web",
+                "workers": "portal_workers",
+                "ctfScheduler": "ctf_scheduler",
+                "provisionerLauncher": "provisioner_launcher",
+            }
+        },
+        "openfga_datastore_secret_arns": {
+            "value": {
+                "runtime": f"{_SECRET_ARN_PREFIX}/openfga-runtime-datastore-mn",
+                "admin": f"{_SECRET_ARN_PREFIX}/openfga-admin-datastore-op",
+                "migrator": f"{_SECRET_ARN_PREFIX}/openfga-migrator-datastore-qr",
             }
         },
         "certificate_arn": {"value": "arn:aws:acm:us-east-2:123456789012:certificate/example"},
@@ -65,6 +86,8 @@ def _terraform_outputs() -> dict[str, object]:
                 "provisionerLauncher": "arn:aws:iam::123456789012:role/shifter-dev-provisioner-launcher",
                 "provisioner": "arn:aws:iam::123456789012:role/shifter-dev-provisioner",
                 "guacamoleProvisioner": "arn:aws:iam::123456789012:role/shifter-dev-guacamole-db-provisioner",
+                "guacamoleClient": "arn:aws:iam::123456789012:role/shifter-dev-guacamole-client",
+                "policyCredentialRefresh": "arn:aws:iam::123456789012:role/shifter-dev-policy-credential-refresh",
                 "cluster-autoscaler": "arn:aws:iam::123456789012:role/shifter-dev-cluster-autoscaler",
             }
         },
@@ -131,7 +154,7 @@ def _terraform_inputs() -> dict[str, object]:
 def test_acquisition_egress_keeps_the_provider_api_posture():
     """The acquisition Job gets the provider-API HTTPS egress with the service CIDR carved out."""
     outputs = _terraform_outputs()
-    values = aws_eks.render_aws_values(_config(), outputs, _images())
+    values = aws_eks.render_aws_values(_config(), outputs, _images(), rds_ca_bundle=_RDS_CA)
 
     assert values["featureArtifactAcquisition"] == {
         "serviceAccountAnnotations": {},
@@ -144,7 +167,7 @@ def test_alb_health_checks_use_each_services_readiness_probe_path(tmp_path):
     """ALB target health must probe the same endpoint Kubernetes readiness does."""
     import yaml
 
-    values = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images())
+    values = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images(), rds_ca_bundle=_RDS_CA)
     chart = Path(__file__).resolve().parents[3] / "platform/charts/shifter"
     values_file = tmp_path / "aws-values.yaml"
     values_file.write_text(yaml.safe_dump(values), encoding="utf-8")
@@ -173,7 +196,7 @@ def test_alb_health_checks_use_each_services_readiness_probe_path(tmp_path):
 
 
 def test_render_values_is_non_secret_backend_neutral_and_digest_pinned():
-    values = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images())
+    values = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images(), rds_ca_bundle=_RDS_CA)
 
     assert values["provider"]["name"] == "aws"
     assert values["capabilities"]["kubernetesJobLauncher"] is True
@@ -222,10 +245,35 @@ def test_render_values_is_non_secret_backend_neutral_and_digest_pinned():
     # secretReferences come from the eks module's secret_arns (which the portal
     # IRSA role can read), not the deploy config, so the empty eks-owned secrets
     # are what the portal hydrates once _populate_eks_workload_secrets fills them.
+    # Runtime workloads use their own RDS IAM logins; the master database reference
+    # reaches only the migration and provisioning Jobs (#2313).
     assert values["runtime"]["secretReferences"] == {
         "app": "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/dev/eks/django-cd",
-        "database": "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/dev/eks/database-ab",
     }
+    assert values["rdsIam"] == {
+        "enabled": True,
+        "databaseUsers": {
+            "portal": "portal_web",
+            "workers": "portal_workers",
+            "ctf-scheduler": "ctf_scheduler",
+            "provisioner-launcher": "provisioner_launcher",
+        },
+    }
+    runtime = values["runtimeEnv"]
+    assert runtime["AWS_SERVICE_TOKEN_ISSUER"].endswith(".tokens.sts.global.api.aws")
+    assert runtime["AWS_SERVICE_TOKEN_AUDIENCE"] == "https://shifter.example.com"
+    assert runtime["AWS_ACCOUNT_ID"] == "123456789012"
+    assert runtime["DB_SSLMODE"] == "verify-full"
+    assert base64.b64decode(runtime["DB_SSL_ROOT_CERT_PEM_B64"]) == _RDS_CA
+    assert runtime["GUACAMOLE_CONTROL_IDENTITY"] == "aws"
+    assert runtime["GUACAMOLE_CONTROLLER_ROLE_ARN"].endswith("shifter-dev-guacamole-client")
+    assert runtime["GUACAMOLE_CONTROL_URL"] == (
+        "https://shifter.example.com/api/v1/mission-control/guacamole/control/authority/"
+    )
+    assert values["openfga"]["passwordDatastore"]["host"] == "dev-portal-db.abcdef.us-east-2.rds.amazonaws.com"
+    assert values["openfga"]["databaseCidrs"] == ["10.0.0.0/16"]
+    assert sa_roles["guacamoleClient"].endswith("shifter-dev-guacamole-client")
+    assert sa_roles["policyCredentialRefresh"].endswith("shifter-dev-policy-credential-refresh")
     rendered = json.dumps(values)
     assert "@sha256:" in rendered
     assert "SECRET_KEY=" not in rendered
@@ -271,14 +319,14 @@ def test_renderer_binds_applied_broker_to_platform_roles_and_endpoints():
             "health_check_cidrs": ["10.42.0.0/20"],
         }
     }
-    values = aws_eks.render_aws_values(config, outputs, _images())
+    values = aws_eks.render_aws_values(config, outputs, _images(), rds_ca_bundle=_RDS_CA)
     assert values["modelBroker"]["enabled"] is True
     assert values["modelBroker"]["control_env"]["MODEL_ACCESS_ENABLED"] == "false"
     assert "10.42.0.10/32" in values["network"]["providerApiCidrs"]
     assert values["runtimeEnv"]["MODEL_BROKER_GUEST_URL"] == ""
     outputs["model_broker"]["value"]["provisioner_subject"] = "arn:aws:iam::123456789012:role/unrelated"
     with pytest.raises(ValueError, match="enrollment identity differs"):
-        aws_eks.render_aws_values(config, outputs, _images())
+        aws_eks.render_aws_values(config, outputs, _images(), rds_ca_bundle=_RDS_CA)
 
 
 def test_protected_input_cannot_silently_disable_requested_broker(tmp_path):
@@ -300,7 +348,7 @@ def test_render_values_rejects_incomplete_runtime_contract():
     images = _images()
 
     with pytest.raises(ValueError, match="OIDC_ISSUER_URL"):
-        aws_eks.render_aws_values(config, outputs, images)
+        aws_eks.render_aws_values(config, outputs, images, rds_ca_bundle=_RDS_CA)
 
 
 def test_render_values_requires_provisioner_image_for_job_launcher():
@@ -310,7 +358,7 @@ def test_render_values_requires_provisioner_image_for_job_launcher():
     images.pop("provisioner")
 
     with pytest.raises(ValueError, match="provisioner"):
-        aws_eks.render_aws_values(config, outputs, images)
+        aws_eks.render_aws_values(config, outputs, images, rds_ca_bundle=_RDS_CA)
 
 
 def test_effective_irsa_probe_uses_exact_service_accounts_and_cleans_up(monkeypatch):
@@ -481,7 +529,7 @@ def test_render_values_rejects_non_attested_image_identities(image):
     outputs = _terraform_outputs()
 
     with pytest.raises(ValueError, match="repository@sha256"):
-        aws_eks.render_aws_values(config, outputs, images)
+        aws_eks.render_aws_values(config, outputs, images, rds_ca_bundle=_RDS_CA)
 
 
 def test_generated_outputs_cover_the_terraform_provisioner_env():
@@ -522,7 +570,7 @@ def test_generated_outputs_match_a_representative_render():
     outputs = _terraform_outputs()
     outputs["runtime_env"] = {"value": {key: f"value-for-{key}" for key in terraform_supplied}}
 
-    values = aws_eks.render_aws_values(_config(), outputs, _images())
+    values = aws_eks.render_aws_values(_config(), outputs, _images(), rds_ca_bundle=_RDS_CA)
     emitted = set(values["runtimeEnv"])
 
     bundle = get_backend_bundle("aws")
@@ -539,7 +587,8 @@ def test_generated_outputs_match_a_representative_render():
     assert "DC_DOMAIN_PASSWORD" not in emitted
 
 
-def test_deploy_sequence_uses_saved_plan_bounded_access_and_atomic_helm(tmp_path, monkeypatch):
+@pytest.mark.parametrize("policy_enabled", [False, True])
+def test_deploy_sequence_uses_saved_plan_bounded_access_and_atomic_helm(tmp_path, monkeypatch, policy_enabled):
     config_path = tmp_path / "shifter.yaml"
     config_path.write_text("placeholder")
     image_path = tmp_path / "images.json"
@@ -552,6 +601,8 @@ def test_deploy_sequence_uses_saved_plan_bounded_access_and_atomic_helm(tmp_path
     manifests: list[dict[str, object]] = []
     secret_stdin_calls: list[tuple[list[str], str]] = []
     outputs_json = json.dumps(_terraform_outputs())
+
+    ceremony: list[str] = []
 
     def _runner(cmd, **kwargs):
         calls.append(cmd)
@@ -570,17 +621,63 @@ def test_deploy_sequence_uses_saved_plan_bounded_access_and_atomic_helm(tmp_path
     runner = Mock(side_effect=_runner)
     monkeypatch.setattr(aws_eks, "load_root_config", lambda _path: _config())
     monkeypatch.setattr(aws_eks, "run_cmd", runner)
-    monkeypatch.setattr(
-        aws_eks,
-        "run_cmd_secret_stdin",
-        lambda cmd, *, secret_stdin: secret_stdin_calls.append((cmd, secret_stdin)) or 0,
-    )
+
+    def _secret_stdin(cmd, *, secret_stdin):
+        secret_stdin_calls.append((cmd, secret_stdin))
+        if cmd[:4] == ["helm", "upgrade", "--install", "shifter"]:
+            ceremony.append("helm upgrade")
+        return 0
+
+    monkeypatch.setattr(aws_eks, "run_cmd_secret_stdin", _secret_stdin)
     preflight = Mock()
     monkeypatch.setattr(aws_eks, "preflight_gate", preflight)
     irsa_verify = Mock()
     monkeypatch.setattr(aws_eks, "_verify_effective_irsa", irsa_verify)
     security_verify = Mock()
     monkeypatch.setattr(aws_eks, "_verify_kubernetes_security_enforcement", security_verify)
+    import contextlib
+
+    import gcp_catalog
+    import gcp_identity_cutover
+    import gcp_process
+
+    package = tmp_path / "openfga-rotation.zip"
+    package.write_bytes(b"synthetic package")
+    monkeypatch.setattr(aws_eks.openfga_rotation_package, "fetch_rds_ca_bundle", lambda region: _RDS_CA)
+    monkeypatch.setattr(aws_eks.openfga_rotation_package, "build_rotation_package", lambda workdir, bundle: package)
+    # A credential-only update republishes the policy credentials on an activated installation.
+    monkeypatch.setattr(
+        aws_eks.aws_native_identity, "publish_policy_credentials", lambda *args, **kwargs: policy_enabled
+    )
+    # The cutover applies the rendered portal ServiceAccount before Helm runs.
+    portal_account = {
+        "apiVersion": "v1",
+        "kind": "ServiceAccount",
+        "metadata": {"name": "portal", "namespace": "shifter-system"},
+    }
+
+    class _Process:
+        def run(self, argv, **kwargs):
+            ceremony.append(" ".join(argv[:2]))
+            if argv[:2] == ["helm", "template"]:
+                return SimpleNamespace(stdout=json.dumps(portal_account), returncode=0)
+            if argv[:2] == ["kubectl", "get"]:
+                live = {"items": [{"metadata": portal_account["metadata"]}]}
+                return SimpleNamespace(stdout=json.dumps(live), returncode=0)
+            return SimpleNamespace(stdout="", returncode=0)
+
+    @contextlib.contextmanager
+    def _boundary(process, documents, workdir, *, cutover_facts=None, bootstrap_facts=None):
+        ceremony.append("boundary")
+        yield SimpleNamespace(required=False, manifest="")
+        ceremony.append("boundary-exit")
+
+    monkeypatch.setattr(gcp_process, "ProcessRunner", _Process)
+    monkeypatch.setattr(gcp_identity_cutover, "identity_cutover_boundary", _boundary)
+    monkeypatch.setattr(
+        gcp_identity_cutover, "activate_identity_cutover", lambda process, run: ceremony.append("activate")
+    )
+    monkeypatch.setattr(gcp_catalog, "initialize_catalog", lambda *args, **kwargs: ceremony.append("catalog"))
 
     evidence = aws_eks.deploy_eks(
         config_path,
@@ -605,14 +702,40 @@ def test_deploy_sequence_uses_saved_plan_bounded_access_and_atomic_helm(tmp_path
         "-reconfigure",
         f"-backend-config={backend_config_path}",
     ] in calls
-    assert [
-        "terraform",
-        f"-chdir={terraform_root}",
-        "plan",
-        "-input=false",
-        f"-var-file={terraform_inputs_path}",
-        "-out=shifter-eks.tfplan",
-    ] in calls
+    plans = [index for index, cmd in enumerate(calls) if cmd[:3] == ["terraform", f"-chdir={terraform_root}", "plan"]]
+    # First install: the schedules wait until the provisioning Job has created the logins.
+    assert [calls[index] for index in plans] == [
+        [
+            "terraform",
+            f"-chdir={terraform_root}",
+            "plan",
+            "-input=false",
+            f"-var-file={terraform_inputs_path}",
+            f"-var=openfga_rotation_package={package.resolve()}",
+            f"-var=openfga_rotation_schedule={value}",
+            "-out=shifter-eks.tfplan",
+        ]
+        for value in ("false", "true")
+    ]
+    provision = next(
+        index for index, cmd in enumerate(calls) if "job/guacamole-db-provision" in cmd and cmd[1] == "wait"
+    )
+    assert plans[0] < provision < plans[1]
+    # The cutover ceremony brackets migration and the release; catalog setup follows.
+    # Helm adopts the objects the cutover created, then installs the release.
+    assert ceremony == [
+        "helm template",
+        "boundary",
+        "activate",
+        "kubectl get",
+        "kubectl label",
+        "kubectl annotate",
+        "helm upgrade",
+        # Without a cutover, the policy servers restart to load republished credentials.
+        *(["kubectl rollout"] * 4 if policy_enabled else []),
+        "boundary-exit",
+        "catalog",
+    ]
     assert ["terraform", f"-chdir={terraform_root}", "apply", "shifter-eks.tfplan"] in calls
     # The private API endpoint is unresolvable from the runner VPC (service-owned
     # hosted zone), so the deploy reaches it by control-plane ENI IP over the
@@ -678,18 +801,25 @@ def test_deploy_sequence_uses_saved_plan_bounded_access_and_atomic_helm(tmp_path
     assert migration_items["ServiceAccount"]["metadata"]["annotations"]["eks.amazonaws.com/role-arn"].endswith(
         "shifter-dev-migrator"
     )
-    # The ConfigMap replicates the runtime env plus the two secret references.
+    # The shared ConfigMap carries the app reference only; the master database
+    # reference reaches only the owner Jobs (#2313).
     migration_cfg = migration_items["ConfigMap"]["data"]
     assert migration_cfg["SKIP_MIGRATIONS"] == "1"
-    assert migration_cfg["APP_SECRET_ID"] and migration_cfg["DB_SECRET_ID"]
+    assert migration_cfg["APP_SECRET_ID"] and "DB_SECRET_ID" not in migration_cfg
     # The Job overrides SKIP_MIGRATIONS to "" so the entrypoint migrates once.
     migrate_job = next(
         m for m in stdin_applied if m.get("kind") == "Job" and m["metadata"]["name"] == aws_eks._MIGRATION_JOB
     )
     job_env = {e["name"]: e.get("value") for e in migrate_job["spec"]["template"]["spec"]["containers"][0]["env"]}
     assert job_env["SKIP_MIGRATIONS"] == ""
+    assert job_env["DB_SECRET_ID"].endswith("/database-ab")
+    assert job_env["DB_IAM_AUTH_RUNTIME"] == "false"
+    # The owner Job runs before identity activation, so it skips the runtime gate.
+    assert job_env["SHIFTER_IDENTITY_MAINTENANCE"] == "true"
+    assert json.loads(job_env["AWS_DATABASE_IAM_USERS_JSON"])["portal"] == "portal_web"
+    # Catalog content follows identity activation; the schema Job never initializes it.
     assert migrate_job["spec"]["template"]["spec"]["containers"][0]["args"][-1] == (
-        "python manage.py bootstrap_inbox_catalog && python manage.py seed_raes_image_registry"
+        "python manage.py reconcile_aws_database_duties && python manage.py seed_raes_image_registry"
         " && python manage.py acquire_feature_artifacts"
     )
     # Guacamole provisioning: the guacamole-db + json-auth secrets are read, and the
@@ -702,6 +832,13 @@ def test_deploy_sequence_uses_saved_plan_bounded_access_and_atomic_helm(tmp_path
     assert any("guacamole-db" in sid for sid in read_secret_ids)
     assert any("guacamole-json-auth" in sid for sid in read_secret_ids)
     assert any(cmd[:2] == ["kubectl", "wait"] and "job/guacamole-db-provision" in cmd for cmd in calls)
+    # The provisioning Job sends the master password only over verified TLS.
+    provision_job = next(
+        m for m in manifests if m.get("kind") == "Job" and m["metadata"]["name"] == "guacamole-db-provision"
+    )
+    provision_env = {e["name"]: e["value"] for e in provision_job["spec"]["template"]["spec"]["containers"][0]["env"]}
+    assert provision_env["DB_SSLMODE"] == "verify-full"
+    assert base64.b64decode(provision_env["DB_SSL_ROOT_CERT_PEM_B64"]) == _RDS_CA
     assert any(
         cmd[:4] == ["helm", "upgrade", "--install", "aws-load-balancer-controller"]
         and "--version" in cmd
@@ -740,7 +877,7 @@ def test_deploy_sequence_uses_saved_plan_bounded_access_and_atomic_helm(tmp_path
     )
     helm_values_calls = [values for cmd, values in secret_stdin_calls if "--values" in cmd]
     apply_stdin_calls = [values for cmd, values in secret_stdin_calls if cmd[:4] == ["kubectl", "apply", "-f", "-"]]
-    assert len(helm_values_calls) == 3  # helm lint + template + upgrade --install, values over stdin
+    assert len(helm_values_calls) == 2  # helm lint + upgrade --install; template feeds the ceremony
     assert len(apply_stdin_calls) == 3  # guacamole-runtime Secret + migration prerequisites + Job, over stdin
     # Helm values stream the secret references over stdin, never argv or disk.
     assert all('"secretReferences"' in values for values in helm_values_calls)
@@ -760,6 +897,15 @@ def test_teardown_is_scoped_to_the_eks_root_and_fails_without_valid_aws_config(t
     calls: list[list[str]] = []
     monkeypatch.setattr(aws_eks, "load_root_config", lambda _path: _config())
     monkeypatch.setattr(aws_eks, "run_cmd", lambda cmd, **kwargs: calls.append(cmd))
+    # Teardown builds the same rotation package as deploy before it removes anything.
+    package = tmp_path / "openfga-rotation.zip"
+
+    def prepare(workdir, region):
+        assert region == "us-east-2" and calls == []
+        calls.append(["build-rotation-package"])
+        return package
+
+    monkeypatch.setattr(aws_eks.openfga_rotation_package, "prepare_rotation_package", prepare)
 
     backend_config_path = tmp_path / "dev.s3.tfbackend"
     backend_config_path.write_text('bucket = "state"\n')
@@ -775,7 +921,8 @@ def test_teardown_is_scoped_to_the_eks_root_and_fails_without_valid_aws_config(t
     )
 
     root = str(aws_eks.eks_root("dev"))
-    assert calls[0][:4] == ["helm", "uninstall", "shifter", "--namespace"]
+    assert calls[0] == ["build-rotation-package"]
+    assert calls[1][:4] == ["helm", "uninstall", "shifter", "--namespace"]
     assert [
         "terraform",
         f"-chdir={root}",
@@ -790,6 +937,7 @@ def test_teardown_is_scoped_to_the_eks_root_and_fails_without_valid_aws_config(t
         "destroy",
         "-auto-approve",
         f"-var-file={terraform_inputs_path}",
+        f"-var=openfga_rotation_package={package.resolve()}",
     ] in calls
     assert not any("/portal" in token or "/range" in token for call in calls for token in call)
 
@@ -982,7 +1130,7 @@ def test_populate_eks_workload_secrets_copies_sources_via_file(monkeypatch):
 
 def test_runtime_plugin_pool_labeler_follows_the_pool_toggle():
     """The trusted node-pool labeler (#2526) renders only with the plugin pool's node role."""
-    disabled = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images())
+    disabled = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images(), rds_ca_bundle=_RDS_CA)
     assert disabled["runtimePluginPool"] == {"labeler": {"enabled": False, "nodeGroupAsg": ""}}
     assert "nodePoolLabeler" not in disabled["identity"]["serviceAccountRoleArns"]
 
@@ -991,23 +1139,23 @@ def test_runtime_plugin_pool_labeler_follows_the_pool_toggle():
     node_group = "eks-runtime-plugins-1234-abcd"
     outputs["workload_role_arns"]["value"]["nodePoolLabeler"] = labeler
     outputs["runtime_plugin_node_group_asg"] = {"value": node_group}
-    enabled = aws_eks.render_aws_values(_config(), outputs, _images())
+    enabled = aws_eks.render_aws_values(_config(), outputs, _images(), rds_ca_bundle=_RDS_CA)
     assert enabled["runtimePluginPool"] == {"labeler": {"enabled": True, "nodeGroupAsg": node_group}}
     assert enabled["identity"]["serviceAccountRoleArns"]["nodePoolLabeler"] == labeler
 
     # Exactly one of the identity and the pool role means a misconfigured environment.
     del outputs["runtime_plugin_node_group_asg"]
     with pytest.raises(ValueError, match="enabled together"):
-        aws_eks.render_aws_values(_config(), outputs, _images())
+        aws_eks.render_aws_values(_config(), outputs, _images(), rds_ca_bundle=_RDS_CA)
     pool_only = _terraform_outputs()
     pool_only["runtime_plugin_node_group_asg"] = {"value": node_group}
     with pytest.raises(ValueError, match="enabled together"):
-        aws_eks.render_aws_values(_config(), pool_only, _images())
+        aws_eks.render_aws_values(_config(), pool_only, _images(), rds_ca_bundle=_RDS_CA)
 
 
 def test_feature_artifact_acquisition_is_enabled_only_by_the_acquirer_identity(monkeypatch):
     """The artifactAcquirer role enables acquisition Jobs (#2463); without it they stay off."""
-    disabled = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images())
+    disabled = aws_eks.render_aws_values(_config(), _terraform_outputs(), _images(), rds_ca_bundle=_RDS_CA)
     assert disabled["capabilities"]["featureArtifactAcquisition"] is False
     assert disabled["runtimeEnv"]["FEATURE_ARTIFACT_JOB_IMAGE"] == ""
     assert "artifactAcquirer" not in disabled["identity"]["serviceAccountRoleArns"]
@@ -1015,7 +1163,7 @@ def test_feature_artifact_acquisition_is_enabled_only_by_the_acquirer_identity(m
     outputs = _terraform_outputs()
     acquirer = "arn:aws:iam::123456789012:role/shifter-dev-artifact-acquirer"
     outputs["workload_role_arns"]["value"]["artifactAcquirer"] = acquirer
-    enabled = aws_eks.render_aws_values(_config(), outputs, _images())
+    enabled = aws_eks.render_aws_values(_config(), outputs, _images(), rds_ca_bundle=_RDS_CA)
     assert enabled["capabilities"]["featureArtifactAcquisition"] is True
     assert enabled["runtimeEnv"]["FEATURE_ARTIFACT_JOB_IMAGE"] == _images()["platform"]
     assert enabled["identity"]["serviceAccountRoleArns"]["artifactAcquirer"] == acquirer
@@ -1023,7 +1171,7 @@ def test_feature_artifact_acquisition_is_enabled_only_by_the_acquirer_identity(m
     images = _images()
     images.pop("platform")
     with pytest.raises(ValueError, match="platform"):
-        aws_eks.render_aws_values(_config(), outputs, images)
+        aws_eks.render_aws_values(_config(), outputs, images, rds_ca_bundle=_RDS_CA)
 
     probed: list[tuple[str, str]] = []
 
@@ -1039,3 +1187,27 @@ def test_feature_artifact_acquisition_is_enabled_only_by_the_acquirer_identity(m
     monkeypatch.setattr(aws_eks, "run_cmd", runner)
     aws_eks._verify_effective_irsa(outputs["workload_role_arns"]["value"], _images()["platform"])
     assert ("shifter-acquisition", "artifact-acquirer") in probed
+
+
+def test_applied_rotation_schedules_stay_on_in_one_plan(tmp_path, monkeypatch):
+    calls: list[list[str]] = []
+
+    def runner(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[-2:] == ["output", "-json"]:
+            return SimpleNamespace(stdout=json.dumps({"openfga_rotation_scheduled": {"value": True}}), returncode=0)
+        return SimpleNamespace(stdout="", returncode=0)
+
+    monkeypatch.setattr(aws_eks, "run_cmd", runner)
+    package = tmp_path / "openfga-rotation.zip"
+    scheduled = aws_eks._apply_eks_terraform(
+        tmp_path,
+        backend_config=tmp_path / "dev.s3.tfbackend",
+        terraform_inputs=tmp_path / "eks.tfvars.json",
+        rotation_package=package,
+        aws_profile=None,
+        dry_run=False,
+    )
+    assert scheduled is True
+    plan = next(cmd for cmd in calls if "plan" in cmd)
+    assert "-var=openfga_rotation_schedule=true" in plan

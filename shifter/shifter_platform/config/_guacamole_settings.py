@@ -18,6 +18,7 @@ __all__ = [
     "GUACAMOLE_BOOTSTRAP_PRUNE_INTERVAL_SECONDS",
     "GUACAMOLE_BOOTSTRAP_TTL_SECONDS",
     "GUACAMOLE_BOOTSTRAP_WORKERS",
+    "GUACAMOLE_CONTROLLER_ROLE_ARN",
     "GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_EMAIL",
     "GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_ID",
     "GUACAMOLE_CONTROL_AUDIENCE",
@@ -27,6 +28,9 @@ __all__ = [
 GUACAMOLE_CONTROL_AUDIENCE = os.environ.get("GUACAMOLE_CONTROL_AUDIENCE", "")
 GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_EMAIL = os.environ.get("GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_EMAIL", "")
 GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_ID = os.environ.get("GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_ID", "")
+# AWS: the exact IAM role ARN of the gateway's IRSA identity. Set this OR the
+# Google pair above; the control endpoint refuses both or neither.
+GUACAMOLE_CONTROLLER_ROLE_ARN = os.environ.get("GUACAMOLE_CONTROLLER_ROLE_ARN", "")
 
 # JSON auth secret key for signing RDP session URLs. Must match the
 # JSON_SECRET_KEY configured in Guacamole's ECS task definition; a hex string

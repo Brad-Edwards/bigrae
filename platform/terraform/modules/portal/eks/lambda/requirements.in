@@ -1,0 +1,5 @@
+# OpenFGA datastore rotation function dependency (#2313). Keep the version equal
+# to the platform lock; regenerate requirements.lock with:
+#   uv pip compile requirements.in --generate-hashes --python-version 3.12 \
+#     --python-platform x86_64-manylinux_2_28 --no-header -o requirements.lock
+psycopg[binary]==3.3.4

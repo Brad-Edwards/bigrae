@@ -41,6 +41,8 @@ def test_real_provider_native_catalog_bootstrap(
         from management.models import ServiceCredentialAdmission
         from management.service_credentials import create_service_credential
 
+        # The synthetic subject and proof are Google service-account values.
+        monkeypatch.setattr(settings, "CLOUD_PROVIDER", "gcp")
         provider.write_relationships(
             PolicyRelationshipChange(
                 RelationshipSubject("principal", human.principal.uuid),

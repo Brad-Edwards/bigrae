@@ -6069,7 +6069,7 @@
             },
             "post": {
                 "operationId": "credentials_services_create",
-                "description": "Register a native Google service identity admission.",
+                "description": "Register a native cloud service identity admission.",
                 "tags": [
                     "credentials"
                 ],
@@ -8906,7 +8906,7 @@
                     },
                     "subject": {
                         "type": "string",
-                        "pattern": "^[0-9]{10,32}$"
+                        "maxLength": 2048
                     },
                     "scopes": {
                         "type": "array",
@@ -10946,8 +10946,8 @@
             "ApiTokenAuth": {
                 "type": "http",
                 "scheme": "bearer",
-                "bearerFormat": "Knox opaque credential or native Google ID token",
-                "description": "Personal Knox credential with live authorization, or explicitly admitted audience-bound Google service ID token. Cloud access tokens and human provider ID tokens are not application bearer credentials."
+                "bearerFormat": "Knox opaque credential or native cloud service identity token",
+                "description": "Personal Knox credential with live authorization, or an explicitly admitted audience-bound native service identity token: a Google service ID token on GCP or an AWS STS web identity token on AWS. Cloud access tokens and human provider ID tokens are not application bearer credentials."
             },
             "cookieAuth": {
                 "type": "apiKey",

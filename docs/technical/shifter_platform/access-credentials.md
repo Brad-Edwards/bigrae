@@ -10,7 +10,8 @@ cloud roles.
 
 `shared.credentials.CredentialContext` carries an immutable principal, credential
 kind, safe identifier and exact action ceiling. One bearer-first DRF authenticator
-dispatches to public Knox or google-auth verification. Invalid bearer proof raises
+dispatches to public Knox or the provider's native service proof verifier: Google
+ID tokens on GCP and AWS STS web identity tokens on AWS (#2313). Invalid bearer proof raises
 401 even beside a valid session. Legacy human-only consumers reject services;
 they never impersonate the service's creator. OpenFGA administration consumes the
 neutral context directly.
@@ -93,6 +94,9 @@ service-name exception.
 | Setting | Default | Enforced policy |
 |---|---|---|
 | `GCP_SERVICE_TOKEN_AUDIENCE` | empty outside GCP renderer | Exact HTTPS portal audience; empty disables native bearer admission |
+| `AWS_SERVICE_TOKEN_ISSUER` | empty outside AWS renderer | Exact account issuer for STS web identity tokens; any other value disables AWS bearer admission |
+| `AWS_SERVICE_TOKEN_AUDIENCE` | empty outside AWS renderer | Exact HTTPS portal audience for AWS service tokens |
+| `AWS_ACCOUNT_ID` | empty outside AWS renderer | The account that owns the issuer; service subjects must be role ARNs in it |
 | `IDENTITY_PLATFORM_TENANT_ID` | empty | Exact configured tenant, including rejection of unexpected tenancy |
 | `IDENTITY_SESSION_ABSOLUTE_SECONDS` | 28800 | 60–86400; measured from provider authentication |
 | `IDENTITY_SESSION_IDLE_SECONDS` | 1800 | 60–3600 |
@@ -161,6 +165,15 @@ Source credential options:
   expiring subject token is not indefinitely renewable; its producer must refresh it.
   Do not accept untrusted credential configuration or executable suppliers. See
   [auth-library federation](https://docs.cloud.google.com/iam/docs/authenticate-with-auth-libraries).
+
+On AWS, use `ServiceClient.from_aws(audience)` from the `aws` extra
+(`python -m pip install "./shifter/shifter_client[aws]"`). It obtains STS
+`GetWebIdentityToken` tokens (ES384, 900 seconds) for exactly that audience and
+renews them before expiry. The botocore credential chain renews the source role
+credentials, for example from IRSA or an assumed role. The caller's role needs
+`sts:GetWebIdentityToken` limited to the audience, and an admission for its role
+ARN. IAM user credentials are not service identities. See the
+[AWS native identity guide](../../ops/aws-native-identity.md#admit-a-service-principal).
 
 Long-running success depends on a renewable source, valid IAM, available provider
 endpoints and live BigRAE admission/policy. A pasted bearer or revoked local refresh

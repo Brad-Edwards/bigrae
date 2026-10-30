@@ -20,7 +20,7 @@ connector transport only; guacd has neither SQL nor cloud authority.
 | --- | --- |
 | Application/policy SQL client | `roles/cloudsql.client` for connector connection and `roles/cloudsql.instanceUser` for IAM login, conditioned on the exact installation instance. [Native login contract](https://docs.cloud.google.com/sql/docs/postgres/iam-logins). |
 | Guacamole client/deployment owner | Instance-conditioned connector role only; their separate password/database duties persist. [GKE connection pattern](https://docs.cloud.google.com/sql/docs/postgres/connect-kubernetes-engine). |
-| Portal directory recheck | Custom role containing only `firebaseauth.users.get`; no hash export, directory mutation or configuration access. [Native API permission map](https://docs.cloud.google.com/identity-platform/docs/access-control). |
+| Directory recheck (portal, workers, CTF scheduler, provisioner launcher) | Custom role containing only `firebaseauth.users.get`; no hash export, directory mutation or configuration access. [Native API permission map](https://docs.cloud.google.com/identity-platform/docs/access-control). |
 | Dynamic-secret provisioner | Create-only parent role plus canonical prefix-conditioned existing-secret lifecycle; portal reads only classified participant-access names. Static secrets retain named bindings. |
 | Operator | Existing deliberately assigned cloud/CI powers are additive. Application authority requires its own explicit principal/policy grant and admitted credential ceiling. |
 

@@ -38,7 +38,7 @@ def content_actor(settings, monkeypatch, django_user_model):
     binding = ProviderBinding.objects.create(
         principal=Principal.objects.get(uuid=principal.uuid), issuer="https://accounts.google.com", subject=str(uuid4())
     )
-    settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://example.test/shifter"
+    settings.GCP_SERVICE_TOKEN_AUDIENCE = settings.AWS_SERVICE_TOKEN_AUDIENCE = "https://example.test/shifter"
     ServiceCredentialAdmission.objects.create(
         binding=binding,
         audience=settings.GCP_SERVICE_TOKEN_AUDIENCE,

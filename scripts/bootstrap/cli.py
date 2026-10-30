@@ -508,6 +508,17 @@ def _add_eks_subparsers(subparsers: argparse._SubParsersAction) -> None:
         default=os.environ.get("SHIFTER_EKS_TFVARS_PATH", ""),
         help="Protected JSON var-file containing the EKS infrastructure/runtime projection",
     )
+    deploy_parser.add_argument(
+        "--identity-cutover-facts", default="", help="Private 0600 identity cutover facts JSON file"
+    )
+    deploy_parser.add_argument(
+        "--identity-bootstrap-facts", default="", help="Private 0600 identity bootstrap facts JSON file"
+    )
+    deploy_parser.add_argument(
+        "--catalog-credential-file",
+        default="",
+        help="Private 0600 file with a current native bearer proof for catalog setup",
+    )
     deploy_parser.add_argument("--profile", help=HELP_AWS_PROFILE)
     deploy_parser.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
 
@@ -711,6 +722,9 @@ def _handle_eks_deploy(args: argparse.Namespace) -> None:
         args.images,
         backend_config_path=args.backend_config,
         terraform_inputs_path=args.terraform_inputs,
+        identity_cutover_facts=args.identity_cutover_facts or None,
+        identity_bootstrap_facts=args.identity_bootstrap_facts or None,
+        catalog_credential_file=args.catalog_credential_file or None,
         aws_profile=args.profile,
         dry_run=args.dry_run,
     )

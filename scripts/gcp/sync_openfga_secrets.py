@@ -2,15 +2,13 @@
 """Deliver named policy bundles through provider-native and Kubernetes Secrets."""
 
 import argparse
-import base64
 import json
 import subprocess  # nosec B404
 from pathlib import Path
 
 from installation.loader import load_root_config
+from installation.openfga_bundles import policy_documents
 from installation.settings_gcp import GcpBackendSettings, GcpOpenFgaSettings
-
-_BUNDLE_KEYS = {"server-preshared-keys", "api-token", "tls.crt", "tls.key"}
 
 
 def fetch_secret(reference: str) -> dict:
@@ -40,19 +38,6 @@ def apply_resource(document: dict) -> None:
         raise ValueError("Policy credential publication failed")
 
 
-def _bundle_keys(bundle: object) -> set[str]:
-    if (
-        not isinstance(bundle, dict)
-        or set(bundle) != _BUNDLE_KEYS
-        or not all(isinstance(value, str) and value and "\0" not in value for value in bundle.values())
-    ):
-        raise ValueError("Policy bundle must contain only the native credential and TLS fields")
-    keys = {key.strip() for key in bundle["server-preshared-keys"].split(",")}
-    if not keys or any(len(key) < 32 for key in keys):
-        raise ValueError("Policy authentication keys must be at least 32 characters")
-    return keys
-
-
 def sync(settings: object) -> None:
     policy = GcpOpenFgaSettings.model_validate(settings)
     if not policy.enabled:
@@ -60,44 +45,8 @@ def sync(settings: object) -> None:
     runtime = fetch_secret(policy.runtime_secret_ref)
     admin = fetch_secret(policy.admin_secret_ref)
     ca = fetch_secret(policy.ca_secret_ref)
-    runtime_keys, admin_keys = _bundle_keys(runtime), _bundle_keys(admin)
-    if runtime_keys & admin_keys or runtime["tls.key"] == admin["tls.key"]:
-        raise ValueError("Runtime and administration require separate authentication and TLS keys")
-    if runtime["api-token"] not in runtime_keys or admin["api-token"] not in admin_keys:
-        raise ValueError("Policy client token must match its own native server authentication keys")
-    if not isinstance(ca, dict) or set(ca) != {"ca.crt"} or not isinstance(ca["ca.crt"], str) or not ca["ca.crt"]:
-        raise ValueError("Policy CA publication accepts only the public CA certificate")
-    for name, bundle in (("openfga-runtime", runtime), ("openfga-admin", admin)):
-        apply_resource(
-            {
-                "apiVersion": "v1",
-                "kind": "Secret",
-                "metadata": {
-                    "name": name,
-                    "namespace": "shifter-platform",
-                    "labels": {"app.kubernetes.io/part-of": "shifter"},
-                },
-                "type": "Opaque",
-                "data": {
-                    (
-                        "runtime-preshared-key" if name == "openfga-runtime" and key == "api-token" else key
-                    ): base64.b64encode(value.encode()).decode()
-                    for key, value in bundle.items()
-                },
-            }
-        )
-    apply_resource(
-        {
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {
-                "name": "openfga-ca",
-                "namespace": "shifter-platform",
-                "labels": {"app.kubernetes.io/part-of": "shifter"},
-            },
-            "data": ca,
-        }
-    )
+    for document in policy_documents(runtime, admin, ca):
+        apply_resource(document)
 
 
 def main() -> int:

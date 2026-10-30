@@ -989,9 +989,11 @@ def _check_native_identity_scope(path: Path, lines: list[str]) -> list[Violation
         ("google_project_iam_custom_role", "directory_reader"): (
             "project=var.project_id", 'permissions=["firebaseauth.users.get"]',
         ),
+        # The portal and the delayed-work identities recheck session credentials (#2313).
         ("google_project_iam_member", "directory_reader"): (
+            'for_each=toset(["portal","workers","ctf-scheduler","provisioner-launcher"])',
             "project=var.project_id", "role=google_project_iam_custom_role.directory_reader.id",
-            'member="serviceAccount:${google_service_account.workload["portal"].email}"',
+            'member="serviceAccount:${google_service_account.workload[each.key].email}"',
         ),
     }
     violations = []

@@ -34,11 +34,12 @@ class ApiTokenAuthenticationScheme(OpenApiAuthenticationExtension):
         return {
             "type": "http",
             "scheme": "bearer",
-            "bearerFormat": "Knox opaque credential or native Google ID token",
+            "bearerFormat": "Knox opaque credential or native cloud service identity token",
             "description": (
-                "Personal Knox credential with live authorization, or explicitly admitted audience-bound "
-                "Google service ID token. Cloud access tokens and human provider ID tokens are not "
-                "application bearer credentials."
+                "Personal Knox credential with live authorization, or an explicitly admitted audience-bound "
+                "native service identity token: a Google service ID token on GCP or an AWS STS web identity "
+                "token on AWS. Cloud access tokens and human provider ID tokens are not application bearer "
+                "credentials."
             ),
         }
 

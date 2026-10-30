@@ -23,8 +23,15 @@ final class GatewayControl implements GatewayRenewals.Control, AutoCloseable {
         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
         .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
 
-    GatewayControl(String endpoint, String audience) {
-        this(URI.create(endpoint), new GoogleGatewayIdentity(audience));
+    GatewayControl(String endpoint, String audience, String kind) {
+        this(URI.create(endpoint), identity(kind, audience));
+    }
+
+    /** Select the configured native workload identity; an unknown kind fails closed. */
+    static Identity identity(String kind, String audience) {
+        if (kind == null || "google".equals(kind)) return new GoogleGatewayIdentity(audience);
+        if ("aws".equals(kind)) return new AwsGatewayIdentity(audience);
+        throw new IllegalArgumentException("Unsupported gateway identity");
     }
 
     GatewayControl(URI endpoint, Identity identity) {

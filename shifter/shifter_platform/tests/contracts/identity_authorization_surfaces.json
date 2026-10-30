@@ -4167,7 +4167,31 @@
       "disposition": "retained",
       "kind": "management-command",
       "scope": "deployment-operator",
+      "surface": "shared:provision_aws_runtime_logins",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:provision_openfga_database",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
       "surface": "shared:prune_notifications",
+      "target": "installation"
+    },
+    {
+      "decision": "deployment-command",
+      "disposition": "retained",
+      "kind": "management-command",
+      "scope": "deployment-operator",
+      "surface": "shared:reconcile_aws_database_duties",
       "target": "installation"
     },
     {

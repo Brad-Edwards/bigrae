@@ -96,15 +96,6 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
-    "reason": "CKV_AWS_273 / CKV_AWS_274 / CKV_AWS_40 / CKV2_AWS_22 (IAM users without SSO / with AdministratorAccess / direct policy attachment / console access): apply to the se-admins IAM users, PANW SEs who need admin access to the dev AWS account where AWS SSO is not configured. Console access with a first-login password reset is required; AdministratorAccess is attached by design.",
-    "expires_on": "2027-05-26",
-    "paths": [
-      "platform/terraform/global/se-admins/"
-    ]
-  },
-  {
-    "rule_id": "ADR-004-R11",
-    "owner": "@Brad-Edwards",
     "reason": "aws-dev-bootstrap-inline-admin: CKV_AWS_274 / CKV_AWS_288 / CKV_AWS_286 / CKV_AWS_62 / CKV_AWS_63 / CKV_AWS_287 / CKV2_AWS_40 on the dev GitHub OIDC deploy role. The fresh aws-dev account is subject to an Organizations SCP that denies iam:AttachRolePolicy, so the role cannot use the managed AdministratorAccess policy attachment the module previously declared. During dev account bootstrap this role remains AdministratorAccess-equivalent by design; the SCP-compatible inline policy preserves the existing privilege model without broadening the trust policy.",
     "expires_on": "2026-12-07",
     "paths": [
@@ -378,17 +369,6 @@
     "paths": [
       "scripts/check_tf_sg_cidrs/check_tf_sg_cidrs.py",
       "shifter/engine/provisioner/terraform/modules/range/vpn.tf"
-    ]
-  },
-  {
-    "rule_id": "ADR-040-R3",
-    "owner": "@Brad-Edwards",
-    "reason": "Issue #1924 deliberately narrows POST /api/v1/ctf/participants/{participant_id}/resend-invite/ from reset-and-email credentials to resend non-secret login information while preserving its operation, status, and response shape. The semantic break ends existing-password disclosure and reset-by-email behavior. The additive POST /api/v1/ctf/participants/{participant_id}/password/ operation is the replacement for explicit generated or organizer-set resets, and the organizer SPA list/detail flows migrate to it. Remove this exception after external consumers have migrated and the deprecated resend operation can be versioned or removed.",
-    "expires_on": "2026-10-29",
-    "paths": [
-      "shifter/shifter_platform/ctf/api/organizer/participants.py",
-      "shifter/shifter_platform/ctf/services/participant/accounts.py",
-      "shifter/shifter_platform/frontend/src/features/ctf/admin/ParticipantPasswordDialog.tsx"
     ]
   },
   {

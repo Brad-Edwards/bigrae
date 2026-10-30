@@ -104,4 +104,13 @@ class AuthorityProviderTest {
             assertThrows(GuacamoleException.class, () -> provider.redecorate(decorated, context(otherBinding), user(otherBinding, "json"), null));
         }
     }
+
+    @Test void unknownGatewayIdentityKindLeavesBoundSessionsRefused() {
+        assertNull(AuthorityProvider.configuredRenewals("https://portal.example.test/control", "synthetic-control", "azure"));
+        assertNull(AuthorityProvider.configuredRenewals(null, "synthetic-control", "aws"));
+        AuthorityProvider provider = new AuthorityProvider(true, null);
+        String bound = "access-" + UUID.randomUUID();
+        assertThrows(GuacamoleException.class, () -> provider.decorate(context(bound), user(bound, "json"), null));
+        provider.shutdown();
+    }
 }

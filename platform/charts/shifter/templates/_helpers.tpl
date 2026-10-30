@@ -189,6 +189,15 @@ initContainers:
 - name: DB_SECRET_ID
   value: ""
 {{- end }}
+{{- if .root.Values.rdsIam.enabled }}
+{{- /* AWS (#2313): this workload's own RDS IAM login; it reads no master credential. */}}
+- name: DB_AUTH_MODE
+  value: rds-iam
+- name: DB_USER
+  value: {{ required "RDS IAM login is missing for this workload" (get .root.Values.rdsIam.databaseUsers .role) | quote }}
+- name: DB_SECRET_ID
+  value: ""
+{{- end }}
 {{- if and .root.Values.openfga.enabled (ne .root.Values.openfga.storeId "") (ne .root.Values.openfga.modelId "") }}
 - name: OPENFGA_API_URL
   value: {{ printf "https://%s" .root.Values.openfga.hostname | quote }}
@@ -229,3 +238,21 @@ the admission policy and the ConfigMap can not drift.
 {{- end -}}
 {{- toJson $runtimeEnv -}}
 {{- end -}}
+
+{{/*
+OpenFGA password-datastore login (#2313): the username and password come from
+the named Secret that the deploy tooling and the weekly refresh maintain. The
+argument is the Secret name.
+*/}}
+{{- define "shifter.openfgaDatastoreLogin" -}}
+- name: OPENFGA_DATASTORE_USERNAME
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: username
+- name: OPENFGA_DATASTORE_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: password
+{{- end }}
