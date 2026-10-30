@@ -1,0 +1,32 @@
+{# SPDX-FileCopyrightText: 2026 Palo Alto Networks, Inc. #}
+{# SPDX-License-Identifier: MIT #}
+{# Trusted notice wrapper (#580). Every value is escaped. The authored Markdown #}
+{# source is shown as text; it is never rendered as HTML. #}
+{% load i18n %}
+<!DOCTYPE html>
+<html lang="{{ locale }}">
+    <head>
+        <meta charset="utf-8">
+        <link rel="icon" href="data:,">
+        <title>{{ subject }}</title>
+    </head>
+    <body style="font-family: Arial, sans-serif;
+                 max-width: 600px;
+                 margin: 0 auto">
+        <h1 style="font-size: 1.25em">{{ subject }}</h1>
+        <p>
+            {% if participant_name %}
+                {% blocktrans %}Hi {{ participant_name }},{% endblocktrans %}
+            {% else %}
+                {% trans "Hello," %}
+            {% endif %}
+        </p>
+        <p>
+            {% block intro %}{% endblock %}
+        </p>
+        {{ body|linebreaks }}
+        <p>
+            <a href="{{ event_url }}">{% blocktrans %}Open {{ event_name }}{% endblocktrans %}</a>
+        </p>
+    </body>
+</html>

@@ -1,24 +1,15 @@
-"""CTF notification email dispatch and rendering.
+"""Retired CTF notification email helpers.
 
-Houses the low-level email choke point (``_send_email``), template
-rendering (``_render_email``), and the tokenless CTF login URL builder
-(``_build_ctf_login_url``) shared by the participant- and organizer-facing
-notification functions in ``ctf.services.notification``.
+Houses the retired low-level email choke point (``_send_email``) and the
+tokenless CTF login URL builder (``_build_ctf_login_url``). Ledger email renders
+through the communication email adapter (#580).
 """
 
 from __future__ import annotations
 
-import logging
-from typing import TYPE_CHECKING
-
 from ctf.services.notification._scheduled import retired_write
 
 _send_email = retired_write
-
-if TYPE_CHECKING:
-    from ctf.models import CTFEvent
-
-logger = logging.getLogger(__name__)
 
 
 def _build_ctf_login_url() -> str:
@@ -29,74 +20,3 @@ def _build_ctf_login_url() -> str:
     path = reverse("ctf:ctf_login")
     base = (getattr(settings, "SITE_URL", "") or "").rstrip("/")
     return f"{base}{path}"
-
-
-def _render_email(
-    template_name: str,
-    context: dict[str, object],
-    event: CTFEvent | None = None,
-) -> tuple[str, str, str]:
-    """Render email templates.
-
-    If *event* is provided and has a custom template for the given
-    notification type, the custom template is rendered from the database.
-    Otherwise the default filesystem template is used.
-
-    Args:
-        template_name: Base name / notification type (e.g., "invitation").
-        context: Template context.
-        event: Optional event for custom template lookup.
-
-    Returns:
-        Tuple of (html_content, text_content, custom_subject).
-        custom_subject is non-empty only when a custom template with a
-        subject override is used; callers should prefer it over their
-        default subject when non-empty.
-    """
-    # Map filesystem template names to NotificationType enum values where
-    # they differ (the "invitation" template corresponds to the "invite" type).
-    _TEMPLATE_TO_TYPE = {"invitation": "invite"}
-
-    if event is not None:
-        from ctf.models import CTFEmailTemplate
-
-        lookup_type = _TEMPLATE_TO_TYPE.get(template_name, template_name)
-        custom = CTFEmailTemplate.objects.filter(
-            event=event,
-            notification_type=lookup_type,
-        ).first()
-        if custom is not None:
-            from ctf.services.email_template import (
-                allowed_placeholders,
-                build_safe_context,
-                find_template_violations,
-                render_safe_body,
-            )
-
-            # Organizer-authored bodies are untrusted: never hand them to the
-            # Django template engine (CWE-1336). Validate against the flat
-            # placeholder policy and fail closed to the trusted default
-            # template on any unsupported syntax, even though writes are also
-            # validated -- stored rows can predate validators or arrive via
-            # admin / direct saves / restores.
-            allowed = allowed_placeholders(lookup_type)
-            violations = find_template_violations(custom.html_body, allowed) + find_template_violations(
-                custom.text_body, allowed
-            )
-            if violations:
-                logger.warning(
-                    "Custom email template for event %s (%s) failed safe-render "
-                    "validation; falling back to default template",
-                    getattr(event, "pk", None),
-                    lookup_type,
-                )
-            else:
-                scalars = build_safe_context(context)
-                html_content = render_safe_body(custom.html_body, scalars, escape=True)
-                text_content = render_safe_body(custom.text_body, scalars, escape=False)
-                return html_content, text_content, custom.subject or ""
-
-    from shared.email import render_template
-
-    html, text = render_template(f"ctf/email/{template_name}", context)
-    return html, text, ""

@@ -35,6 +35,7 @@ from ctf.enums_communication import (
     CommunicationOrigin,
     IntentDeliveryState,
     IntentStatus,
+    NoticeKind,
     RecipientKind,
     TriggerKind,
 )
@@ -51,7 +52,7 @@ from .team import CTFParticipant
 _REF_MAX = 255
 
 
-class CommunicationCampaign(CTFBaseModel):
+class CommunicationCampaign(ImmutableFieldsMixin, CTFBaseModel):
     """Authoring aggregate for one scoped communication campaign (ADR-051).
 
     A campaign is bound to exactly one immutable workspace and may target one or
@@ -76,6 +77,13 @@ class CommunicationCampaign(CTFBaseModel):
         max_length=32,
         choices=CommunicationOrigin.choices(),
         help_text="Source kind for provenance/audit; never an authorization grant",
+    )
+    notice_kind = models.CharField(
+        max_length=16,
+        choices=NoticeKind.choices(),
+        default=NoticeKind.ANNOUNCEMENT.value,
+        editable=False,
+        help_text="Selects the trusted email template pair; set once at creation, never authority (#580)",
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -163,6 +171,10 @@ class CommunicationCampaign(CTFBaseModel):
                 condition=models.Q(origin__in=[o.value for o in CommunicationOrigin]),
                 name="ctf_comm_campaign_origin_valid",
             ),
+            models.CheckConstraint(
+                condition=models.Q(notice_kind__in=[k.value for k in NoticeKind]),
+                name="ctf_comm_campaign_notice_kind_valid",
+            ),
         ]
 
     def save(self, *args: object, **kwargs: object) -> None:
@@ -180,9 +192,13 @@ class CommunicationCampaign(CTFBaseModel):
         """Return the campaign title."""
         return self.title
 
+    # The notice kind selects the email template for every retry (#580).
+    IMMUTABLE_FIELDS = ("notice_kind",)
+
     def clean(self) -> None:
-        """Validate the closed audience/trigger/channel/ack shapes (defense in depth)."""
+        """Validate the closed shapes (defense in depth) and the immutable notice kind."""
         errors: dict[str, list[str]] = {}
+        self.validate_immutable(errors)
         # Organizer recipients are reachable only from trusted system notices.
         allow_organizer = self.origin == CommunicationOrigin.SYSTEM_MILESTONE.value
         for field, validator in (

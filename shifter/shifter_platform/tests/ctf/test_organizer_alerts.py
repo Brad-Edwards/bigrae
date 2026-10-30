@@ -474,3 +474,28 @@ def test_worker_keeps_organizer_work_retriable_during_a_policy_outage(staffed_ev
     attempt = DeliveryAttempt.objects.get(pk=row.pk)
     assert attempt.result_reason == "authority_unavailable"
     assert attempt.attempted_at is None
+
+
+def test_organizer_alert_email_uses_the_organizer_template_and_alerts_link(
+    staffed_event, organizer_user, mailoutbox, settings, monkeypatch
+):
+    from ctf.services.communication import delivery as delivery_svc
+
+    monkeypatch.setattr("ctf.services.communication.metrics._resolve_client", lambda: None)
+    settings.SITE_URL = "https://ctf.example.test"
+    settings.EMAIL_DELIVERY_AVAILABLE = True
+    event, co_organizer, moderator = staffed_event
+    result = _declare(event)
+    campaign = CommunicationCampaign.objects.get(pk=result["campaign_id"])
+    assert campaign.notice_kind == "organizer_alert"
+    _run_release(result)
+
+    delivery_svc.run_once()
+
+    assert sorted(message.to[0] for message in mailoutbox) == sorted([organizer_user.email, co_organizer.email])
+    for message in mailoutbox:
+        text = message.body
+        assert "The event started at its scheduled start time." in text
+        assert f"https://ctf.example.test/ctf/admin/events/{event.pk}/alerts/" in text
+        assert "announcement" not in text.lower()
+        assert moderator.email not in message.to

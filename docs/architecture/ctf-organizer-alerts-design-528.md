@@ -58,7 +58,7 @@ flowchart LR
 | Recipient snapshot | A `recipient_kind` of `participant` or `organizer`. An organizer row has a principal UUID and no participant identity. Database constraints enforce the field combination and uniqueness. |
 | Recipient receipt | The participant receipt model becomes `RecipientReceipt`. Its table does not change. One receipt row records read and dismiss state for each in-app snapshot. |
 | Release | Resolves organizer candidates and checks live policy before it takes locks. Under the event lock, it keeps only candidates that are still current. |
-| Delivery worker | Rechecks live native policy for the pinned action outside SQL locks, and the current candidate set under the claim lock, before transport. A denial suppresses the command. An evaluator outage keeps it retriable without I/O. Email uses the frozen, encrypted coordinate. In-app wake-ups carry identifiers only. |
+| Delivery worker | Rechecks live native policy for the pinned action outside SQL locks, and the current candidate set under the claim lock, before transport. A denial suppresses the command. An evaluator outage keeps it retriable without I/O. Email uses the frozen, encrypted coordinate and the `organizer_alert` notice template, which links to the organizer Alerts tab. In-app wake-ups carry identifiers only. |
 | Organizer inbox | Session-only list, detail, read and dismiss routes for one event. Each request checks the live policy action of each alert. |
 | Range progress projection | Counts the eligible participant cohort. A range is ready only with a current assignment and a `ready` status. |
 | Scheduler | A spin-up yields when other due work is pending. It resumes after that work, so event start and alert release do not wait for a long spin-up. |

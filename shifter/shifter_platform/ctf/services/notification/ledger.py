@@ -45,6 +45,7 @@ def stage_notice(
                     channels=["email"],
                     subject=subject,
                     body=body,
+                    notice_kind=kind,
                 ),
                 campaign_id=identity,
             )

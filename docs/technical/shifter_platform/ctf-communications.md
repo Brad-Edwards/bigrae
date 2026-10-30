@@ -45,6 +45,7 @@ remains, so the task retries with its existing backoff.
 | Audience | `{"kind": "event_organizers", "event_ids": [<one event>], "action": "event.read" \| "event.manage_ranges"}`. Only `create_system_event_campaign` and the `system_milestone` origin accept it. `AudienceKind` and the public serializer do not include it. |
 | Candidates | `event_notification_organizers`: the owner principal and live co-organizer principals with an active human account. Candidates are not grants. |
 | Release | `prepare_organizer_recipients` checks the pinned action for each candidate with `principals_holding_event_action` before locks. Under the event lock, release keeps only prechecked principals that are still candidates. A policy outage reschedules the release within the grace window. |
+| Email | The campaign `notice_kind` is `organizer_alert`. The email adapter renders `ctf/email/notice/organizer_alert` and links to the event's organizer Alerts tab (`ctf:admin_event_alerts`). |
 | Snapshot | `recipient_kind="organizer"`, `principal_uuid`, `user_id` and the encrypted email coordinate. No participant identity. Database constraints enforce the shape and one row for each intent, event and principal. |
 | Worker | Before the claim lock, `recipient_fence.organizer_policy_stop` rechecks the pinned action with `principals_holding_event_action`. A denial suppresses with `organizer_policy_denied`. An evaluator outage settles the command as retriable with `authority_unavailable` and no I/O. Under the lock, pre-flight suppresses with `organizer_ineligible` when the principal is no longer a candidate. |
 | Removal | Staff revocation, and a change from co-organizer to another role, call `on_organizer_removed`. It cancels unclaimed commands and erases the coordinate. |
@@ -78,9 +79,17 @@ true. That setting is false for console, file, and dummy backends outside
 development and test runtimes. Release, preview, cutover, and lifecycle notices
 read the same value in the web and worker processes.
 
-The adapter reads only the coordinate of its own snapshot. It renders the
-pinned subject and Markdown source through the trusted `ctf/email/communication`
-template, which escapes the source. It calls `shared.email.attempt_email()` with
+The adapter reads only the coordinate of its own snapshot. The campaign
+`notice_kind` selects one trusted pair under `ctf/email/notice/`. The kinds are
+`announcement`, `reminder`, `cleanup`, `results`, `range_ready`, and
+`range_failure`. Organizer campaigns are always `announcement`. Only lifecycle
+notices set another kind.
+
+The pair renders the pinned subject and Markdown source with escaped scalar
+values. These values are the participant name and the event name, dates, and
+portal URL of the snapshot event. The URL comes from `SITE_URL`; an unsafe
+value is retriable as `site_url_unavailable`. Organizers cannot override the
+templates (#580). The adapter calls `shared.email.attempt_email()` with
 the worker transport timeout and the row `idempotency_key`. The key becomes a
 stable Message-ID. A missing snapshot or erased coordinate is terminal. An
 unreadable coordinate is retriable within the worker budget.

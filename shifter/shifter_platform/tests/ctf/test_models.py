@@ -18,14 +18,12 @@ from ctf.enums import (
     ChallengeCategory,
     ChallengeDifficulty,
     EventStatus,
-    NotificationType,
     ParticipantStatus,
     ScheduledTaskStatus,
     ScheduledTaskType,
 )
 from ctf.models import (
     CTFChallenge,
-    CTFEmailTemplate,
     CTFEvent,
     CTFParticipant,
     CTFScheduledTask,
@@ -625,38 +623,3 @@ class TestCTFScheduledTaskModel:
         assert task.status == ScheduledTaskStatus.FAILED.value
         assert task.error_message == "Connection timeout"
         assert task.executed_at is not None
-
-
-# -----------------------------------------------------------------------------
-# CTFEmailTemplate Model Tests
-# -----------------------------------------------------------------------------
-
-
-class TestCTFEmailTemplateModel:
-    """Tests for CTFEmailTemplate.clean() placeholder validation (issue #1095)."""
-
-    def test_clean_accepts_allowlisted_placeholders(self):
-        template = CTFEmailTemplate(
-            notification_type=NotificationType.INVITE.value,
-            html_body="<p>Hi {{ participant_name }}, join {{ event_name }}</p>",
-            text_body="Hi {{ participant_name }}",
-        )
-        template.clean()  # should not raise
-
-    def test_clean_rejects_template_tags(self):
-        template = CTFEmailTemplate(
-            notification_type=NotificationType.INVITE.value,
-            html_body="{% load i18n %}<p>{{ event_name }}</p>",
-            text_body="{{ event_name }}",
-        )
-        with pytest.raises(ValidationError):
-            template.clean()
-
-    def test_clean_rejects_attribute_traversal(self):
-        template = CTFEmailTemplate(
-            notification_type=NotificationType.INVITE.value,
-            html_body="<p>{{ event.created_by.password }}</p>",
-            text_body="hi",
-        )
-        with pytest.raises(ValidationError):
-            template.clean()

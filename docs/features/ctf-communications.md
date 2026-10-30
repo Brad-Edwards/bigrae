@@ -232,7 +232,7 @@ Open **Monitoring > Alerts** for the event. The tab shows the unread count.
 3. Select **Dismiss** to hide the alert. Select **Show dismissed** to see it again.
 
 The platform also sends each alert by email when the deployment has a mail
-provider. Range alerts need permission to manage ranges on the event. A person
+provider. The email links to the event's **Alerts** tab. Range alerts need permission to manage ranges on the event. A person
 who stops being the owner or a co-organizer loses the alerts at once. Pending
 email to that person stops.
 

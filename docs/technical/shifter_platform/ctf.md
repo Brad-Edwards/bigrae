@@ -92,7 +92,7 @@ inherit `CTFBaseModel` with a `SoftDeleteManager` (soft delete by default).
 | `CTFSubmission`, `CTFReceiptConsumption`, `CTFAward` | Flag attempts, durable issuer-scoped signed-receipt replay evidence, and manual point awards |
 | `CTFChallengeRating` | Participant difficulty ratings |
 | `CTFHint`, `CTFHintUsage` | Optional, point-reducing hints and usage tracking |
-| `CTFNotification`, `CTFEmailTemplate`, `CTFScheduledTask` | Announcements, reminder templates, and scheduled work (legacy aggregate evidence; see Scoped communications) |
+| `CTFNotification`, `CTFScheduledTask` | Announcements and scheduled work (legacy aggregate evidence; see Scoped communications) |
 | `CTFContentHydrationReceipt` | Digest, object-identity fingerprints, bounded counts, and pristine/drifted state for scenario-managed event content |
 | `CommunicationCampaign`, `CommunicationTargetEvent`, `MessageRevision`, `CommunicationIntent`, `RecipientSnapshot`, `DeliveryAttempt`, `RecipientReceipt` | Scoped communications domain (ADR-051): workspace-confined campaigns, immutable content, normalized release occurrences, server-resolved recipients, per-transport delivery commands, and read/acknowledgement state |
 
@@ -123,7 +123,7 @@ existing history behavior. See the
 Business logic lives under `ctf.services` (views stay thin):
 
 - `event`, `challenge`, `flag`, `bracket`, `hint`, `award`, `attachment`,
-  `email_template`, `notification`: entity operations.
+  `notification`: entity operations.
 - `participant/`: `lifecycle`, `bulk_import`, `queries`.
 - `scoring/`: materialized-leaderboard hot path with an authoritative recompute
   fallback (`get_scoreboard`, `calculate_score`, ranks, stats, timeline, and the
