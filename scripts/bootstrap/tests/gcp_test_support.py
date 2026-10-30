@@ -277,15 +277,23 @@ def release_images(registry: str = RELEASE_REGISTRY) -> dict[str, str]:
     return {name: f"{registry}/{name}@sha256:{str(index) * 64}" for index, name in enumerate(IMAGE_NAMES, 1)}
 
 
-def write_manifest(path: Path, *, images: Mapping[str, str] | None = None, revision: str = REVISION) -> Path:
+def write_manifest(
+    path: Path,
+    *,
+    images: Mapping[str, str] | None = None,
+    revision: str = REVISION,
+    authorization_model: Mapping[str, object] | None = None,
+) -> Path:
     """Write a valid release manifest file."""
-    payload = {
+    payload: dict[str, object] = {
         "schema": "bigrae.gcp-release.v1",
         "version": "1.4.0",
         "source_revision": revision,
         "chart_version": "0.2.0",
         "images": dict(images or release_images()),
     }
+    if authorization_model is not None:
+        payload["authorization_model"] = dict(authorization_model)
     with open(path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle)
     return path

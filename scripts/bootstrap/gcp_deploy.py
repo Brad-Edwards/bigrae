@@ -477,6 +477,7 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
                 identity_cutover_facts=options.identity_cutover_facts,
                 identity_bootstrap_facts=options.identity_bootstrap_facts,
                 catalog_credential_file=options.catalog_credential_file,
+                authorization_model=manifest.authorization_model,
             )
             rollout_stage(runner, inputs, infrastructure, request)
             smoke_ok = _smoke(runner, options, inputs, infrastructure, run_id)
