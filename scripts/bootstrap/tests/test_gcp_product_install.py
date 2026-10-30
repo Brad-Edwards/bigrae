@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+import bootstrap_core
 import gcp_base_images
 import gcp_catalog
 import gcp_deploy
@@ -211,6 +212,9 @@ class TestCommandLine:
         import cli
         import gcp_cli
 
+        # The CLI handler sets the process-wide proceed flag; restore it after the test.
+        monkeypatch.setitem(bootstrap_core._ASSUME_YES, "enabled", False)
+
         parser = argparse.ArgumentParser()
         gcp_cli.add_lifecycle_subparsers(parser.add_subparsers(dest="command"))
         args = parser.parse_args(["gcp-install", "--inputs", "/bundle", "--release-manifest", "r.json"])
@@ -218,6 +222,7 @@ class TestCommandLine:
         monkeypatch.setattr("gcp_install.run_install", lambda options: seen.append(options) or 0)
         assert gcp_cli._HANDLERS["gcp-install"](args) == 0
         assert seen[0] == gcp_install.InstallOptions(inputs="/bundle", release_manifest="r.json")
+        assert bootstrap_core.assume_yes_enabled()
         assert "gcp-install" in gcp_cli.LIFECYCLE_COMMANDS
 
         def resolve(source):
@@ -280,6 +285,8 @@ class TestInstall:
         runner.on(["gcloud", "projects", "describe"], ProcessResult(0, "123\n"))
         options = gcp_install.InstallOptions(inputs=str(bundle), release_manifest="release.json")
         assert gcp_install.run_install(options, runner=runner) == 0
+        # The library call leaves process-wide prompt state to the CLI.
+        assert not bootstrap_core.assume_yes_enabled()
         assert [step if isinstance(step, str) else step[0] for step in order] == [
             "foundation",
             "password",

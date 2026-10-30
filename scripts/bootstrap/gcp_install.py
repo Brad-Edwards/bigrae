@@ -26,7 +26,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from bootstrap_core import header, info, set_assume_yes, success
+from bootstrap_core import header, info, success
 from gcp_config_store import publish
 from gcp_deploy import DeployOptions, GcpDeployError, run_deploy
 from gcp_foundation import bootstrap_gcp_foundation
@@ -113,7 +113,6 @@ def run_install(options: InstallOptions, *, runner: ProcessRunner | None = None)
             workdir / "foundation.json",
             json.dumps(foundation_inputs(inputs, project_number=number, principal=principal), indent=2),
         )
-        set_assume_yes(True)
         bootstrap_gcp_foundation(str(path))
         ensure_operator_password(runner, inputs)
         store = f"gs://{inputs.project_id}-deployment-config"
