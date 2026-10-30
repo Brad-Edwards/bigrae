@@ -21,6 +21,7 @@ import os
 import secrets
 import shutil
 import subprocess  # nosec B404
+import sys
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -241,11 +242,22 @@ def acquire_deploy_lock(
 
 
 def release_deploy_lock(runner: ProcessRunner, lock: DeployLock | None, env: Mapping[str, str | None]) -> None:
-    """Release a lock that this run holds."""
+    """Release a lock that this run holds.
+
+    Callers run this in a ``finally`` block. When the run already failed, a
+    release failure must not replace that error (#2676): warn that the lock
+    stays, and let the original error propagate.
+    """
     if lock is None:
         return
-    with scoped_environment(env):
-        release_lock(runner, lock, {})
+    failed_run = sys.exc_info()[1]
+    try:
+        with scoped_environment(env):
+            release_lock(runner, lock, {})
+    except Exception as exc:
+        if failed_run is None:
+            raise
+        warn(f"The deployment lock was not released ({exc}). Run the next command with --break-lock.")
 
 
 def source_images(manifest: GcpReleaseManifest, release_source: str) -> dict[str, str]:
