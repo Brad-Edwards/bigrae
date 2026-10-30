@@ -335,7 +335,8 @@ class TestStageHelpers:
         runner = FakeRunner()
         retire_inventoried_artifacts(runner, inputs, "ctx")
         assert runner.calls == []
-        assert sync_policy_credentials(runner, inputs, {"native_identity": {"value": {"openfga_enabled": False}}}) is False
+        disabled = {"native_identity": {"value": {"openfga_enabled": False}}}
+        assert sync_policy_credentials(runner, inputs, disabled) is False
         assert (
             sync_policy_credentials(runner, inputs, {"native_identity": {"value": {"openfga_enabled": True}}}) is True
         )

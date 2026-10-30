@@ -21,7 +21,6 @@ from gcp_deploy_stages import (
     seed_operator,
 )
 from gcp_evidence import EvidenceRun
-from gcp_identity_cutover import IdentityCutoverError
 from gcp_inputs import load_deployment_inputs
 from gcp_process import ProcessResult
 from tests.gcp_test_support import PROJECT, REVISION, FakeRunner, root_config, sample_gcp_outputs, write_bundle

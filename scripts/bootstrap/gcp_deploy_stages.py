@@ -186,7 +186,8 @@ def fresh_install_facts(inputs: DeploymentInputs, outputs: Mapping[str, Mapping[
     cutover = {
         "schema": "shifter.identity-cutover-facts/v1",
         "account_types_by_organization": {},
-        "bootstrap_personal_token_eligibility": True,
+        # A boolean eligibility flag of the facts schema, not a credential value.
+        "bootstrap_personal_token_eligibility": True,  # nosec B105
         "owner_user_ids_by_workspace": {},
     }
     return write_private_file(bootstrap.parent / "cutover.json", json.dumps(cutover, sort_keys=True)), bootstrap
