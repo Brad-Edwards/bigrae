@@ -2336,7 +2336,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description List organizer alerts for the current organizer and event. */
+        /** @description Return one page of the current organizer's alerts and inbox-wide counts. */
         get: operations["ctf_organizer_alert_inbox_list"];
         put?: never;
         post?: never;
@@ -2353,7 +2353,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Fetch one alert within the authorized organizer inbox. */
+        /** @description Return one alert from the authorized organizer inbox. */
         get: operations["ctf_organizer_alert_inbox_detail"];
         put?: never;
         post?: never;

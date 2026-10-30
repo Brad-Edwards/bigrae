@@ -12880,7 +12880,7 @@
     "/api/v1/ctf/events/{event_id}/organizer-alerts/": {
       "get": {
         "operationId": "ctf_organizer_alert_inbox_list",
-        "description": "List organizer alerts for the current organizer and event.",
+        "description": "Return one page of the current organizer's alerts and inbox-wide counts.",
         "parameters": [
           {
             "in": "path",
@@ -13022,7 +13022,7 @@
     "/api/v1/ctf/events/{event_id}/organizer-alerts/{snapshot_id}/": {
       "get": {
         "operationId": "ctf_organizer_alert_inbox_detail",
-        "description": "Fetch one alert within the authorized organizer inbox.",
+        "description": "Return one alert from the authorized organizer inbox.",
         "parameters": [
           {
             "in": "path",
