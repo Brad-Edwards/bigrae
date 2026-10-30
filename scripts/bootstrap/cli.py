@@ -1,6 +1,7 @@
 """Command-line wiring for the bootstrap deployment CLI."""
 
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -241,8 +242,12 @@ def gcp_runners_deployment(
 
 
 def print_release_base_images(source: str) -> dict[str, str]:
-    """Print the exact base images that a release pins (#2679); it needs no GCP project."""
-    with _registry_credentials(source):
+    """Print the exact base images that a release pins (#2679); it needs no GCP project.
+
+    Standard output carries only the JSON, so the release workflow can parse it;
+    the progress lines go to standard error.
+    """
+    with _registry_credentials(source), contextlib.redirect_stdout(sys.stderr):
         pinned = resolve_release_base_images(source)
     print(json.dumps(pinned, indent=2, sort_keys=True))
     return pinned
