@@ -51,11 +51,6 @@ from ._crud import (
     get_event,
 )
 from ._lifecycle import (
-    START_EXPIRED,
-    START_NOT_APPLICABLE,
-    START_NOT_DUE,
-    START_REFUSED,
-    START_STARTED,
     activate_event,
     apply_event_lifecycle_transition,
     archive_event,
@@ -68,10 +63,21 @@ from ._lifecycle import (
     resume_event,
     schedule_event,
     start_event,
-    start_event_automatically,
 )
 from ._queries import get_event_stats, get_organizer_events
 from ._update import update_event
+from .automation import (
+    START_EXPIRED,
+    START_NOT_APPLICABLE,
+    START_NOT_DUE,
+    START_REFUSED,
+    START_STARTED,
+    AlertDeclarationPending,
+    AutomaticStartRefused,
+    run_automatic_end,
+    run_automatic_start,
+    start_event_automatically,
+)
 from .relationships import publish_event_relationships
 from .scheduling import _cancel_event_tasks, _schedule_event_tasks
 
@@ -82,6 +88,8 @@ __all__ = (
     "START_REFUSED",
     "START_STARTED",
     "_EVENT_MUTABLE_FIELDS",
+    "AlertDeclarationPending",
+    "AutomaticStartRefused",
     "CTFEvent",
     "_cancel_event_tasks",
     "_schedule_event_tasks",
@@ -109,6 +117,8 @@ __all__ = (
     "publish_event_relationships",
     "resume_event",
     "revoke_event_staff",
+    "run_automatic_end",
+    "run_automatic_start",
     "schedule_event",
     "start_event",
     "start_event_automatically",

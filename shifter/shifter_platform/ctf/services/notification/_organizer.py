@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.db import transaction
@@ -30,12 +30,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_EVENT_READ = "event.read"
+_MANAGE_RANGES = "event.manage_ranges"
+
 # Closed alert vocabulary: kind -> (subject prefix, required policy action).
 ALERT_KINDS: dict[str, tuple[str, str]] = {
-    "event_started": ("Event started automatically", "event.read"),
-    "event_start_refused": ("Event could not start automatically", "event.read"),
-    "ranges_not_ready": ("Participant ranges are not ready", "event.manage_ranges"),
-    "event_ended": ("Event ended automatically", "event.read"),
+    "event_started": ("Event started automatically", _EVENT_READ),
+    "event_start_refused": ("Event could not start automatically", _EVENT_READ),
+    "ranges_not_ready": ("Participant ranges are not ready", _MANAGE_RANGES),
+    "event_ended": ("Event ended automatically", _EVENT_READ),
 }
 
 
@@ -222,7 +225,7 @@ def _due_at(campaign: CommunicationCampaign) -> datetime:
     return datetime.fromisoformat(campaign.trigger_spec["due_at"])
 
 
-def _unavailable(event_id: UUID, *args: Any, **kwargs: Any) -> dict[str, str]:
+def _unavailable(event_id: UUID, *args: object, **kwargs: object) -> dict[str, str]:
     """Report an unsupported organizer alert as an unavailable dependency."""
 
     logger.info("Organizer notification unavailable: event=%s reason=no_supported_alert_content", event_id)

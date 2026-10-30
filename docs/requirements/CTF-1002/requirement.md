@@ -29,7 +29,7 @@ Ranges take 10-20 minutes to provision. If provisioning starts at event start ti
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_range.py` (Range service tests - scheduled/throttled event range provisioning and participant roster behavior)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/_organizer.py::alert_if_ranges_not_ready` (Organizer alert with cohort counts when ranges are not ready at the scheduled start)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py::_handle_event_start` (Checks range readiness at the scheduled start, also when the start is refused)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/automation.py::run_automatic_start` (Checks range readiness at the scheduled start, also when the start is refused)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py::_handle_spin_up_ranges` (Spin-up yields to due work and resumes as a continuation over the time left before start)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/range/tasks.py::get_provision_progress` (Readiness counts over the eligible registered cohort; ready needs a current assignment)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/communication/` (Organizer recipient kind, release, worker fence and organizer inbox (ADR-065-R4))

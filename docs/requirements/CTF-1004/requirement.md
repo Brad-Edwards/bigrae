@@ -21,11 +21,12 @@ Manual event start/end requires an organizer to be online at the exact scheduled
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py::_handle_event_start` (EVENT_START task handler - calls activate_event() to transition scheduled->active at configured start time)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py::_handle_event_end` (EVENT_END task handler - calls complete_event() to transition active->completed at configured end time)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py::_handle_event_start` (EVENT_START task handler - runs the automatic start at the configured start time)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py::_handle_event_end` (EVENT_END task handler - runs the automatic end at the configured end time)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (activate_event: scheduled->active transition. complete_event: active->completed transition. Both log transitions.)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (Schedules EVENT_START task at event_start time and EVENT_END task at event_end time when event is scheduled)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/_lifecycle.py::start_event_automatically` (Locked automatic start; the event_started organizer alert commits with the transition)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/automation.py::start_event_automatically` (Locked automatic start; the event_started organizer alert commits with the transition)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/automation.py::run_automatic_end` (Automatic end; retained alerts retry through the scheduler task)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/_lifecycle.py::complete_event` (Locked automatic end; the event_ended organizer alert commits with the transition)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/_organizer.py` (Durable organizer alert declarations on the communication ledger (ADR-065-R4))
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/challenge/_access.py::_assert_event_active_and_in_window` (Submissions close at the end instant)

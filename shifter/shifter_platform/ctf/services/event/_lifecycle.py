@@ -168,70 +168,6 @@ def activate_event(event: CTFEvent) -> bool:
     return True
 
 
-# Outcomes of the scheduler's automatic start (CTF-1004).
-START_STARTED = "started"
-START_REFUSED = "refused"
-START_NOT_DUE = "not_due"
-START_NOT_APPLICABLE = "not_applicable"
-START_EXPIRED = "expired"
-
-
-def start_event_automatically(event_id: UUID, *, task_id: UUID | None = None) -> str:
-    """Scheduler start: lock, recheck, transition and declare the alert in one transaction.
-
-    The event lock serializes this with manual lifecycle actions and rescheduling.
-    The start time and state are rechecked under that lock. A successful start
-    declares the ``event_started`` organizer alert in the same transaction, so a
-    crash after commit cannot lose it. A hydration refusal keeps the event in
-    registration and declares one ``event_start_refused`` alert for this schedule
-    occurrence; the caller retries within its task budget. Once the end time has
-    passed, the automatic start never activates the event. A refused alert
-    declaration is retained on ``task_id`` for retry.
-    """
-    from ctf.models import CTFEvent
-
-    with transaction.atomic():
-        event = CTFEvent.objects.select_for_update().filter(pk=event_id, deleted_at__isnull=True).first()
-        outcome = _automatic_start_gate(event)
-        if outcome is None and event is not None:
-            outcome = _start_or_refuse(event, task_id)
-    return outcome or START_NOT_APPLICABLE
-
-
-def _automatic_start_gate(event: CTFEvent | None) -> str | None:
-    """Return the outcome that stops an automatic start under the lock, or ``None`` to proceed."""
-    from django.utils import timezone
-
-    now = timezone.now()
-    if event is None or event.status != EventStatus.REGISTRATION.value:
-        outcome: str | None = START_NOT_APPLICABLE
-    elif now < event.event_start:
-        outcome = START_NOT_DUE
-    elif now >= event.event_end:
-        logger.warning("Automatic start of event %s skipped: the end time has passed", event.pk)
-        outcome = START_EXPIRED
-    else:
-        outcome = None
-    return outcome
-
-
-def _start_or_refuse(event: CTFEvent, task_id: UUID | None) -> str:
-    """Activate the locked event with its alert, or record a hydration refusal and its alert."""
-    from ctf.services.content_hydration import assert_event_content_hydration_ready
-    from ctf.services.notification import declare_or_retain_lifecycle_alert
-
-    try:
-        assert_event_content_hydration_ready(event)
-    except CTFStateError as exc:
-        logger.warning("Automatic start of event %s refused code=%s", event.pk, exc.code)
-        declare_or_retain_lifecycle_alert(event, "event_start_refused", occurrence=event.event_start, task_id=task_id)
-        return START_REFUSED
-    _transition_event(event, EventStatus.ACTIVE)
-    declare_or_retain_lifecycle_alert(event, "event_started", occurrence=event.event_start, task_id=task_id)
-    logger.info("Automatically started CTF event %s", event.pk)
-    return START_STARTED
-
-
 def complete_event(
     event: CTFEvent, *, actor: object | None = None, automatic: bool = False, task_id: UUID | None = None
 ) -> bool:
@@ -239,8 +175,9 @@ def complete_event(
 
     The transition runs under the event lock. An ``automatic`` end rechecks the
     scheduled end time under that lock, also ends a paused event (CTF-701), and
-    declares the ``event_ended`` organizer alert in the same transaction. Range teardown is enforced independently by
-    each range's server-owned lease at ``event.get_cleanup_time()``.
+    declares the ``event_ended`` organizer alert in the same transaction. Range
+    teardown is enforced independently by each range's server-owned lease at
+    ``event.get_cleanup_time()``.
 
     Args:
         event: The CTFEvent to end.

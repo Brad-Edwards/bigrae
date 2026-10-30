@@ -42,7 +42,7 @@ import tempfile
 import time
 from argparse import ArgumentParser
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from types import FrameType
 from typing import Any
@@ -272,12 +272,6 @@ class Command(BaseCommand):
 # ---------------------------------------------------------------------------
 
 
-def spin_up_window_seconds(event_start: datetime, lead_minutes: int, now: datetime) -> int:
-    """Return the seconds left before the start, bounded by the configured lead time."""
-    remaining = int((event_start - now).total_seconds())
-    return max(0, min(lead_minutes * 60, remaining))
-
-
 def _other_work_due(task: CTFScheduledTask) -> bool:
     """Return True when a different, non-spin-up task is due now.
 
@@ -310,6 +304,7 @@ def _handle_spin_up_ranges(
     not repeat the capacity admission of the first run.
     """
     from ctf.services.range import provision_event_ranges_throttled
+    from ctf.services.range.batch import spin_up_window_seconds
 
     event = task.event
     continuation = bool((task.metadata or {}).get("continuation"))
@@ -376,48 +371,15 @@ def _handle_cleanup_ranges(
     logger.info("Legacy CLEANUP_RANGES lease result for event %s: %s", task.event_id, result)
 
 
-class AutomaticStartRefused(RuntimeError):
-    """The automatic start was refused; the executor retries within the task budget."""
-
-
-class AlertDeclarationPending(RuntimeError):
-    """A lifecycle alert is retained on the task; the executor retries within the task budget."""
-
-
-def _settle_alerts(task: CTFScheduledTask, *, ranges_alert: dict[str, str] | None = None) -> None:
-    """Retry retained lifecycle alerts and raise while any alert is still undeclared."""
-    from ctf.services.notification import redeclare_pending_alerts
-
-    remaining = redeclare_pending_alerts(task.pk)
-    if remaining or (ranges_alert is not None and ranges_alert["outcome"] != "declared"):
-        raise AlertDeclarationPending(f"Organizer alert pending for event {task.event_id}")
-
-
 def _handle_event_start(
     task: CTFScheduledTask,
     shutdown_check: ShutdownCheck | None = None,
     heartbeat: Heartbeat | None = None,
 ) -> dict[str, Any] | None:
-    """Start the event at its scheduled start and check range readiness (CTF-1002/1004).
+    """Start the event at its scheduled start and check range readiness (CTF-1002/1004)."""
+    from ctf.services.event import run_automatic_start
 
-    The start and its organizer alert commit together in the lifecycle service.
-    Range readiness is checked at the scheduled start even when the start is
-    refused. A refusal raises so the executor retries with backoff; an early
-    tick reschedules to the current start time.
-    """
-    from ctf.models import CTFEvent
-    from ctf.services.event import START_NOT_DUE, START_REFUSED, start_event_automatically
-    from ctf.services.notification import alert_if_ranges_not_ready
-
-    outcome = start_event_automatically(task.event_id, task_id=task.pk)
-    if outcome == START_NOT_DUE:
-        event_start = CTFEvent.objects.filter(pk=task.event_id).values_list("event_start", flat=True).first()
-        return {"reschedule_for": event_start}
-    ranges_alert = alert_if_ranges_not_ready(task.event_id)
-    if outcome == START_REFUSED:
-        raise AutomaticStartRefused(f"Automatic start of event {task.event_id} refused")
-    _settle_alerts(task, ranges_alert=ranges_alert)
-    return None
+    return run_automatic_start(task)
 
 
 def _handle_event_end(
@@ -426,33 +388,9 @@ def _handle_event_end(
     heartbeat: Heartbeat | None = None,
 ) -> None:
     """End the event at its scheduled end; the organizer alert commits with the end."""
-    from ctf.enums import EventStatus
-    from ctf.models import CTFEvent
-    from ctf.services.event import complete_event, finish_ended_event
+    from ctf.services.event import run_automatic_end
 
-    event = CTFEvent.objects.get(pk=task.event_id)
-    now = timezone.now()
-    if now < event.event_end:
-        logger.info(
-            "Skipping stale EVENT_END task %s for event %s: event_end=%s now=%s",
-            task.pk,
-            event.pk,
-            event.event_end,
-            now,
-        )
-        task.cancel_if_active()
-        return
-
-    if not complete_event(event, automatic=True, task_id=task.pk):
-        event.refresh_from_db()
-        if event.status == EventStatus.ENDED.value:
-            # A replay after a crash between the end commit and its effects:
-            # the end effects are idempotent, so apply them again.
-            finish_ended_event(event)
-    _settle_alerts(task)
-
-    # End-of-event cleanup (including the CTF-703 delayed-task window) is
-    # owned by ``complete_event`` so manual and automated ends behave alike.
+    run_automatic_end(task)
 
 
 def _handle_cleanup_warning(

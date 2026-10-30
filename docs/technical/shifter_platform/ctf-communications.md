@@ -46,7 +46,7 @@ remains, so the task retries with its existing backoff.
 | Candidates | `event_notification_organizers`: the owner principal and live co-organizer principals with an active human account. Candidates are not grants. |
 | Release | `prepare_organizer_recipients` checks the pinned action for each candidate with `principals_holding_event_action` before locks. Under the event lock, release keeps only prechecked principals that are still candidates. A policy outage reschedules the release within the grace window. |
 | Snapshot | `recipient_kind="organizer"`, `principal_uuid`, `user_id` and the encrypted email coordinate. No participant identity. Database constraints enforce the shape and one row for each intent, event and principal. |
-| Worker | Before the claim lock, `_organizer_policy_stop` rechecks the pinned action with `principals_holding_event_action`. A denial suppresses with `organizer_policy_denied`. An evaluator outage settles the command as retriable with `authority_unavailable` and no I/O. Under the lock, pre-flight suppresses with `organizer_ineligible` when the principal is no longer a candidate. |
+| Worker | Before the claim lock, `recipient_fence.organizer_policy_stop` rechecks the pinned action with `principals_holding_event_action`. A denial suppresses with `organizer_policy_denied`. An evaluator outage settles the command as retriable with `authority_unavailable` and no I/O. Under the lock, pre-flight suppresses with `organizer_ineligible` when the principal is no longer a candidate. |
 | Removal | Staff revocation, and a change from co-organizer to another role, call `on_organizer_removed`. It cancels unclaimed commands and erases the coordinate. |
 | Console | The campaign list excludes organizer campaigns. `authorized_campaign` returns not found for them. |
 | Participant inbox | Selects participant rows only. |
@@ -59,7 +59,8 @@ credential. Rows whose pinned action is denied are absent. Organizer alerts
 have no acknowledgement. Responses are private and the browser does not store
 them.
 
-The scheduler start handler calls `start_event_automatically` and then
+The scheduler start handler calls `run_automatic_start` in
+`ctf.services.event.automation`. It runs `start_event_automatically` and then
 `alert_if_ranges_not_ready`. The readiness check uses `get_provision_progress`:
 the eligible registered cohort, where `ready` needs a current range assignment.
 A refused start raises, so the executor retries with backoff. After the end

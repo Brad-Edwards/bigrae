@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -40,6 +41,16 @@ def compute_throttle_delay(spinup_window_seconds: int, participant_count: int) -
     """
     raw_delay = spinup_window_seconds / max(participant_count, 1)
     return max(_MIN_THROTTLE_DELAY_SECONDS, min(_MAX_THROTTLE_DELAY_SECONDS, raw_delay))
+
+
+def spin_up_window_seconds(event_start: datetime, lead_minutes: int, now: datetime) -> int:
+    """Return the seconds left before the start, bounded by the configured lead time.
+
+    A resumed spin-up spreads its remaining participants over this window, not the
+    full lead time again (#528).
+    """
+    remaining = int((event_start - now).total_seconds())
+    return max(0, min(lead_minutes * 60, remaining))
 
 
 def _safe_heartbeat(heartbeat: Callable[[], None] | None, event_id: UUID) -> None:

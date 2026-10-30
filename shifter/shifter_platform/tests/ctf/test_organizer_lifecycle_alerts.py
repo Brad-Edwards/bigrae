@@ -114,7 +114,8 @@ def test_early_start_task_reschedules_without_side_effects(ctf_event):
 
 
 def test_refused_start_retries_and_alerts_once(ctf_event, content_not_ready):
-    from ctf.management.commands.run_ctf_scheduler import AutomaticStartRefused, _handle_event_start
+    from ctf.management.commands.run_ctf_scheduler import _handle_event_start
+    from ctf.services.event import AutomaticStartRefused
 
     event = _due_start(ctf_event)
     for _ in range(2):
@@ -177,7 +178,8 @@ def test_no_late_alert_when_every_range_is_ready_or_cohort_is_empty(ctf_event):
 
 
 def test_late_alert_is_checked_even_when_start_is_refused(ctf_event, content_not_ready):
-    from ctf.management.commands.run_ctf_scheduler import AutomaticStartRefused, _handle_event_start
+    from ctf.management.commands.run_ctf_scheduler import _handle_event_start
+    from ctf.services.event import AutomaticStartRefused
 
     event = _due_start(ctf_event)
     _participant(event, "building", range_status="provisioning", range_instance_id=12)
@@ -244,7 +246,7 @@ def test_submissions_close_at_the_end_instant(ctf_event_active):
 
 
 def test_spin_up_window_is_the_time_left_before_start():
-    from ctf.management.commands.run_ctf_scheduler import spin_up_window_seconds
+    from ctf.services.range.batch import spin_up_window_seconds
 
     now = timezone.now()
     assert spin_up_window_seconds(now + timedelta(minutes=10), 30, now) == 600
@@ -340,7 +342,8 @@ def unresolvable_alert_scope(ctf_event):
 
 
 def test_failed_start_alert_is_retained_on_the_task_and_recovered(ctf_event, unresolvable_alert_scope):
-    from ctf.management.commands.run_ctf_scheduler import AlertDeclarationPending, _handle_event_start
+    from ctf.management.commands.run_ctf_scheduler import _handle_event_start
+    from ctf.services.event import AlertDeclarationPending
 
     event = _due_start(ctf_event)
     task = _task(event, ScheduledTaskType.EVENT_START.value)
@@ -363,7 +366,8 @@ def test_failed_start_alert_is_retained_on_the_task_and_recovered(ctf_event, unr
 
 
 def test_failed_end_alert_is_retained_on_the_task_and_recovered(ctf_event_active):
-    from ctf.management.commands.run_ctf_scheduler import AlertDeclarationPending, _handle_event_end
+    from ctf.management.commands.run_ctf_scheduler import _handle_event_end
+    from ctf.services.event import AlertDeclarationPending
     from workspaces.models import Account, Organization
 
     event = _move(ctf_event_active, event_end=timezone.now() - timedelta(minutes=1))
@@ -381,7 +385,8 @@ def test_failed_end_alert_is_retained_on_the_task_and_recovered(ctf_event_active
 
 
 def test_start_retry_after_the_end_time_never_activates(ctf_event, content_not_ready, settings):
-    from ctf.management.commands.run_ctf_scheduler import AutomaticStartRefused, _handle_event_start
+    from ctf.management.commands.run_ctf_scheduler import _handle_event_start
+    from ctf.services.event import AutomaticStartRefused
 
     event = _due_start(ctf_event)
     with pytest.raises(AutomaticStartRefused):

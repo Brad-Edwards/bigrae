@@ -36,7 +36,7 @@ from django.utils import timezone
 
 from ctf.enums import EventStatus
 from ctf.enums_communication import CampaignStatus, DeliveryStatus, IntentStatus, RecipientKind
-from ctf.models import DeliveryAttempt, RecipientSnapshot
+from ctf.models import DeliveryAttempt
 from ctf.services.communication import disposition
 from ctf.services.communication.adapters import (
     DeliveryCommand,
@@ -44,6 +44,11 @@ from ctf.services.communication.adapters import (
     OutcomeClass,
     get_adapter,
     registered_channels,
+)
+from ctf.services.communication.recipient_fence import (
+    organizer_policy_stop,
+    organizer_still_candidate,
+    recipient_still_eligible,
 )
 from ctf.services.communication.worker_config import WorkerConfig
 
@@ -187,45 +192,12 @@ def _fence_reason(row: DeliveryAttempt) -> str:
     elif row.snapshot.event.status == EventStatus.CANCELLED.value:
         reason = "event_cancelled"
     elif row.snapshot.recipient_kind == RecipientKind.ORGANIZER.value:
-        reason = "" if _organizer_still_candidate(row.snapshot) else "organizer_ineligible"
-    elif not _recipient_still_eligible(row.snapshot):
+        reason = "" if organizer_still_candidate(row.snapshot) else "organizer_ineligible"
+    elif not recipient_still_eligible(row.snapshot):
         reason = "participant_ineligible"
     else:
         reason = ""
     return reason
-
-
-def _recipient_still_eligible(snapshot: RecipientSnapshot) -> bool:
-    """Return True only while the snapshot's participant is still viewing-eligible.
-
-    A participant removed, deactivated, or otherwise made ineligible after the
-    claim must not reach an adapter (ADR-051-R12). This rechecks the live
-    event-scoped participant with the same predicate the audience resolver uses,
-    so reclaimed and retried work re-validates lifecycle scope right before I/O.
-    """
-    from ctf.models import CTFParticipant
-    from ctf.services.participant import viewing_participant_q
-
-    if snapshot.participant_public_id is None:
-        return False
-    return CTFParticipant.objects.filter(
-        viewing_participant_q(),
-        id=snapshot.participant_public_id,
-        event_id=snapshot.event_id,
-    ).exists()
-
-
-def _organizer_still_candidate(snapshot: RecipientSnapshot) -> bool:
-    """Return True only while the snapshot's principal is still a current owner or co-organizer.
-
-    Staff revocation, an ownership change without retention, or an inactive account
-    removes the candidate, so reclaimed and retried work never reaches a former
-    organizer (ADR-065-R4). Native policy was checked at release; the inbox read
-    checks it again live.
-    """
-    from ctf.services.event.staff import event_notification_organizers
-
-    return snapshot.principal_uuid in event_notification_organizers(snapshot.event)
 
 
 def _command(row: DeliveryAttempt) -> DeliveryCommand:
@@ -268,38 +240,6 @@ def _backoff_seconds(attempt_number: int, cfg: WorkerConfig) -> float:
     """Bounded exponential backoff with jitter."""
     base = min(cfg.backoff_base_seconds * (2 ** max(attempt_number - 1, 0)), cfg.backoff_cap_seconds)
     return base + _JITTER.uniform(0, base * cfg.backoff_jitter_fraction)
-
-
-def _organizer_policy_stop(attempt: DeliveryAttempt) -> str | None:
-    """Recheck an organizer snapshot's pinned action against live native policy.
-
-    Returns ``None`` for a participant row or an allowed organizer,
-    ``"organizer_policy_denied"`` for an explicit denial, and
-    ``"authority_unavailable"`` when the evaluator cannot decide; that work stays
-    retriable and never reaches the transport.
-    """
-    from ctf.exceptions import CTFError
-    from ctf.services.unified_authorization import principals_holding_event_action
-
-    # Identity fields only: the encrypted coordinate is decrypted solely by the email adapter.
-    snapshot = (
-        RecipientSnapshot.objects.filter(pk=attempt.snapshot_id)
-        .values("recipient_kind", "principal_uuid", "event_id", "intent__campaign__audience_spec")
-        .first()
-    )
-    if snapshot is None or snapshot["recipient_kind"] != RecipientKind.ORGANIZER.value:
-        return None
-    principal_uuid = snapshot["principal_uuid"]
-    action = (snapshot["intent__campaign__audience_spec"] or {}).get("action", "")
-    try:
-        allowed = (
-            principals_holding_event_action(snapshot["event_id"], [principal_uuid], action)
-            if principal_uuid is not None
-            else frozenset()
-        )
-    except CTFError:
-        return "authority_unavailable"
-    return None if principal_uuid in allowed else "organizer_policy_denied"
 
 
 def _preflight(
@@ -418,7 +358,7 @@ def process_attempt(attempt: DeliveryAttempt, cfg: WorkerConfig, now_func: NowFu
     """
     token = attempt.lease_token
     # Remote organizer policy runs before any SQL lock (ADR-065-R4).
-    policy_stop = _organizer_policy_stop(attempt)
+    policy_stop = organizer_policy_stop(attempt)
     if policy_stop == "authority_unavailable":
         outcome = DeliveryOutcome(OutcomeClass.RETRIABLE, reason=policy_stop)
         result = _settle(attempt.pk, token, outcome, cfg, now_func)
