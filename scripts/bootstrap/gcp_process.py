@@ -55,7 +55,7 @@ def isolated_env(base: Mapping[str, str], overlay: Mapping[str, str | None]) -> 
     return {**dict.fromkeys(base), **overlay}
 
 
-def _tail(text: str) -> str:
+def diagnostic_tail(text: str) -> str:
     """Return the last non-empty lines of ``text`` for a failure message."""
     lines = [line for line in text.strip().splitlines() if line.strip()]
     return "\n".join(lines[-_STDERR_TAIL_LINES:])
@@ -64,7 +64,7 @@ def _tail(text: str) -> str:
 def _failure(command: Sequence[str], result: ProcessResult, *, sensitive: bool) -> GcpCommandError:
     """Return the bounded failure for a non-zero exit; ``sensitive`` omits the streams."""
     message = f"{' '.join(command[:2]).strip()} failed with exit status {result.returncode}"
-    detail = "" if sensitive else _tail(result.stderr or result.stdout)
+    detail = "" if sensitive else diagnostic_tail(result.stderr or result.stdout)
     return GcpCommandError(f"{message}: {detail}" if detail else message)
 
 

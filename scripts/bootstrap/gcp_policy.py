@@ -25,6 +25,7 @@ from uuid import uuid4
 
 from bootstrap_core import get_repo_root, info, success
 from gcp_identity_cutover import _apply, _delete
+from gcp_kube import read_job_log
 from gcp_process import ProcessRunner
 
 NAMESPACE = "shifter-platform"
@@ -274,7 +275,7 @@ def publish_policy_model(
             ["kubectl", "wait", "--for=condition=complete", f"job/{name}", "-n", NAMESPACE, "--timeout=10m"],
             sensitive=True,
         )
-        logs = runner.run(["kubectl", "logs", f"job/{name}", "-n", NAMESPACE], sensitive=True).stdout
+        logs = read_job_log(runner, name, namespace=NAMESPACE)
     finally:
         _delete(runner, "job", name)
         _delete(runner, "configmap", name)

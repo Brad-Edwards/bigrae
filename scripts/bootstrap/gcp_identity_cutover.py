@@ -21,6 +21,7 @@ from installation.gcp_identity_cutover import probe_prerequisites, quiesce, rend
 
 from bootstrap_core import get_repo_root
 from gcp_inputs import write_private_file
+from gcp_kube import read_job_log
 from gcp_process import ProcessRunner, script_argv
 
 _NAMESPACE = "shifter-platform"
@@ -132,7 +133,7 @@ def _run_job(runner: ProcessRunner, job: Mapping[str, object], *, timeout: str) 
             ["kubectl", "wait", "--for=condition=complete", f"job/{name}", "-n", _NAMESPACE, f"--timeout={timeout}"],
             sensitive=True,
         )
-        return runner.run(["kubectl", "logs", f"job/{name}", "-n", _NAMESPACE, "-c", "portal"], sensitive=True).stdout
+        return read_job_log(runner, name, namespace=_NAMESPACE, container="portal")
     finally:
         _delete(runner, "job", name)
 
