@@ -210,6 +210,12 @@ def test_native_policy_servers_and_migration_use_their_attached_database_logins(
     migration = objects["Job", "openfga-datastore-migrate"]["spec"]["template"]["spec"]
     assert migration["initContainers"][0]["name"] == "cloud-sql-proxy"
     assert migration["initContainers"][1]["name"] == "migrate"
+    # The migrator creates the datastore as the reconciled owner role (#2688).
+    migrate_env = {item["name"]: item for item in migration["initContainers"][1]["env"]}
+    assert migrate_env["OPENFGA_DATASTORE_URI"]["value"] == (
+        "postgres://" + users["openfga-migrator"].replace("@", "%40")
+        + "@127.0.0.1:5432/openfga?sslmode=disable&options=-c%20role%3Dshifter_openfga_owner"
+    )
     assert migration["volumes"][0]["configMap"]["name"] == "openfga-migration-connection"
     service = objects["ConfigMap", "openfga-migration-connection"]["data"]["pg-service.conf"]
     assert f'user={users["openfga-migrator"]}' in service
