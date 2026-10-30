@@ -219,9 +219,16 @@ class TestCommandLine:
         assert gcp_cli._HANDLERS["gcp-install"](args) == 0
         assert seen[0] == gcp_install.InstallOptions(inputs="/bundle", release_manifest="r.json")
         assert "gcp-install" in gcp_cli.LIFECYCLE_COMMANDS
-        monkeypatch.setattr(cli, "resolve_release_base_images", lambda source: BASE_IMAGES)
+        def resolve(source):
+            print("Running: oras repo tags")
+            return BASE_IMAGES
+
+        monkeypatch.setattr(cli, "resolve_release_base_images", resolve)
         assert cli.print_release_base_images("ghcr.io/acme") == BASE_IMAGES
-        assert json.loads(capsys.readouterr().out) == BASE_IMAGES
+        captured = capsys.readouterr()
+        # Only the JSON reaches stdout, so the release workflow can parse it.
+        assert json.loads(captured.out) == BASE_IMAGES
+        assert "Running: oras repo tags" in captured.err
 
 
 class TestInstall:
