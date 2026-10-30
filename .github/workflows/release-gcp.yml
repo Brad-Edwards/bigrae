@@ -293,13 +293,14 @@ jobs:
             --version "${RELEASE_VERSION}" \
             --source-revision "${GITHUB_SHA}" \
             --chart-version "${RELEASE_CHART_VERSION}" \
-            --authorization-model-file "${RUNNER_TEMP}/release/authorization-model.json" \
+            --authorization-model-stdin \
             "${base_images[@]}" \
             --image "portal=${RELEASE_REGISTRY}/portal@${PORTAL_DIGEST}" \
             --image "provisioner=${RELEASE_REGISTRY}/provisioner@${PROVISIONER_DIGEST}" \
             --image "guacd=${RELEASE_REGISTRY}/guacd@${GUACD_DIGEST}" \
             --image "guacamole-client=${RELEASE_REGISTRY}/guacamole-client@${GUACAMOLE_CLIENT_DIGEST}" \
             --image "openvpn=${RELEASE_REGISTRY}/openvpn@${OPENVPN_DIGEST}" \
+            < "${RUNNER_TEMP}/release/authorization-model.json" \
             > "${RUNNER_TEMP}/release/release.json"
 
       # The deployer image embeds the manifest and the source revision. Its build

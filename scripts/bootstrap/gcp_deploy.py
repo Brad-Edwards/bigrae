@@ -27,7 +27,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from bootstrap_core import error, get_repo_root, header, info, success, warn
 from gcp_deploy_stages import (
@@ -326,7 +326,7 @@ def import_release_base_images(
         from gcp_config_store import write_range_images
 
         write_range_images(options.source, images)
-    return dataclasses.replace(inputs, range_images={**inputs.range_images, **images})
+    return cast(DeploymentInputs, dataclasses.replace(inputs, range_images={**inputs.range_images, **images}))
 
 
 def _release(options: DeployOptions, inputs: DeploymentInputs) -> tuple[GcpReleaseManifest | None, ReleaseTrust | None]:

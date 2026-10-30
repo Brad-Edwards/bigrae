@@ -219,6 +219,7 @@ class TestCommandLine:
         assert gcp_cli._HANDLERS["gcp-install"](args) == 0
         assert seen[0] == gcp_install.InstallOptions(inputs="/bundle", release_manifest="r.json")
         assert "gcp-install" in gcp_cli.LIFECYCLE_COMMANDS
+
         def resolve(source):
             print("Running: oras repo tags")
             return BASE_IMAGES

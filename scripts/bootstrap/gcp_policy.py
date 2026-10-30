@@ -48,6 +48,7 @@ def _secret_name(reference: str) -> tuple[str, str]:
 
 
 def _secret_exists(runner: ProcessRunner, reference: str) -> bool:
+    """True when the secret has a latest version."""
     project, name = _secret_name(reference)
     result = runner.run(
         ["gcloud", "secrets", "versions", "describe", "latest", "--secret", name, "--project", project],
@@ -71,6 +72,7 @@ def generate_policy_bundles() -> dict[str, dict[str, str]]:
     now = datetime.datetime.now(datetime.UTC)
 
     def pem_key(key: ec.EllipticCurvePrivateKey) -> str:
+        """Return the unencrypted PKCS #8 PEM of ``key``."""
         return key.private_bytes(
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
         ).decode()

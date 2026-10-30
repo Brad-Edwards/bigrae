@@ -302,9 +302,9 @@ def _add_release_manifest_parser(subcommands: argparse._SubParsersAction) -> Non
         help="Exact identity of one base range image (kali, ubuntu, dc) that tenants import.",
     )
     manifest.add_argument(
-        "--authorization-model-file",
-        default="",
-        help="OpenFGA authorization model in the API JSON form, published by each deploy.",
+        "--authorization-model-stdin",
+        action="store_true",
+        help="Read the OpenFGA authorization model (API JSON form) from standard input; each deploy publishes it.",
     )
 
 
