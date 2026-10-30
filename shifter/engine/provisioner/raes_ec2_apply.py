@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -40,6 +40,8 @@ from raes_participant_host_keys import observe_participant_host_keys
 from raes_plan import RaesPlan, RaesPlanNode
 from raes_preconfigured_host_readiness import verify_preconfigured_hosts
 from raes_snapshot import snapshot_resources
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -273,6 +275,12 @@ def apply_raes_ec2_range(
         # original provision error (a `raise ... from None` in the cleanup path
         # otherwise suppresses it). The cleanup failure still surfaces on the
         # explicit destroy path; the original error is what must propagate here.
-        with contextlib.suppress(Exception):
+        try:
             destroy_raes_ec2_range(request_id, range_id, plan, options)
+        # compensation must not mask the launch failure re-raised below
+        except Exception as cleanup_exc:  # noqa: BLE001
+            # Value-free like the rest of the EC2 path: log the class name only.
+            logger.warning(
+                "EC2 launch compensation failed range_id=%s exc_type=%s", range_id, type(cleanup_exc).__name__
+            )
         raise

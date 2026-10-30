@@ -81,6 +81,7 @@ jobs:
       portal_image_context: ${{ steps.detect.outputs.portal_image_context }}
       guacamole_authority: ${{ steps.detect.outputs.guacamole_authority }}
       charts: ${{ steps.detect.outputs.charts }}
+      provisioner_admission: ${{ steps.detect.outputs.provisioner_admission }}
       mcp_lint_any: ${{ steps.detect.outputs.mcp_lint_any }}
       mcp_test_any: ${{ steps.detect.outputs.mcp_test_any }}
       mcp_lint_packages: ${{ steps.detect.outputs.mcp_lint_packages }}
@@ -1711,7 +1712,7 @@ jobs:
           SHARD_GROUP: ${{ matrix.group }}
         run: |
           uv run python manage.py collectstatic --noinput
-          uv run pytest tests/ -m "not redis and not openfga" \
+          uv run pytest tests/ -m "not redis and not openfga and not apiserver" \
             --splits 6 --group "$SHARD_GROUP" --splitting-algorithm least_duration \
             --cov --cov-report= --cov-fail-under=0 \
             --junit-xml=postgres-junit.xml -p no:cacheprovider
@@ -2214,6 +2215,68 @@ jobs:
       # would only measure the tests covering themselves (cf. the packer lane).
       - name: Run chart contract tests
         run: uv run --python 3.12 --with pyyaml --with pytest python -m pytest platform/charts/shifter/tests/ -q
+
+  # Applies the rendered chart admission policies to a real kube-apiserver of the
+  # GKE Kubernetes minor and dry-runs the canonical and malformed provisioner
+  # Jobs. cel-python in the unit lanes does not type-check CEL the way the API
+  # server does, so a policy that does not compile must fail here (#2651).
+  admission-apiserver:
+    permissions:
+      contents: read
+    name: Tests (admission policies on kube-apiserver)
+    needs: [paths]
+    if: ${{ !inputs.skip_tests && (needs.paths.outputs.run_all == 'true' || needs.paths.outputs.provisioner_admission == 'true') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+
+      - name: Install Helm to render the chart (hermetic, version-pinned, checksum-verified)
+        env:
+          HELM_VERSION: v3.15.4
+          # Same reviewed pin as the chart contract tests; bump both together.
+          HELM_SHA256: 11400fecfc07fd6f034863e4e0c4c4445594673fd2a129e701fe41f31170cfa9
+        run: |
+          set -euo pipefail
+          mkdir -p "${RUNNER_TEMP}/helm-bin"
+          curl -fsSL -o "${RUNNER_TEMP}/helm.tar.gz" \
+            "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          echo "${HELM_SHA256}  ${RUNNER_TEMP}/helm.tar.gz" | sha256sum -c -
+          tar -xzf "${RUNNER_TEMP}/helm.tar.gz" -C "${RUNNER_TEMP}" linux-amd64/helm
+          mv "${RUNNER_TEMP}/linux-amd64/helm" "${RUNNER_TEMP}/helm-bin/helm"
+          echo "${RUNNER_TEMP}/helm-bin" >> "${GITHUB_PATH}"
+
+      - name: Install the envtest control plane (version-pinned, checksum-verified)
+        env:
+          # The GKE release channel minor. Bump with the cluster version.
+          ENVTEST_VERSION: v1.36.2
+          # SHA-512 from controller-tools envtest-releases.yaml, pinned in reviewed
+          # repo content rather than fetched from the download origin.
+          ENVTEST_SHA512: ea743186c8a799f5cf8faf16969f86189d003cb7d130e0ac4b58789f1e5748dcf30ebe91c837a10d5ac415383da3e10b9e64d65785c938c23e739781cfb76f08
+        run: |
+          set -euo pipefail
+          archive="envtest-${ENVTEST_VERSION}-linux-amd64.tar.gz"
+          curl -fsSL -o "${RUNNER_TEMP}/${archive}" \
+            "https://github.com/kubernetes-sigs/controller-tools/releases/download/envtest-${ENVTEST_VERSION}/${archive}"
+          echo "${ENVTEST_SHA512}  ${RUNNER_TEMP}/${archive}" | sha512sum -c -
+          mkdir -p "${RUNNER_TEMP}/envtest"
+          tar -xzf "${RUNNER_TEMP}/${archive}" -C "${RUNNER_TEMP}/envtest"
+          echo "${RUNNER_TEMP}/envtest/controller-tools/envtest" >> "${GITHUB_PATH}"
+
+      - name: Start kube-apiserver
+        run: scripts/admission_apiserver/start.sh "${RUNNER_TEMP}/envtest/controller-tools/envtest" "${RUNNER_TEMP}/apiserver"
+
+      - name: Install dependencies
+        working-directory: shifter/shifter_platform
+        run: uv sync --group dev
+
+      - name: Run the admission policy tests
+        working-directory: shifter/shifter_platform
+        env:
+          ADMISSION_KUBECONFIG: ${{ runner.temp }}/apiserver/kubeconfig
+        run: uv run pytest tests/platform/test_admission_policy_apiserver.py -m apiserver -p no:randomly -p no:cacheprovider
 
   check-layer-imports-tests:
     permissions:
@@ -3042,7 +3105,7 @@ jobs:
         # no pull_request payload and always scan.
         if: >-
           ${{ github.repository_id == '1241599684'
-          && github.repository_owner_id == '56809295'
+          && github.repository_owner_id == '308592074'
           && (github.event_name != 'pull_request'
           || github.event.pull_request.head.repo.full_name == github.repository) }}
         uses: SonarSource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8.2.0

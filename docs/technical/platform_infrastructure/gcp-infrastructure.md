@@ -10,7 +10,7 @@ platform/
 │   ├── modules/platform-core/       # All GCP platform infrastructure
 │   ├── environments/platform/       # Shared platform root for every deployment
 │   ├── environments/<deployment>/   # Committed values of the CI-deployed tenants
-│   └── global/                      # cicd-oidc, release-registry, github-runner roots
+│   └── global/                      # cicd-oidc and github-runner roots
 ├── charts/shifter/                  # Helm chart: the only GCP Kubernetes renderer
 └── deployer/gcp/                    # Deployer image of one published release
 ```

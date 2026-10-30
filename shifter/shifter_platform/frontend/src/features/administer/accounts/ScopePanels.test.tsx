@@ -23,10 +23,11 @@ it("adds and confirms removing a principal fact without a role or grant", async 
 });
 
 it("issues, resends and confirms revoking invitations through the selected workspace", async () => {
-  mock.mockImplementation((_path, options) => Promise.resolve(options?.method ? undefined : { count: 1, results: [{ invitation_uuid: "invitation", email: "recipient@example.test", status: "pending" }] }));
+  mock.mockImplementation((_path, options) => Promise.resolve(options?.method ? undefined : { count: 1, results: [{ invitation_uuid: "invitation", email: "recipient@example.test", status: "pending", delivery_status: "unavailable" }] }));
   const user = setupUser();
   renderRoute(<ScopeInvitationPanel workspaceUuid="selected" />);
   await user.type(await screen.findByLabelText("Recipient email"), "new@example.test");
+  expect(await screen.findByText(/Email unavailable/)).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Send invitation" }));
   await waitFor(() => expect(mock).toHaveBeenCalledWith("/account-workspaces/selected/invitations/", expect.objectContaining({ body: { email: "new@example.test" } })));
   await user.click(screen.getByRole("button", { name: "Resend invitation" }));

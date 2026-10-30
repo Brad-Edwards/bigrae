@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { axe } from "vitest-axe";
 
 import { renderRoute } from "@/test/utils";
@@ -7,6 +7,7 @@ import { renderRoute } from "@/test/utils";
 vi.mock("@/api/client", () => ({ apiFetch: vi.fn() }));
 
 import { apiFetch } from "@/api/client";
+import { ApiError } from "@/api/errors";
 
 import { TeamPage } from "./TeamPage";
 
@@ -96,6 +97,29 @@ describe("TeamPage", () => {
     expect(await screen.findByRole("button", { name: "Leave team" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Regenerate" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Make captain" })).not.toBeInTheDocument();
+  });
+
+  it("reports a failed member removal to the captain", async () => {
+    const team = {
+      id: "t1",
+      name: "Blue Team",
+      members: [
+        { id: "m1", name: "Alice", is_captain: true },
+        { id: "m2", name: "Bob", is_captain: false },
+      ],
+      is_captain: true,
+      team_size_limit: 4,
+      invite_code: null,
+    };
+    mockApi.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (options?.method === "POST" && path.endsWith("/remove-member/")) {
+        throw new ApiError(409, { code: "conflict", message: "Bob cannot be removed now." });
+      }
+      return team;
+    });
+    renderRoute(<TeamPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Bob cannot be removed now.")).toBeInTheDocument();
   });
 
 });

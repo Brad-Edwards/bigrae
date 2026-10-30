@@ -133,7 +133,7 @@ def _write_and_readback(provider: AuthorizationProvider, change: HierarchyRelati
         provider.write_relationships(change)
     try:
         observed = provider.read_relationships(change)
-    except Exception:
+    except Exception:  # noqa: BLE001  # retain unresolved publication for durable retry
         return False
     return bool(observed.grant_present)
 

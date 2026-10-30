@@ -246,11 +246,11 @@ def provision_participant_range_with_retry(
                     attempt + 1,
                     participant_id,
                     delay,
-                    e,
+                    safe_log_value(str(e)),
                 )
                 _interruptible_sleep(delay, heartbeat=heartbeat)
 
-    # All retries exhausted — mark as error
+    # All retries exhausted — mark as error. The caller logs the raised error with its traceback.
     try:
         participant = CTFParticipant.objects.get(pk=participant_id)
         participant.range_status = "error"
@@ -258,12 +258,6 @@ def provision_participant_range_with_retry(
     except CTFParticipant.DoesNotExist:
         pass
 
-    logger.error(
-        "Provisioning failed after %d attempts for participant %s: %s",
-        1 + max_retries,
-        participant_id,
-        last_error,
-    )
     raise CTFRangeError(
         f"Provisioning failed after {1 + max_retries} attempts: {last_error}",
         details={"participant_id": str(participant_id), "retries": max_retries},

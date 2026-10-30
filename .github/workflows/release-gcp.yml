@@ -1,24 +1,33 @@
 name: Release (GCP)
 
-# Builds one GCP release from main, dev, or deploy-test (#2571, #2580, ADR-070).
+# Builds one GCP release from main, dev, or deploy-test (#2571, #2580, #2659,
+# ADR-070).
+#
+# Two events start the workflow (ADR-004-R23, #2660). The release-gcp job of
+# release-please.yml calls it when a release tag points at the pushed main
+# commit. A called workflow runs from the commit of the caller, with its github
+# context, so the run builds the tagged commit from refs/heads/main. The maintainer
+# dispatches it for a test build from dev or deploy-test, or to publish a
+# release again.
 #
 # A GitHub-less GCP deployment consumes a release; it builds nothing itself. This
 # workflow builds the five control-plane images once, pushes each image by
-# digest to the release Artifact Registry repository, and stores the SBOM and
-# the signed build provenance with each image. The provenance is a Sigstore
-# bundle that actions/attest-build-provenance pushes to the registry as an OCI
-# referrer (push-to-registry: true), so a deployment verifies it with the
-# Sigstore trust root and no GitHub API. The workflow then writes the release
-# manifest (bigrae.gcp-release.v1) and builds the deployer image, which embeds
-# the manifest, the source revision, the deploy tooling, and the pinned tools.
-# The deployer image is attested the same way.
+# digest to the public release registry on GHCR, and stores the SBOM and the
+# signed build provenance with each image. The provenance is a Sigstore bundle
+# that actions/attest-build-provenance pushes to the registry as an OCI referrer
+# (push-to-registry: true), so a deployment verifies it with the Sigstore trust
+# root and no GitHub API. The workflow then writes the release manifest
+# (bigrae.gcp-release.v1) and builds the deployer image, which embeds the
+# manifest, the source revision, the deploy tooling, and the pinned tools. The
+# deployer image is attested the same way.
 #
-# Configuration: the gcp-release GitHub Environment holds the secrets
-# GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_RELEASE_SERVICE_ACCOUNT (the release
-# purpose of the cicd-oidc-identity module) and the variable
-# GCP_RELEASE_REGISTRY (<location>-docker.pkg.dev/<project>/<repository>). The
-# WIF provider admits only this workflow on refs/heads/main, refs/heads/dev, or
-# refs/heads/deploy-test in that Environment (ADR-004-R23, ADR-037-R7).
+# The release registry is ghcr.io/<owner>/<repository>, in lower case. The
+# deployer image is deployer-gcp, because it holds only the GCP tooling. The job
+# publishes with the workflow GITHUB_TOKEN and needs no cloud identity. A
+# deployment trusts a release through settings.release_trust, not through the
+# registry, and copies each image by digest into its own Artifact Registry.
+# GHCR makes a new package private; the repository owner makes each package
+# public once after its first release.
 
 on:
   workflow_dispatch:
@@ -28,35 +37,49 @@ on:
         required: false
         type: string
         default: ''
+  workflow_call:
+    inputs:
+      version:
+        description: 'Release version for the manifest. Empty uses version.txt.'
+        required: false
+        type: string
+        default: ''
+      source_revision:
+        description: 'Commit that the release tags. The run stops when it is not the built commit.'
+        required: true
+        type: string
 
 permissions: {}
-
-concurrency:
-  group: release-gcp
-  cancel-in-progress: false
 
 jobs:
   release:
     name: Build and publish the GCP release
     runs-on: ubuntu-latest
     environment: gcp-release
+    # One group per commit. GitHub cancels a pending run when a newer run joins
+    # its group, so a shared group could drop the release of another commit.
+    # Runs for different commits publish different tags and run in parallel.
+    concurrency:
+      group: release-gcp-${{ github.sha }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
       attestations: write
+      packages: write
     env:
-      GCP_RELEASE_REGISTRY: ${{ vars.GCP_RELEASE_REGISTRY }}
       RELEASE_VERSION_INPUT: ${{ inputs.version }}
+      RELEASE_SOURCE_REVISION_INPUT: ${{ inputs.source_revision }}
     steps:
       # Reject every ref except main, dev, and deploy-test BEFORE checkout and
-      # cloud auth. The WIF attribute_condition admits only these refs for the
-      # release purpose, so this step is defense in depth (ADR-037-R7).
+      # the registry login. The gcp-release Environment branch policy admits
+      # the same refs, so this step is defense in depth (ADR-037-R7).
       - name: Reject non-protected dispatch refs
         run: |
           case "${GITHUB_REF}" in
             refs/heads/main|refs/heads/dev|refs/heads/deploy-test) ;;
             *)
-              echo "::error::release-gcp must run from refs/heads/main, refs/heads/dev, or refs/heads/deploy-test, not '${GITHUB_REF}'. The GCP WIF provider enforces the same rule. See ADR-037-R7."
+              echo "::error::release-gcp must run from refs/heads/main, refs/heads/dev, or refs/heads/deploy-test, not '${GITHUB_REF}'. See ADR-037-R7."
               exit 1
               ;;
           esac
@@ -66,34 +89,45 @@ jobs:
           persist-credentials: false
 
       - name: Validate the release configuration
+        env:
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TRIGGER: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if ! [[ "${GCP_RELEASE_REGISTRY}" =~ ^[a-z0-9-]+-docker\.pkg\.dev/[a-z][a-z0-9-]{4,28}[a-z0-9]/[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; then
-            echo "::error::Set the gcp-release Environment variable GCP_RELEASE_REGISTRY to <location>-docker.pkg.dev/<project>/<repository>."
-            exit 1
+          # A called run has the event of its caller, not workflow_dispatch. It
+          # builds the commit of the caller, so it must name the tagged commit,
+          # and that commit must be the built commit.
+          if [ "${RELEASE_TRIGGER}" != "workflow_dispatch" ] || [ -n "${RELEASE_SOURCE_REVISION_INPUT}" ]; then
+            if ! [[ "${RELEASE_SOURCE_REVISION_INPUT}" =~ ^[0-9a-f]{40}$ ]] || [ "${RELEASE_SOURCE_REVISION_INPUT}" != "${GITHUB_SHA}" ]; then
+              echo "::error::The source_revision input must be the full SHA of the built commit ${GITHUB_SHA}."
+              exit 1
+            fi
           fi
           version="${RELEASE_VERSION_INPUT:-$(tr -d '[:space:]' < version.txt)}"
           chart_version="$(awk '$1 == "version:" { print $2; exit }' platform/charts/shifter/Chart.yaml)"
+          # Check the values against the release manifest patterns
+          # (shifter/installation/gcp_release.py) before they reach GITHUB_ENV.
+          # A newline in a value could otherwise add an environment variable.
+          if ! [[ "${version}" =~ ^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$ ]]; then
+            echo "::error::The release version is not valid. Use 1 to 64 letters, digits, '.', '+', '_', or '-'."
+            exit 1
+          fi
+          if ! [[ "${chart_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::The chart version in platform/charts/shifter/Chart.yaml is not valid."
+            exit 1
+          fi
           {
-            echo "RELEASE_REGISTRY_HOST=${GCP_RELEASE_REGISTRY%%/*}"
+            echo "RELEASE_REGISTRY=ghcr.io/${REPOSITORY,,}"
             echo "RELEASE_VERSION=${version}"
             echo "RELEASE_CHART_VERSION=${chart_version}"
           } >> "${GITHUB_ENV}"
 
-      - id: auth
-        name: Authenticate as the release identity
-        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_RELEASE_SERVICE_ACCOUNT }}
-          token_format: access_token
-
       - name: Login to the release registry
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
-          registry: ${{ env.RELEASE_REGISTRY_HOST }}
-          username: oauth2accesstoken
-          password: ${{ steps.auth.outputs.access_token }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
@@ -110,7 +144,7 @@ jobs:
             SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
-            ${{ env.GCP_RELEASE_REGISTRY }}/portal:${{ github.sha }}
+            ${{ env.RELEASE_REGISTRY }}/portal:${{ github.sha }}
           no-cache: true
           provenance: mode=max
           sbom: true
@@ -124,7 +158,7 @@ jobs:
             SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
-            ${{ env.GCP_RELEASE_REGISTRY }}/provisioner:${{ github.sha }}
+            ${{ env.RELEASE_REGISTRY }}/provisioner:${{ github.sha }}
           no-cache: true
           provenance: mode=max
           sbom: true
@@ -135,7 +169,7 @@ jobs:
           context: ./shifter/engine/guacd
           push: true
           tags: |
-            ${{ env.GCP_RELEASE_REGISTRY }}/guacd:${{ github.sha }}
+            ${{ env.RELEASE_REGISTRY }}/guacd:${{ github.sha }}
           no-cache: true
           provenance: mode=max
           sbom: true
@@ -146,7 +180,7 @@ jobs:
           context: ./shifter/engine/guacamole
           push: true
           tags: |
-            ${{ env.GCP_RELEASE_REGISTRY }}/guacamole-client:${{ github.sha }}
+            ${{ env.RELEASE_REGISTRY }}/guacamole-client:${{ github.sha }}
           no-cache: true
           provenance: mode=max
           sbom: true
@@ -159,7 +193,7 @@ jobs:
             SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
-            ${{ env.GCP_RELEASE_REGISTRY }}/openvpn:${{ github.sha }}
+            ${{ env.RELEASE_REGISTRY }}/openvpn:${{ github.sha }}
           no-cache: true
           provenance: mode=max
           sbom: true
@@ -169,31 +203,31 @@ jobs:
       - name: Attest build provenance (portal)
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/portal
+          subject-name: ${{ env.RELEASE_REGISTRY }}/portal
           subject-digest: ${{ steps.build-portal.outputs.digest }}
           push-to-registry: true
       - name: Attest build provenance (provisioner)
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/provisioner
+          subject-name: ${{ env.RELEASE_REGISTRY }}/provisioner
           subject-digest: ${{ steps.build-provisioner.outputs.digest }}
           push-to-registry: true
       - name: Attest build provenance (guacd)
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/guacd
+          subject-name: ${{ env.RELEASE_REGISTRY }}/guacd
           subject-digest: ${{ steps.build-guacd.outputs.digest }}
           push-to-registry: true
       - name: Attest build provenance (guacamole-client)
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/guacamole-client
+          subject-name: ${{ env.RELEASE_REGISTRY }}/guacamole-client
           subject-digest: ${{ steps.build-guacamole-client.outputs.digest }}
           push-to-registry: true
       - name: Attest build provenance (openvpn)
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/openvpn
+          subject-name: ${{ env.RELEASE_REGISTRY }}/openvpn
           subject-digest: ${{ steps.build-openvpn.outputs.digest }}
           push-to-registry: true
 
@@ -217,11 +251,11 @@ jobs:
             --version "${RELEASE_VERSION}" \
             --source-revision "${GITHUB_SHA}" \
             --chart-version "${RELEASE_CHART_VERSION}" \
-            --image "portal=${GCP_RELEASE_REGISTRY}/portal@${PORTAL_DIGEST}" \
-            --image "provisioner=${GCP_RELEASE_REGISTRY}/provisioner@${PROVISIONER_DIGEST}" \
-            --image "guacd=${GCP_RELEASE_REGISTRY}/guacd@${GUACD_DIGEST}" \
-            --image "guacamole-client=${GCP_RELEASE_REGISTRY}/guacamole-client@${GUACAMOLE_CLIENT_DIGEST}" \
-            --image "openvpn=${GCP_RELEASE_REGISTRY}/openvpn@${OPENVPN_DIGEST}" \
+            --image "portal=${RELEASE_REGISTRY}/portal@${PORTAL_DIGEST}" \
+            --image "provisioner=${RELEASE_REGISTRY}/provisioner@${PROVISIONER_DIGEST}" \
+            --image "guacd=${RELEASE_REGISTRY}/guacd@${GUACD_DIGEST}" \
+            --image "guacamole-client=${RELEASE_REGISTRY}/guacamole-client@${GUACAMOLE_CLIENT_DIGEST}" \
+            --image "openvpn=${RELEASE_REGISTRY}/openvpn@${OPENVPN_DIGEST}" \
             > "${RUNNER_TEMP}/release/release.json"
 
       # The deployer image embeds the manifest and the source revision. Its build
@@ -239,7 +273,7 @@ jobs:
             SOURCE_REPOSITORY_URL=${{ github.server_url }}/${{ github.repository }}
           push: true
           tags: |
-            ${{ env.GCP_RELEASE_REGISTRY }}/deployer:${{ github.sha }}
+            ${{ env.RELEASE_REGISTRY }}/deployer-gcp:${{ github.sha }}
           no-cache: true
           provenance: mode=max
           sbom: true
@@ -265,11 +299,11 @@ jobs:
             --ignorefile platform/deployer/gcp/trivyignore.yaml \
             --db-repository mirror.gcr.io/aquasec/trivy-db \
             --java-db-repository mirror.gcr.io/aquasec/trivy-java-db \
-            --exit-code 1 "${GCP_RELEASE_REGISTRY}/deployer@${DEPLOYER_DIGEST}"
+            --exit-code 1 "${RELEASE_REGISTRY}/deployer-gcp@${DEPLOYER_DIGEST}"
       - name: Attest build provenance (deployer)
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-name: ${{ env.GCP_RELEASE_REGISTRY }}/deployer
+          subject-name: ${{ env.RELEASE_REGISTRY }}/deployer-gcp
           subject-digest: ${{ steps.build-deployer.outputs.digest }}
           push-to-registry: true
 
@@ -281,7 +315,7 @@ jobs:
           {
             echo "## GCP release ${RELEASE_VERSION}"
             echo "- **Source revision:** \`${GITHUB_SHA}\`"
-            echo "- **Deployer image:** \`${GCP_RELEASE_REGISTRY}/deployer@${DEPLOYER_DIGEST}\`"
+            echo "- **Deployer image:** \`${RELEASE_REGISTRY}/deployer-gcp@${DEPLOYER_DIGEST}\`"
             echo "- **Release manifest:** \`/opt/bigrae/release.json\` in the deployer image"
             echo ""
             echo '```json'

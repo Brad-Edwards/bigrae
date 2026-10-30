@@ -104,18 +104,21 @@ class CTFBaseModel(models.Model):
         is_new = self._state.adding
         try:
             self.full_clean()
-        except ValidationError:
-            logger.exception(
-                "Validation failed for %s %s",
+        except ValidationError as exc:
+            # One-line context only: the caller owns the error (a 4xx mapping or
+            # an unhandled 500 that Django logs), so no duplicate traceback here.
+            logger.info(
+                "Validation failed for %s %s fields=%s",
                 self.__class__.__name__,
                 getattr(self, "pk", "new"),
+                sorted(getattr(exc, "error_dict", {})),
             )
             raise
 
         super().save(*args, **kwargs)
 
         if is_new:
-            logger.info(
+            logger.debug(
                 "Created %s: %s",
                 self.__class__.__name__,
                 self.pk,

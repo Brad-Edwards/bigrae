@@ -24,7 +24,8 @@ def _verify_upload_token_or_raise(upload_token: str, user_id: int) -> dict[str, 
     try:
         return verify_upload_token(upload_token, user_id)
     except ValueError as e:
-        logger.exception("complete_upload: token verification failed for user_id=%s", user_id)
+        # verify_upload_token already logged the rejection reason at WARNING.
+        logger.info("complete_upload: token verification failed for user_id=%s", user_id)
         raise CMSError("Invalid upload token") from e
 
 
@@ -41,7 +42,8 @@ def _verify_upload_object_or_raise(s3_key: str, expected_size: int, user_id: int
     try:
         identity = verify_s3_object_exists(s3_key)
     except S3Error as e:
-        logger.exception("complete_upload: S3 verification failed for user_id=%s", user_id)
+        # cms.assets.s3 already logged the storage outcome (not found or failure).
+        logger.info("complete_upload: S3 verification failed for user_id=%s", user_id)
         raise CMSError("Upload not found in storage") from e
 
     actual_size = identity["content_length"]
@@ -66,7 +68,8 @@ def _verify_upload_object_or_raise(s3_key: str, expected_size: int, user_id: int
         try:
             delete_agent(s3_key)
         except S3Error:
-            logger.exception(
+            # Best-effort cleanup; cms.assets.s3 already logged the failure with its traceback.
+            logger.warning(
                 "complete_upload: cleanup after oversize object failed user_id=%s s3_key=%s",
                 user_id,
                 safe_log_value(s3_key),
@@ -74,7 +77,7 @@ def _verify_upload_object_or_raise(s3_key: str, expected_size: int, user_id: int
         raise CMSError(str(e)) from e
 
     if actual_size != expected_size:
-        logger.error(
+        logger.warning(
             "complete_upload: size mismatch for user_id=%s - expected=%s, actual=%s",
             user_id,
             safe_log_value(expected_size),
@@ -101,14 +104,15 @@ def _inspect_upload_header_or_raise(
     try:
         expected_format = validate_file_extension(payload["filename"])
     except _AssetValidationError as exc:
-        logger.exception("complete_upload: filename failed extension check user_id=%s", user_id)
+        logger.warning("complete_upload: filename failed extension check user_id=%s", user_id)
         _s3.delete_agent(s3_key)
         raise CMSError(f"Invalid upload filename: {exc}") from exc
 
     try:
         header = _s3.read_agent_header(s3_key, _settings.UPLOAD_INSPECTION_MAX_HEADER_BYTES, expected_identity=identity)
     except S3Error as exc:
-        logger.exception("complete_upload: header read failed user_id=%s s3_key=%s", user_id, safe_log_value(s3_key))
+        # cms.assets.s3 already logged the storage failure with its traceback.
+        logger.info("complete_upload: header read failed user_id=%s s3_key=%s", user_id, safe_log_value(s3_key))
         raise CMSError("Upload content inspection failed") from exc
 
     try:
@@ -124,7 +128,8 @@ def _inspect_upload_header_or_raise(
         try:
             _s3.delete_agent(s3_key)
         except S3Error:
-            logger.exception(
+            # Best-effort cleanup; cms.assets.s3 already logged the failure with its traceback.
+            logger.warning(
                 "complete_upload: delete after inspection failure also failed user_id=%s s3_key=%s",
                 user_id,
                 safe_log_value(s3_key),

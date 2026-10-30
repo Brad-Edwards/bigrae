@@ -6,14 +6,14 @@ type: FUNCTIONAL
 priority: MUST
 wave: 2
 created_at: 2026-03-18T05:28:22.289425Z
-updated_at: 2026-10-28T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-401: Individual Scoreboard
 
 ## Statement
 
-The system shall display an individual participant scoreboard ranked by total score in descending order. The scoreboard shall show: rank, participant display name, total score, number of challenges solved, and time of last solve. The scoreboard shall update in near-real-time (within 30 seconds of a scoring event). Participants shall be able to click a row to see that participant's solve history.
+The system shall display an individual participant scoreboard ranked by total score in descending order. The scoreboard shall show: rank, participant display name, total score, number of challenges solved, and time of last solve. The scoreboard shall update in near-real-time (within 30 seconds of a scoring event). A participant's per-challenge solve history shall be visible only to that participant and the event organizer (ADR-028).
 
 ## Rationale
 
@@ -22,7 +22,9 @@ The individual scoreboard is the central competitive interface for non-team even
 ## Traceability
 
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/` (Scoring service - get_scoreboard() ranked by descending score with solve_count, last_solve, rank)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Scoreboard view (participant) and api_scoreboard JSON endpoint)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/views.py` (api_scoreboard public scoreboard endpoint)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/ctf/ScoreboardPage.tsx` (Participant scoreboard page)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#576` (Gap: the SPA scoreboard does not refresh within 30 seconds)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/scoring/_read.py::get_scoreboard` (Individual scoreboard read path - rank, participant display, score, solve count, last solve)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_scoring.py` (Scoring tests - individual scoreboard ranking, score recomputation/materialization, solve count and last solve)
 - IMPLEMENTS → GITHUB_ISSUE `539` (Issue #539 - automated coverage and Ground Control TESTS trace links for active CTF requirements)

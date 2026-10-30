@@ -22,6 +22,7 @@ from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, pr
 from shared.cloud import get_object_storage
 from shared.credentials import CredentialContext
 from shared.exceptions import ValidationError
+from shared.log_sanitize import safe_log_value
 from shared.model_access import PackModelNeedsDeclaration
 from shared.raes.object_source import stage_uploaded_pack
 from shared.raes.pack_conformance import validate_pack_contract
@@ -53,7 +54,7 @@ def _pack_model_needs(root: Path, digest: str) -> dict[str, dict[str, object]]:
     try:
         declaration = PackModelNeedsDeclaration.model_validate(json.loads(path.read_text(encoding="utf-8")))
         return declaration.bind_to_digest(digest)
-    except Exception:
+    except Exception:  # noqa: BLE001  # untrusted pack content; its error text stays out of the chain
         raise ValueError("Pack model needs are invalid") from None
 
 
@@ -185,7 +186,13 @@ def upload_tenant_pack(
         try:
             _write_archive(archive, path)
             digest, version, model_needs = _validate_archive(path, name, report)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001  # untrusted pack content; its error text stays out of the chain
+            # Pack validation errors embed archive paths and content, so log only the class.
+            logger.warning(
+                "upload_tenant_pack: archive validation failed organization_uuid=%s exc_type=%s",
+                safe_log_value(organization_uuid),
+                type(exc).__name__,
+            )
             raise ValidationError("The pack archive failed validation; check its name, content and size") from None
         reference = f"tenant-packs/{organization_uuid}/{uuid4()}.tar.gz"
         key = f"{prefix}/{reference}" if prefix else reference
@@ -220,9 +227,16 @@ def upload_tenant_pack(
                 model_needs,
                 journal,
             )
-        except Exception:
+        except Exception as exc:  # noqa: BLE001  # untrusted pack content; its error text stays out of the chain
+            logger.warning(
+                "upload_tenant_pack: installation failed organization_uuid=%s exc_type=%s",
+                safe_log_value(organization_uuid),
+                type(exc).__name__,
+            )
             try:
                 release_pack_upload(journal)
-            except Exception:
-                logger.error("Uncommitted pack upload cleanup failed")
+            except Exception as cleanup_exc:  # noqa: BLE001  # cleanup must retain the failed journal for retry
+                logger.error(
+                    "Uncommitted pack upload cleanup failed exc_type=%s", type(cleanup_exc).__name__, exc_info=False
+                )
             raise ValidationError("Pack installation failed; reload the current version and retry") from None

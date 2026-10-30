@@ -25,7 +25,7 @@ const CAMPAIGN = {
 };
 const PREVIEW = {
   campaign_id: "c1",
-  revision: { id: "r1", revision_number: 1, subject: "Welcome", body: "Read the **rules**", content_profile: "p", content_digest: "sha256:x" },
+  revision: { id: "r1", revision_number: 1, subject: "Welcome", body: "Read the **rules** and [docs](https://docs.example.test/a) or [other](https://other.example.test/b)", content_profile: "p", content_digest: "sha256:x" },
   channels: [{ channel: "in_app", available: true }], acknowledgement_policy: "none",
   trigger: { kind: "manual", due_at: null },
   events: [
@@ -33,6 +33,7 @@ const PREVIEW = {
     { event_id: "e2", name: "Bravo", event_timezone: "America/New_York", recipient_count: 1, local_due_at: null },
   ],
   recipient_total: 3, audience_cap: 5000, exceeds_audience_cap: false, observed_at: "2026-10-01T00:00:00Z",
+  allowed_link_hosts: ["docs.example.test"],
 };
 
 function stubApi(route: (url: string, method: string) => Reply | undefined) {
@@ -121,6 +122,9 @@ it("composes with the keyboard, previews, and retries the same reviewed release"
 
   const preview = await screen.findByRole("region", { name: "Preview" });
   expect(within(preview).getByText("Welcome")).toBeInTheDocument();
+  // The preview renders under the participant's deployment link policy.
+  expect(within(preview).getByRole("link", { name: "docs" })).toHaveAttribute("href", "https://docs.example.test/a");
+  expect(within(preview).queryByRole("link", { name: "other" })).not.toBeInTheDocument();
   expect(within(preview).getByText(/Preview sends nothing/)).toBeInTheDocument();
   const draft = JSON.parse(posts(fetch, "/communications/")[0][1].body);
   expect(draft.target_event_ids).toEqual(["e1", "e2"]);
@@ -162,7 +166,7 @@ it("shows delivery state, recipients, activity, and cancels through a confirmati
     results: [
       {
         intent_id: "i1", status: "scheduled", trigger_kind: "absolute_time", revision_number: 1,
-        due_at: "2099-01-01T00:00:00Z", released_at: null, schedule_status: "failed",
+        due_at: "2099-01-01T00:00:00Z", released_at: null, schedule_status: "failed", delivery_state: "not_released",
         events: [{ event_id: "e1", name: "Alpha", recipients: 2, inbox_available: 2, read: 1, acknowledged: 0,
           channels: [{ channel: "in_app", queued: 1, claimed: 0, retry_due: 0, accepted: 1, permanent_failure: 0, cancelled: 0, suppressed: 0, expired: 0 }] }],
         totals: { recipients: 2, inbox_available: 2, read: 1, acknowledged: 0,
@@ -188,6 +192,7 @@ it("shows delivery state, recipients, activity, and cancels through a confirmati
   });
 
   expect(await screen.findByText("Release task failed")).toBeInTheDocument();
+  expect(screen.getByText("Delivery: not released")).toBeInTheDocument();
   expect(screen.getByText(/2 recipients · 2 in inbox · 1 read · 0 acknowledged/)).toBeInTheDocument();
   const activity = screen.getByRole("region", { name: "Activity" });
   expect(await within(activity).findByRole("listitem")).toHaveTextContent("created by alice via session");
@@ -263,7 +268,7 @@ it("loads further pages of events and keeps the selection", async () => {
 it("loads older delivery occurrences", async () => {
   const occurrence = (id: string, revision: number) => ({
     intent_id: id, status: "released", trigger_kind: "manual", revision_number: revision, due_at: null,
-    released_at: "2026-10-01T00:00:00Z", schedule_status: null, events: [],
+    released_at: "2026-10-01T00:00:00Z", schedule_status: null, delivery_state: "accepted", events: [],
     totals: { recipients: 0, inbox_available: 0, read: 0, acknowledged: 0, channels: [] },
   });
   stubApi((url) => {

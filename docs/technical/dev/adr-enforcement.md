@@ -126,8 +126,10 @@ flows. Their legacy mock allowance decreases from 256 to 175. No new allowance
 or exception renewal is part of this repair.
 
 The BigRAE rename (#2555) preserves the existing gates. After the same-owner
-repository cutover, the Sonar condition permits only `Brad-Edwards/bigrae` with
-the same immutable repository and owner IDs. Its expression-model tests deny the
+repository cutover, the Sonar condition permitted only `Brad-Edwards/bigrae` with
+the same immutable repository and owner IDs. The repository then moved to
+`OpenRAE/bigrae` (#2660). The repository ID stayed, and the condition now
+permits the `OpenRAE` owner ID. Its expression-model tests deny the
 old slug, a recreated slug, another owner and fork-origin PRs. Future GCP deployments use
 one exact configured repository identity with the same purpose, Environment,
 ref and workflow restrictions. Under the user's no-deployments decision,
@@ -579,8 +581,7 @@ The first slice intentionally stays small:
   annotations) gated on `publish_target=ghcr` and a protected dispatch ref, with
   the staging object keyed on `BUILT_IMAGE_ID` (not the build-step-local
   `IMAGE_ID`). The retired GDC qcow2 `shifter-vm-*` publish contract is gone.
-  When `GCP_RELEASE_REGISTRY` is set, the job also copies each artifact by
-  digest into the release registry (ADR-070). `deploy.py gcp-images` imports
+  `deploy.py gcp-images` imports
   each artifact as a native GCE image from an explicit `--source` prefix
   (`scripts/bootstrap/gcp_base_images.py`, issues #2309 and #2571).
 
@@ -617,10 +618,17 @@ The first slice intentionally stays small:
   Enforces ADR-070-R1 with ADR-004-R23, ADR-003-R5, and ADR-037-R1, R5, and R7
   on `.github/workflows/release-gcp.yml`. It reads the workflow as data and
   fails closed when the workflow is missing or cannot be parsed. Only
-  `workflow_dispatch` may start the workflow. Each job that authenticates to
-  GCP must bind the `gcp-release` Environment and run on a GitHub-hosted
-  runner. In that job, a step before the authentication step must reject every
-  ref except `refs/heads/main`. Every non-local action must pin a full commit
+  `workflow_dispatch` and `workflow_call` may start the workflow (#2660). The
+  only caller is the `release-gcp` job of `release-please.yml`. That workflow
+  must start only on a push to `main`. The job must run only when a release tag
+  points at the pushed commit, and it must not inherit secrets. That fact, the
+  version, and the commit must come from an unconditional `release-commit` step
+  after the Release Please action. The caller rules are in
+  `scripts/adr_guard/_guard/checks/_release_workflow_caller.py`. Each job that publishes (it logs
+  in to a registry, authenticates to a cloud, or pushes an image) must bind the
+  `gcp-release` Environment and run on a GitHub-hosted runner. In that job, a
+  step before the first publishing step must reject every ref except
+  `refs/heads/main`, `refs/heads/dev`, and `refs/heads/deploy-test`. Every non-local action must pin a full commit
   SHA. Every pushed image build must produce an SBOM and maximum provenance.
   An `actions/attest-build-provenance` step in the same job must sign that
   exact digest with `push-to-registry: true`. A deployment verifies this registry
@@ -819,7 +827,9 @@ The first slice intentionally stays small:
   `public_key_password` (which has the public-key fragment AND a
   secret suffix) stays flagged. `*.tfvars.example` files are skipped. Both `#` and `//` line comments and `/* ... */`
   block comments are stripped before matching, matching Terraform's
-  HCL grammar. Enforces ADR-004-R7. Complements gitleaks, which
+  HCL grammar. A file that the check cannot read or decode as UTF-8
+  fails closed: the check reports it as a violation. Enforces ADR-004-R7.
+  Complements gitleaks, which
   matches high-entropy random strings; this catches low-entropy
   committed credentials gitleaks ignores. Implementation note: the
   check is decomposed into focused helpers (`_collect_tfvars_candidates`,
@@ -1412,7 +1422,7 @@ and [recovery procedure](../../dev/deployment-configuration.md) describe retaine
 owners, callers and the evidence limit for undeployed environments.
 
 Canonical GitHub routing and the workflow expression model now use
-`Brad-Edwards/bigrae`, matching the operator-confirmed repository rename.
+`OpenRAE/bigrae`, after the transfer to the `OpenRAE` organization (#2660).
 
 ## GitHub-less GCP deployment guardrails (ADR-070)
 
@@ -1422,9 +1432,9 @@ These guardrails changed with it:
 
 - `release-workflow-provenance` (described above) guards the release
   workflow that builds the images and the deployer image.
-- `scripts/check_tf_gcp_wif_trust` runs in the Terraform lint job. It now
-  covers the `release` purpose: the release identity binds only its own
-  subjects and holds no project-wide role. Each token-creator or act-as grant
+- `scripts/check_tf_gcp_wif_trust` runs in the Terraform lint job. No `release`
+  purpose exists, because the release workflow publishes to the public
+  registry with the workflow token (#2659). Each token-creator or act-as grant
   outside the build self-grants must use the single `impersonation`
   resource. That resource grants each named principal access only to the
   identity of its own purpose. `impersonation_principals` must admit only `release_scan`,

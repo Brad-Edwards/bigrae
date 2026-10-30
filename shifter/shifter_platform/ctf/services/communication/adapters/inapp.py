@@ -27,6 +27,11 @@ class InAppAdapter:
 
     channel = CommunicationChannel.IN_APP.value
 
+    @staticmethod
+    def available() -> bool:
+        """The durable inbox is always available; the wake-up is only an accelerator."""
+        return True
+
     def deliver(self, command: DeliveryCommand, *, timeout: float) -> DeliveryOutcome:
         """Publish a reference-only wake-up for one recipient snapshot.
 
@@ -54,7 +59,7 @@ class InAppAdapter:
             )
         except Exception:
             # Bounded: a wake-up failure never affects durable availability.
-            logger.warning("in-app wake-up publish failed for snapshot %s", command.snapshot_id)
+            logger.exception("in-app wake-up publish failed for snapshot %s", command.snapshot_id)
             return DeliveryOutcome(OutcomeClass.RETRIABLE, reason="wakeup_publish_error")
         reason = "wakeup_published" if published else "wakeup_unavailable"
         outcome = OutcomeClass.ACCEPTED if published else OutcomeClass.RETRIABLE

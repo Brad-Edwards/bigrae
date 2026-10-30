@@ -127,18 +127,6 @@ roots:
     toolchain: gcp-1.17.1
     providers:
       - registry.terraform.io/hashicorp/google
-  # Release registry (ADR-070): the repository that release-gcp.yml and
-  # packer-gcp.yml publish to and that GitHub-less deployments read. It has its
-  # own state prefix and outlives every deployment.
-  - id: gcp-global-release-registry
-    test: tests/registry.tftest.hcl
-    path: platform/terraform/gcp/global/release-registry
-    owner: "@Brad-Edwards"
-    toolchain: gcp-1.17.1
-    providers:
-      - registry.terraform.io/hashicorp/google
-      - registry.terraform.io/hashicorp/google-beta
-      - registry.terraform.io/hashicorp/time
   - id: aws-global-iam
     path: platform/terraform/global/iam
     test: tests/github-subject.tftest.hcl

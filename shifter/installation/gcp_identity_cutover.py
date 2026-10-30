@@ -20,6 +20,7 @@ test -f /run/identity-cutover/cutover.json
 test -f /run/identity-bootstrap/bootstrap.json
 digest="$(printf '%s' "$status" | python -c 'import json,sys; print(json.load(sys.stdin).get("plan_digest", ""))')"
 if [ -z "$digest" ]; then
+  python manage.py identity_cutover_bootstrap --facts /run/identity-bootstrap/bootstrap.json --prepare
   plan="$(python manage.py identity_cutover plan --facts /run/identity-cutover/cutover.json)"
   digest="$(printf '%s' "$plan" | python -c 'import json,sys; print(json.load(sys.stdin)["plan_digest"])')"
 fi
@@ -142,7 +143,9 @@ _PROBE_KINDS = frozenset({"Namespace", "ServiceAccount", "ConfigMap", "Secret"})
 _PROBE_NETWORK_POLICIES = frozenset(
     f"allow-{lane}-{purpose}-egress"
     for lane in ("platform", "jobs")
-    for purpose in ("dns", "metadata-server", "google-apis", "provider-apis", "native-sql")
+    # native-sql is the IAM database path (TCP 3307); private-service is the
+    # password-authentication database path (TCP 5432, #2669).
+    for purpose in ("dns", "metadata-server", "google-apis", "provider-apis", "native-sql", "private-service")
 )
 
 

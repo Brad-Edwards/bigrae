@@ -33,9 +33,11 @@ from ctf.enums_communication import (
     AcknowledgementPolicy,
     CampaignStatus,
     CommunicationOrigin,
+    IntentDeliveryState,
     IntentStatus,
     TriggerKind,
 )
+from ctf.exceptions import CTFCommunicationError
 from shared.db.operation_authority import RecordedAuthorityFields
 from shared.field_encryption import EncryptedStringField
 
@@ -188,8 +190,8 @@ class CommunicationCampaign(CTFBaseModel):
         ):
             try:
                 validator(getattr(self, field))
-            except Exception as exc:
-                errors.setdefault(field, []).append(str(exc))
+            except CTFCommunicationError as exc:
+                errors.setdefault(field, []).append(exc.message)
         if errors:
             raise ValidationError(errors)
 
@@ -335,6 +337,15 @@ class CommunicationIntent(RecordedAuthorityFields, CTFBaseModel):
     audit_correlation_id = models.CharField(max_length=_REF_MAX, blank=True, default="")
     due_at = models.DateTimeField(null=True, blank=True, help_text="UTC due time for a timed intent")
     released_at = models.DateTimeField(null=True, blank=True)
+    delivery_state = models.CharField(
+        max_length=16,
+        choices=IntentDeliveryState.choices(),
+        default=IntentDeliveryState.NOT_RELEASED.value,
+        help_text="Persisted aggregate delivery outcome, written only by disposition.refresh_delivery_state",
+    )
+    delivery_state_changed_at = models.DateTimeField(
+        null=True, blank=True, help_text="When delivery_state last changed"
+    )
 
     class Meta:
         """Django model metadata."""
@@ -349,11 +360,16 @@ class CommunicationIntent(RecordedAuthorityFields, CTFBaseModel):
                 condition=models.Q(status__in=[s.value for s in IntentStatus]),
                 name="ctf_comm_intent_status_valid",
             ),
+            models.CheckConstraint(
+                condition=models.Q(delivery_state__in=[s.value for s in IntentDeliveryState]),
+                name="ctf_comm_intent_delivery_state_valid",
+            ),
         ]
         indexes = [
             models.Index(fields=["status", "due_at"]),
             models.Index(fields=["campaign", "status"]),
             models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["delivery_state"]),
         ]
 
     def __str__(self) -> str:

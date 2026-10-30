@@ -4,7 +4,11 @@ The deploy command reads the Sigstore bundles that the release workflow stored a
 referrers of each image. This client implements only the read paths it needs from the
 OCI Distribution Specification v1.1: the referrers API with the referrers tag-schema
 fallback, manifest fetch, and blob fetch with digest verification. It talks only to the
-registry host of the image (Artifact Registry), never to GitHub.
+registry host of the image and to the token realm that the registry names.
+
+A release lives in a public registry (#2659). The client sends the Google access token
+only to an Artifact Registry host. For any other registry it uses the anonymous bearer
+token flow of the distribution specification, so a Google credential never leaves Google.
 """
 
 from __future__ import annotations
@@ -27,8 +31,30 @@ _IDENTITY_RE = re.compile(
     re.ASCII,
 )
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+_ARTIFACT_REGISTRY_SUFFIX = "-docker.pkg.dev"
+_LOCATION_RE = re.compile(r"[a-z0-9-]+", re.ASCII)
 _MAX_DOCUMENT_BYTES = 4 * 1024 * 1024
 _TIMEOUT_SECONDS = 30
+
+
+def is_artifact_registry_host(host: str) -> bool:
+    """True for an Artifact Registry Docker host, the only host that gets a Google token."""
+    location = host.removesuffix(_ARTIFACT_REGISTRY_SUFFIX)
+    return location != host and bool(_LOCATION_RE.fullmatch(location))
+
+
+def bearer_parameters(params: str) -> dict[str, str]:
+    """Parse the ``key="value"`` list of a ``WWW-Authenticate`` challenge."""
+    values: dict[str, str] = {}
+    rest = params.strip()
+    while rest:
+        key, sep, rest = rest.partition('="')
+        value, closed, rest = rest.partition('"')
+        if not sep or not closed or not key.strip().isidentifier():
+            break
+        values[key.strip()] = value
+        rest = rest.lstrip().removeprefix(",").lstrip()
+    return values
 
 
 class OciError(RuntimeError):
@@ -61,28 +87,60 @@ class OciClient:
     def __init__(self, token_provider: TokenProvider, *, opener: Callable[..., object] | None = None) -> None:
         self._token_provider = token_provider
         self._opener = opener or urllib_request.urlopen
+        self._bearer: dict[str, str] = {}
+
+    def _open(self, url: str, headers: dict[str, str]) -> tuple[int, bytes, str]:
+        """GET ``url`` and return the status, the body, and the bearer challenge of a 401."""
+        # Each caller validates the https scheme and the exact host of ``url`` first.
+        request = urllib_request.Request(url, headers=headers, method="GET")  # noqa: S310
+        try:
+            with self._opener(request, timeout=_TIMEOUT_SECONDS) as response:  # type: ignore[attr-defined] # nosec B310
+                body = response.read(_MAX_DOCUMENT_BYTES + 1)
+                status = getattr(response, "status", 200)
+        except urllib_error.HTTPError as exc:
+            challenge = exc.headers.get("WWW-Authenticate", "") if exc.code == 401 and exc.headers else ""
+            return exc.code, b"", challenge
+        except OSError:
+            # URLError and TimeoutError are OSError subclasses.
+            raise OciError(f"registry {urllib_parse.urlparse(url).netloc} is unreachable") from None
+        if len(body) > _MAX_DOCUMENT_BYTES:
+            raise OciError("registry document exceeds the size limit")
+        return status, body, ""
+
+    def _anonymous_token(self, challenge: str) -> str:
+        """Fetch an anonymous pull token from the realm of a ``Bearer`` challenge."""
+        scheme, _, params = challenge.partition(" ")
+        values = bearer_parameters(params)
+        realm = urllib_parse.urlparse(values.get("realm", ""))
+        if scheme.lower() != "bearer" or realm.scheme != "https" or not realm.netloc:
+            raise OciError("registry requires an unsupported authentication scheme")
+        query = urllib_parse.urlencode({key: values[key] for key in ("service", "scope") if key in values})
+        url = urllib_parse.urlunparse(realm._replace(query=query, fragment=""))
+        status, body, _ = self._open(url, {"Accept": "application/json"})
+        if status != 200:
+            raise OciError(f"registry token service returned HTTP {status}")
+        document = self._json(body, "registry token response")
+        token = document.get("token") or document.get("access_token")
+        if not isinstance(token, str) or not token:
+            raise OciError("registry token response has no token")
+        return token
 
     def _get(self, host: str, path: str, accept: str) -> tuple[int, bytes]:
         url = f"https://{host}/v2/{path}"
         parsed = urllib_parse.urlparse(url)
         if parsed.scheme != "https" or parsed.netloc != host:
             raise OciError("refusing an unexpected registry URL")
-        credentials = base64.b64encode(f"oauth2accesstoken:{self._token_provider()}".encode()).decode("ascii")
-        # The scheme is https and the host is the image's own registry, both checked above.
-        request = urllib_request.Request(  # noqa: S310 - https scheme and exact host validated above
-            url, headers={"Authorization": f"Basic {credentials}", "Accept": accept}, method="GET"
-        )
-        try:
-            with self._opener(request, timeout=_TIMEOUT_SECONDS) as response:  # type: ignore[attr-defined] # nosec B310
-                body = response.read(_MAX_DOCUMENT_BYTES + 1)
-                status = getattr(response, "status", 200)
-        except urllib_error.HTTPError as exc:
-            return exc.code, b""
-        except OSError:
-            # URLError and TimeoutError are OSError subclasses.
-            raise OciError(f"registry {host} is unreachable") from None
-        if len(body) > _MAX_DOCUMENT_BYTES:
-            raise OciError("registry document exceeds the size limit")
+        headers = {"Accept": accept}
+        if is_artifact_registry_host(host):
+            credentials = base64.b64encode(f"oauth2accesstoken:{self._token_provider()}".encode()).decode("ascii")
+            headers["Authorization"] = f"Basic {credentials}"
+        elif host in self._bearer:
+            headers["Authorization"] = f"Bearer {self._bearer[host]}"
+        status, body, challenge = self._open(url, headers)
+        if status == 401 and challenge and not is_artifact_registry_host(host):
+            self._bearer[host] = self._anonymous_token(challenge)
+            headers["Authorization"] = f"Bearer {self._bearer[host]}"
+            status, body, _ = self._open(url, headers)
         return status, body
 
     @staticmethod

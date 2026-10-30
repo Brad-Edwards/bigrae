@@ -46,9 +46,16 @@ token or changing its owner prevents subsequent admission, including replay.
 
 HTTP 202 means the ledger accepted the declaration. It does not mean an email
 was delivered, a socket received a message, or a participant read it. The in-app
-channel is available. Email delivery is deferred to #1525; attempting to release
-an email campaign returns dependency-unavailable rather than creating queued
-work that cannot be delivered. Cancellation cannot recall an accepted message.
+channel is available. The email channel is available only when the deployment
+configures a mail provider. A console, file, or dummy backend makes email
+unavailable. A release that selects an unavailable channel returns
+dependency-unavailable and creates no queued work. Cancellation cannot recall an
+accepted message.
+
+The worker sends each email once per attempt and retries transient failures with
+backoff. It stops at the attempt and elapsed-time limits. **Accepted** means the
+mail provider took the message. It does not prove mailbox delivery. A worker
+crash after the provider accepts a message can send a duplicate.
 
 Collections default to 25 campaigns and are capped at 100 per request. Campaigns
 are visible only when the actor may access every target. Visibility is applied
@@ -91,6 +98,18 @@ for each channel. **Accepted** means a transport took the message. Read and
 acknowledged come only from participant actions. A failed release task shows an
 alert, because the message was not delivered.
 
+Each occurrence also shows one delivery state:
+
+| State | Meaning |
+| --- | --- |
+| `pending` | Some delivery work is queued, in progress, or waiting to retry. |
+| `accepted` | Every recipient channel accepted the message. |
+| `partial` | Some recipient channels accepted it, and some did not. |
+| `failed` | No recipient channel accepted it, and at least one failed. |
+| `withdrawn` | Cancellation or a lifecycle change stopped all delivery work. |
+| `empty` | The release found no recipients. |
+| `not_released` | The occurrence is not released yet. |
+
 The page refreshes every 15 seconds while delivery work or a scheduled release
 is pending. **Show recipients** lists the participant name, team, delivery status, and
 receipt times for one event. It needs participant permission on that event. It
@@ -123,22 +142,58 @@ Changing event times keeps a scheduled communication at its own due time.
 
 ## Participant inbox
 
-The inbox is session-only and is scoped to the parent event:
+Open **Participate > Inbox** (`/ctf/inbox/`). The inbox shows the messages for
+your active event only.
+
+1. Select a message to open it. The page records a read when the message opens.
+   If the page cannot record the read, select **Try again**.
+2. If the message shows **Needs acknowledgement**, select **Acknowledge**.
+3. To hide a message, select **Dismiss**. Dismiss does not mark the message read
+   or acknowledged.
+4. Use **Needs action** to find messages that still need a read or an
+   acknowledgement. Use **Dismissed** to find hidden messages.
+
+A message that still needs an action stays in **Inbox**, also after you dismiss
+it. A notice above each workspace page shows the number of these messages. The
+notice does not block other pages, help, the range, or the terminal.
+
+The page refreshes when you return to the tab, when the network returns, and
+every 60 seconds. A socket notice only starts a refresh. It never marks a
+message read. Other open tabs refresh after an action. When the browser is
+offline, the page shows that the messages can be out of date, and actions are
+not available.
+
+Messages use a safe Markdown format. Links open only same-site paths or the
+HTTPS hosts that the deployment allows. Other links show as plain text. Images,
+raw HTML and embedded media are not accepted.
+
+### Inbox API
+
+The API is session-only. It is scoped to the parent event:
 `/api/v1/ctf/me/events/<event_id>/communications/`.
-GET the collection or `<message_id>/` to view content without changing a receipt.
-POST an empty object to `<message_id>/read/` or `<message_id>/acknowledge/` for a
-deliberate action. Browser writes require CSRF. Repeating an action preserves its
-first timestamp; acknowledgement requires the message's pinned `explicit` policy.
 
-Banned or removed participants cannot fetch messages or change receipts. A
-participant eligible to view an event may interact with their own receipts even
-if disqualified from competition. Temporary accounts must satisfy their live
-participation and password-change requirements. Email-only declarations do not
-appear in the inbox.
+| Operation | Route | Effect |
+| --- | --- | --- |
+| List | `GET ?view=inbox\|action_required\|dismissed&limit=&offset=` | No receipt change. Adds `unread_count`, `action_required_count` and `allowed_link_hosts`. |
+| Read one message | `GET <message_id>/` | No receipt change. |
+| Read | `POST <message_id>/read/` | Sets `read_at` once. |
+| Dismiss | `POST <message_id>/dismiss/` | Sets `dismissed_at` once. |
+| Acknowledge | `POST <message_id>/acknowledge/` | Sets `acknowledged_at` once. Needs the pinned `explicit` policy. |
 
-WebSocket notifications are hints to fetch the durable inbox. Reconnect and
-polling recover committed messages; socket writes never mark them read. Retained
-legacy notification bodies are not replayed through the CTF notification socket.
+POST an empty object. Browser writes need CSRF. A repeated action keeps the
+first timestamp. No action changes another action's timestamp. Each item shows
+`action_required` while its pinned policy needs a read or an acknowledgement.
+Responses are private and the browser does not store them. An invalid request
+returns a generic error that does not repeat the input.
+
+Banned or removed participants cannot read messages or change receipts. A
+disqualified participant who can view the event can manage their own receipts.
+Temporary accounts must satisfy their live participation and password-change
+requirements. Email-only declarations do not appear in the inbox. A message is
+not available after the retention window, also before the purge job deletes it.
+
+Retained legacy notification bodies are not replayed through the CTF
+notification socket.
 
 ## Legacy migration
 
@@ -153,7 +208,6 @@ Historical notification rows remain read-only; their dispatch counts are legacy
 aggregate evidence, never delivery or read receipts.
 
 Deployment uses the [maintenance cutover procedure](../technical/shifter_platform/ctf-communications.md#maintenance-cutover).
-Migrated email work remains visibly unavailable until #1525's adapter is installed;
-it is not silently changed to in-app. Organizer-only legacy email alerts are also
-unavailable. This slice does not claim the broader communications capability or
-email transport complete.
+Migrated email work stays visibly unavailable while email is unavailable. It is
+not silently changed to in-app. Organizer-only legacy email alerts are also
+unavailable, because the participant ledger has no organizer recipients.

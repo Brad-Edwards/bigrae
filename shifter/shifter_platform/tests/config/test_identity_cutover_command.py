@@ -224,6 +224,49 @@ def test_empty_fresh_install_apply_and_verify_reaches_bound_activation(tmp_path,
     assert historical.revoked_at is not None and not historical.verifier_hash and historical.requires_reissue
 
 
+def test_empty_database_prepares_the_bootstrap_principal_before_the_plan(tmp_path, monkeypatch) -> None:
+    """#2671: a first install has no user; the bootstrap facts create and bind the first administrator."""
+    from workspaces.models import IdentityCutoverState
+
+    assert not get_user_model().objects.exists()
+    facts, bootstrap = _facts(tmp_path), _bootstrap_facts(tmp_path)
+    prepared = StringIO()
+    call_command("identity_cutover_bootstrap", facts=str(bootstrap), prepare=True, stdout=prepared)
+    assert json.loads(prepared.getvalue()) == {"prepared": True}
+    binding = ProviderBinding.objects.get(issuer="https://issuer.example", subject="provider-subject")
+    user = binding.principal.user
+    assert user.username.startswith("principal-") and "provider-subject" not in user.username
+    assert user.email == "" and user.is_active
+    again = StringIO()
+    call_command("identity_cutover_bootstrap", facts=str(bootstrap), prepare=True, stdout=again)
+    assert json.loads(again.getvalue()) == {"prepared": True}
+    assert get_user_model().objects.count() == 1
+
+    planned = StringIO()
+    call_command("identity_cutover", "plan", facts=str(facts), stdout=planned)
+    digest = json.loads(planned.getvalue())["plan_digest"]
+    call_command("identity_cutover", "apply", facts=str(facts), plan_digest=digest, stdout=StringIO())
+    provider = _PolicyProvider()
+    for module in ("identity_cutover", "identity_cutover_bootstrap"):
+        monkeypatch.setattr(f"config.management.commands.{module}.configured_authorization_provider", lambda: provider)
+    call_command("identity_cutover_bootstrap", facts=str(bootstrap), plan_digest=digest, stdout=StringIO())
+    verified = StringIO()
+    call_command("identity_cutover", "verify", facts=str(facts), plan_digest=digest, stdout=verified)
+    assert json.loads(verified.getvalue())["state"] == IdentityCutoverState.State.ACTIVATED
+    assert IdentityCutoverState.objects.get().bootstrap_principal_uuid == binding.principal.uuid
+    with pytest.raises(CommandError, match="only before the plan"):
+        call_command("identity_cutover_bootstrap", facts=str(bootstrap), prepare=True, stdout=StringIO())
+
+
+def test_preparation_never_creates_an_administrator_beside_existing_users(tmp_path) -> None:
+    get_user_model().objects.create_user(username="retained-user")
+    prepared = StringIO()
+    call_command("identity_cutover_bootstrap", facts=str(_bootstrap_facts(tmp_path)), prepare=True, stdout=prepared)
+    assert json.loads(prepared.getvalue()) == {"prepared": False}
+    assert not ProviderBinding.objects.exists()
+    assert get_user_model().objects.count() == 1
+
+
 def test_apply_maps_unambiguous_personal_hierarchy_without_deleting_it(tmp_path, monkeypatch) -> None:
     from workspaces.models import Account, IdentityCutoverState, WorkspaceOwnership
 

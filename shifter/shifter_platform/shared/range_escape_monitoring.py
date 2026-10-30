@@ -25,6 +25,7 @@ import logging
 import threading
 from typing import Protocol
 
+from shared.log_sanitize import safe_log_value
 from shared.range_escape import CheckStatus, EscapeReport, Verdict
 
 _LOGGER = logging.getLogger("shifter.range_escape.containment")
@@ -59,18 +60,18 @@ class LoggingContainmentSink:
             counts[check.status.value] = counts.get(check.status.value, 0) + 1
         failed_boundaries = sorted({c.boundary_code.value for c in report.checks if c.status == CheckStatus.FAIL})
         self._logger.info(
-            "range-escape containment signal",
-            extra={
-                "range_escape_contract": report.contract,
-                "range_escape_version": report.version,
-                "suite_id": report.suite_id,
-                "range_id": report.range_id,
-                "request_id": report.request_id,
-                "mode": report.mode.value,
-                "verdict": report.verdict.value,
-                "boundary_status_counts": counts,
-                "failed_boundaries": failed_boundaries,
-            },
+            "range-escape containment signal contract=%s version=%s suite_id=%s range_id=%s request_id=%s "
+            "mode=%s verdict=%s boundary_status_counts=%s failed_boundaries=%s",
+            safe_log_value(report.contract),
+            safe_log_value(report.version),
+            safe_log_value(report.suite_id),
+            report.range_id,
+            safe_log_value(report.request_id),
+            report.mode.value,
+            report.verdict.value,
+            ",".join(f"{status}:{count}" for status, count in sorted(counts.items())),
+            ",".join(failed_boundaries),
+            extra={"range_id": report.range_id},
         )
 
 
@@ -98,16 +99,21 @@ def emit_containment_signal(
         try:
             active.record(report)
         except Exception:
-            _LOGGER.exception("range-escape containment sink failed", extra={"suite_id": report.suite_id})
+            _LOGGER.exception(
+                "range-escape containment sink failed suite_id=%s",
+                safe_log_value(report.suite_id),
+                extra={"range_id": report.range_id},
+            )
 
     worker = threading.Thread(target=_deliver, name="range-escape-containment-sink", daemon=True)
     worker.start()
     worker.join(timeout_s)
     if worker.is_alive():
         _LOGGER.warning(
-            "range-escape containment sink did not complete within %.1fs; continuing",
+            "range-escape containment sink did not complete within %.1fs; continuing suite_id=%s",
             timeout_s,
-            extra={"suite_id": report.suite_id},
+            safe_log_value(report.suite_id),
+            extra={"range_id": report.range_id},
         )
     return report.verdict
 

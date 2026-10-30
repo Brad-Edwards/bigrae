@@ -1,8 +1,8 @@
 site_name: BigRAE Documentation
 site_description: Deploy, operate, and develop the BigRAE cyber-range platform.
-site_url: https://brad-edwards.github.io/bigrae/
-repo_url: https://github.com/Brad-Edwards/bigrae
-repo_name: Brad-Edwards/bigrae
+site_url: https://openrae.github.io/bigrae/
+repo_url: https://github.com/OpenRAE/bigrae
+repo_name: OpenRAE/bigrae
 edit_uri: edit/dev/docs/
 docs_dir: docs
 

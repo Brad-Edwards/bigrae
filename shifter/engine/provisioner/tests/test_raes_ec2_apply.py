@@ -1,5 +1,6 @@
 """Native AWS launch is gated on guest verification and cleans up failed launches."""
 
+import logging
 from dataclasses import replace
 from unittest.mock import Mock
 from uuid import UUID
@@ -109,6 +110,17 @@ def test_plugin_failure_runs_owned_cleanup_and_never_reports_ready(monkeypatch):
         launch(options)
     cleanup.assert_called_once()
     assert "os" not in order and "substrate" not in order
+
+
+def test_failed_compensation_is_logged_value_free_and_keeps_launch_error(monkeypatch, caplog):
+    options, _, cleanup, _, _ = setup(monkeypatch)
+    cleanup.side_effect = RuntimeError("synthetic-provider-detail")
+    options = replace(options, runtime_plugin=Mock(side_effect=ValueError("launch failure")))
+    with caplog.at_level(logging.WARNING, logger="raes_ec2_apply"), pytest.raises(ValueError, match="launch failure"):
+        launch(options)
+    cleanup.assert_called_once()
+    assert "EC2 launch compensation failed range_id=7 exc_type=RuntimeError" in caplog.text
+    assert "synthetic-provider-detail" not in caplog.text
 
 
 def test_inline_content_is_sent_over_management_transport_and_session_always_closes(monkeypatch):

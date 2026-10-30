@@ -104,8 +104,15 @@ def _rebuild_replacement(
     try:
         return execute_launch(intent), intent.pk
     except Exception as exc:
+        # Range failures can carry private provider diagnostics.
+        logger.error(
+            "Replacement range provisioning failed participant_id=%s exc_type=%s",
+            participant.pk,
+            type(exc).__name__,
+            exc_info=False,
+        )
         raise _range_error(
-            f"Replacement range provisioning failed: {exc}",
+            "Replacement range provisioning failed",
             category=RecoveryFailureCategory.PROVISIONING_FAILED,
             participant_id=str(participant.pk),
         ) from exc
@@ -296,8 +303,10 @@ def _ensure_old_range_blocked(
         try:
             cms_destroy_recovery_range(credential, recovery.event_id, old_range_instance_id)
         except Exception as e:
+            # Authored message only: this log line and the chained cause carry the detail.
+            logger.exception("Failed to block old range %s", old_range_instance_id)
             raise _range_error(
-                f"Failed to block old range {old_range_instance_id}: {e}",
+                f"Failed to block old range {old_range_instance_id}",
                 category=RecoveryFailureCategory.OLD_RANGE_TEARDOWN_FAILED,
                 old_range_instance_id=old_range_instance_id,
             ) from e

@@ -11,5 +11,5 @@ def content_scope_options(credential: CredentialContext, *, offset: int = 0, lim
     """Expose only independently authorized content collection destinations."""
     try:
         return list_content_scope_options(credential, configured_authorization_provider(), offset=offset, limit=limit)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise ContentAuthorityError("Content scopes unavailable") from None

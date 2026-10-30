@@ -57,7 +57,7 @@ def _request_scope(row: App) -> ResourceScope:
             organization_id=request.organization_id,
             workspace_id=request.workspace_id,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise CMSError(_DEVICE_UNAVAILABLE) from None
 
 
@@ -150,7 +150,7 @@ def destroy_scoped_device(credential: CredentialContext, identifier: UUID | str,
             row.save(update_fields=["status", "deleted_at"])
             row.instance.save(update_fields=["status", "deleted_at"])
         return NGFWAppRef(app_id=row.pk, instance_id=row.instance.pk, is_deleted=True)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise CMSError("Device operation unavailable") from None
 
 
@@ -167,7 +167,7 @@ def admit_device_remote_authority(credential: CredentialContext, identifier: UUI
         fields = admit_native_device_access(current, identifier)
         _assert_device_remote_projection(snapshot, fields, scope)
         return fields
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise CMSError("Device access unavailable") from None
 
 

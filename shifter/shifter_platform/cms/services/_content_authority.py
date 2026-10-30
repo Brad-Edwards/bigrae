@@ -51,7 +51,7 @@ def content_scope(row: Asset | RaesPackageSource | None) -> ResourceScope:
         )
         resolve_resource_scope(scope)
         return scope
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise CMSError(_UNAVAILABLE) from None
 
 
@@ -129,7 +129,7 @@ def fence_content_scope(credential: CredentialContext, scope: ResourceScope) -> 
         resolve_range_scope_binding(scope, for_update=True)
         if resolve_local_credential(credential) != credential:
             raise ValueError("Content proof changed")
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise ContentAuthorityError(_UNAVAILABLE) from None
 
 
@@ -153,5 +153,5 @@ def require_content_scope(
         raise ContentAuthorityError(
             "Content authority unavailable", details={"code": "authority-unavailable"}
         ) from None
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed content authority; private causes stay out of the chain
         raise ContentAuthorityError(_UNAVAILABLE) from None

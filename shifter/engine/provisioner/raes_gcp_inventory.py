@@ -12,6 +12,7 @@ consumer reports verified cleanup, prunes retry evidence, or releases capacity.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -24,6 +25,8 @@ from gcp_range_cell_types import RangeCellPlan
 from raes_gcp_destroy import RaesGceDestroyOptions, _default_destroy_profile
 from raes_gcp_plan import RaesGcePlanOptions, build_raes_range_cell_plan
 from raes_plan import RaesPlan
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["INCOMPLETE", "RESIDUALS_FOUND", "VERIFIED_ABSENT", "inventory_raes_range_cell"]
 
@@ -46,7 +49,9 @@ class _Tally:
         try:
             if _get_or_none(getter, clients.google_exceptions, **kwargs) is not None:
                 self.residuals[category] = self.residuals.get(category, 0) + 1
-        except Exception:
+        # an unobservable resource marks the inventory INCOMPLETE, never absent
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("RAES cleanup inventory probe failed category=%s exc_type=%s", category, type(exc).__name__)
             self.incomplete = True
 
 

@@ -15,6 +15,7 @@ from django.utils import timezone
 from engine.models import Range
 from shared.audit import AuditEntityType, AuditTarget, StateChange, audit_log_system_event
 from shared.enums import ResourceStatus
+from shared.log_sanitize import safe_log_value
 from shared.messages.payloads import RangeProvisionedPayload, RangeStatusUpdatedPayload
 
 from ._audit import _status_to_action
@@ -32,25 +33,29 @@ def _resolve_authorized_range(event: RangeStatusUpdatedPayload) -> Range | None:
     """
     range_id = event.get("range_id")
     if range_id is None or event.get("new_status") is None:
-        logger.warning("Missing range_id or new_status in event")
+        logger.warning(
+            "Missing range_id or new_status in event event_id=%s", safe_log_value(event.get("event_id", "unknown"))
+        )
         return None
 
     range_obj: Range | None
     try:
         range_obj = Range.objects.get(id=range_id)
     except Range.DoesNotExist:
-        logger.warning("Range not found: range_id=%s", range_id)
+        logger.warning("Range not found: range_id=%s", safe_log_value(range_id))
         return None
 
     if range_obj.owner_principal_uuid is not None:
-        logger.warning("Principal range state requires the native operation result boundary")
+        logger.warning(
+            "Principal range state requires the native operation result boundary range_id=%s", safe_log_value(range_id)
+        )
         range_obj = None
     elif range_obj.user_id != event.get("user_id"):
-        logger.error(
+        logger.warning(
             "user_id mismatch: message=%s, range=%s (range_id=%s)",
-            event.get("user_id"),
+            safe_log_value(event.get("user_id")),
             range_obj.user_id,
-            range_id,
+            safe_log_value(range_id),
         )
         range_obj = None
     return range_obj
@@ -113,8 +118,13 @@ def _handle_status_updated(event: RangeStatusUpdatedPayload) -> None:
 
             revoke_receipt_verifier(request.request_id)
     except Exception:
-        logger.exception("DB error saving Range: range_id=%s", range_id)
-        # transient DB failure — propagate so the worker/DLQ can retry
+        # Transient DB failure: propagate so the worker/DLQ can retry. The worker
+        # logs the traceback; this line only adds the range correlation.
+        logger.info(
+            "Range status update failed; propagating for retry range_id=%s event_id=%s",
+            safe_log_value(range_id),
+            safe_log_value(event_id),
+        )
         raise
 
     # Audit log the status change
@@ -132,10 +142,10 @@ def _handle_status_updated(event: RangeStatusUpdatedPayload) -> None:
 
     logger.info(
         "Engine updated Range: range_id=%s status=%s->%s event_id=%s",
-        range_id,
+        safe_log_value(range_id),
         previous_status,
-        new_status,
-        event_id,
+        safe_log_value(new_status),
+        safe_log_value(event_id),
     )
 
 
@@ -156,8 +166,8 @@ def _handle_provisioned(event: RangeProvisionedPayload) -> None:
     # Log the event for audit purposes
     logger.info(
         "Engine received range.provisioned: request_id=%s range_id=%s user_id=%s event_id=%s",
-        request_id,
-        range_id,
-        user_id,
-        event_id,
+        safe_log_value(request_id),
+        safe_log_value(range_id),
+        safe_log_value(user_id),
+        safe_log_value(event_id),
     )

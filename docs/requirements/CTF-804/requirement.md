@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: COULD
 wave: 2
 created_at: 2026-03-18T05:28:23.392764Z
-updated_at: 2026-10-28T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-804: Scheduled Notifications
@@ -21,9 +21,10 @@ Scheduled notifications enable organizers to plan communications in advance, eve
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFNotification model with scheduled_at field and SCHEDULED status)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (schedule_notification() service - schedules notification and creates CTFScheduledTask)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Notification form view with schedule action and scheduled_at parsing)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (CTF scheduler - polls every 30 seconds, but SEND_REMINDER handler is stub (not implemented))
-- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py` (Tests for schedule_notification - verifies status and scheduled task creation)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/communication/scheduling.py` (schedule_declaration schedules a communication; run_release_communication_task releases it when due)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/management/commands/run_ctf_scheduler.py` (RELEASE_COMMUNICATION task handler; the scheduler polls every 30 seconds)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/communication/lifecycle.py` (cancel_campaign stops unreleased work)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/frontend/src/features/ctf/admin/communications/ComposeCommunication.tsx` (Organizers send now or schedule)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_scheduling.py` (Scheduling, due release, expiry, revoked actor and early release)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_communication_lifecycle.py` (Campaign cancellation stops unclaimed work)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#667` (CTF-804: Scheduled Notifications)

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
+from shared.log_sanitize import safe_log_value
 from shared.raes.content_delivery import FEATURE_BINDING_VERSION, ContentDeliveryError, DeliveryBinding
 
 if TYPE_CHECKING:
@@ -197,6 +198,6 @@ def _request(demand: FeatureArtifactDemand, platform: str, target: StorageTarget
             target=target or default_storage_target(),
         )
     except RecipeError:
-        logger.info("feature artifact has no platform recipe source=%s", demand.source_name)
+        logger.info("feature artifact has no platform recipe source=%s", safe_log_value(demand.source_name))
         return 0
     return 1

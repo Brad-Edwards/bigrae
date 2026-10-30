@@ -29,10 +29,7 @@ def _fake_addrinfo(*ips: str):
     """Build a getaddrinfo-shaped response from a list of IP strings."""
     out = []
     for ip in ips:
-        try:
-            family = socket.AF_INET6 if ":" in ip else socket.AF_INET
-        except Exception:
-            family = socket.AF_INET
+        family = socket.AF_INET6 if ":" in ip else socket.AF_INET
         sockaddr = (ip, 443, 0, 0) if family == socket.AF_INET6 else (ip, 443)
         out.append((family, socket.SOCK_STREAM, 0, "", sockaddr))
     return out

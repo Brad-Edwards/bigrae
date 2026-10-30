@@ -228,9 +228,10 @@ class PortalCapacityEmitter:
                 MetricData=build_metric_data(snapshot, self._name_prefix),
             )
             return True
-        except Exception as exc:
+        # fail-soft telemetry; provider SDK errors carry provider payloads, so log the type only
+        except Exception as exc:  # noqa: BLE001
             # Fail-soft: a metric blip must not break request serving.
-            _logger.warning("portal-capacity metric emit failed: %s", safe_log_value(str(exc)))
+            _logger.warning("portal-capacity metric emit failed: exc_type=%s", type(exc).__name__)
             return False
 
     def _run(self) -> None:
@@ -317,11 +318,12 @@ def build_emitter_from_config(
         return None
     try:
         client = client_factory()
-    except Exception as exc:
-        # Fail-soft: never break worker boot on a client-init error. Log a bounded,
-        # sanitized message, not the traceback (raw exception text is forbidden by
-        # the #940 preflight anti-patterns).
-        _logger.warning("portal-capacity metrics: client init failed: %s", safe_log_value(str(exc)))
+    # fail-soft telemetry; provider SDK errors carry provider payloads, so log the type only
+    except Exception as exc:  # noqa: BLE001
+        # Fail-soft: never break worker boot on a client-init error. Log the
+        # exception type only, not its text or traceback (raw exception text is
+        # forbidden by the #940 preflight anti-patterns).
+        _logger.warning("portal-capacity metrics: client init failed: exc_type=%s", type(exc).__name__)
         return None
     emitter = PortalCapacityEmitter(
         client=client,

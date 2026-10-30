@@ -1,7 +1,7 @@
 # RB023: GitHub-less GCP deploy, update, or teardown failed
 
 Applicability: GCP deployments that use the GitHub-less deploy path (ADR-070).
-Operator: platform owner. Verified against the repository: 2026-10-28.
+Operator: platform owner. Verified against the repository: 2026-10-29.
 
 The procedures are in the
 [GitHub-less GCP deployment guide](../technical/handbook/gcp-github-less-deployment.md).
@@ -33,6 +33,7 @@ messages identify the stage:
 | Scan | `exact-release scan failed; the rollout is blocked`; `failed to store the redacted release verdict` |
 | Verify | `no attestation is stored with ...`; `no attestation of ... satisfies the release trust policy` |
 | Rollout | `... belongs to another Helm release; refusing to adopt it`; `running workloads do not match the approved release`; `ingress platform-external did not receive a load-balancer address within 10 minutes`; `certificate platform-managed-cert did not appear for ... within 2 minutes`; `certificate platform-managed-cert is not Active for ... after 60 minutes`; `OpenVPN pool servers did not all report healthy within 10 minutes` |
+| Identity | `Legacy identity conversion requires both private facts files`; `Identity status probe was inconclusive; workloads remain unchanged`; `kubectl wait` fails on job `identity-cutover-status-*` or `identity-cutover-*` |
 | Catalog | Native application activation and readiness succeeded, but catalog initialization requires a current admitted credential. Preserve the active application, complete DNS and TLS, obtain a native credential, and retry with `--catalog-credential-file`. Workload IAM or an actor username is not a substitute. |
 | Teardown | `--confirm must equal the deployment name`; `terraform destroy failed after 6 attempts` |
 
@@ -179,9 +180,9 @@ release. Use the guide for each step that changes the deployment.
   identity could not read an image; the message names the reason, for example
   a missing `compute.images.get` permission. For a deliberate platform-first bring-up, deploy
   with `--allow-missing-range-images`.
-- **Images:** Add the deploy identity to `reader_members` of the release
-  registry
-  ([Publish a release](../technical/handbook/gcp-github-less-deployment.md#publish-a-release)).
+- **Images:** Make the release packages public
+  ([Publish a release](../technical/handbook/gcp-github-less-deployment.md#publish-a-release)),
+  or deploy from a mirror with `--release-source`.
 - **Scan:** Deploy a release whose images have no HIGH or CRITICAL finding with
   a fix. Read the raw report under `release-scans/`. There is no bypass.
 - **Verify:** Check `settings.release_trust` against the repository that
@@ -191,6 +192,12 @@ release. Use the guide for each step that changes the deployment.
   Helm release. Fix the cause that the events and the rollout status show, and
   deploy again. For a running-image mismatch, find the owner of the unexpected
   image before you deploy again.
+- **Identity:** A first install needs the identity facts files
+  ([First install](../technical/handbook/gcp-github-less-deployment.md#first-install)).
+  The gotchas show how to write them. When a cutover Job fails, read its
+  `portal` container log in Cloud Logging
+  (`resource.labels.pod_name:"identity-cutover"`). The Job is gone after the
+  command stops.
 - **Certificate:** Point the DNS A record of the hostname at the ingress
   address, with no proxy. Then deploy again without `--first-install`
   ([First install](../technical/handbook/gcp-github-less-deployment.md#first-install)).

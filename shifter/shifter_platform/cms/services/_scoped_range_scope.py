@@ -104,5 +104,5 @@ def rebind_scoped_range_workspace(
             rejected.workspace_id, rejected.verdict, quota_audit, correlation_key=str(request_id)
         )
         raise RangeScopeAdminError(RangeScopeAdminError.Kind.TARGET_DENIED, "Range scope move unavailable") from None
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; the cause stays out of the chain
         raise RangeScopeAdminError(RangeScopeAdminError.Kind.CONFLICT, "Range scope move unavailable") from None

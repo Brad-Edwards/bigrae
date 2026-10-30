@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID, uuid4
 
@@ -10,6 +11,7 @@ from django.db import transaction
 from cms.exceptions import CMSError, WorkspaceLaunchQuotaExceeded
 from cms.models import RaesPackageSource, RangeInstance
 from shared.enums import RangeSource, ResourceStatus
+from shared.log_sanitize import safe_log_value
 from shared.operation_authority import credential_reference_fields
 from shared.range_instantiation_policy import InstantiationPurpose
 from workspaces.services import release_workspace_concurrent_range, resolve_range_scope_binding
@@ -34,6 +36,8 @@ if TYPE_CHECKING:
     from shared.model_access import OwnedReference
     from shared.schemas.range import RangeContext
     from workspaces.services import ResolvedResourceScope
+
+logger = logging.getLogger(__name__)
 
 _LAUNCH_INPUTS_UNAVAILABLE = "Range launch inputs unavailable"
 
@@ -238,6 +242,11 @@ def create_scoped_range(
     except WorkspaceLaunchQuotaExceeded:
         raise
     except CMSError as exc:
+        logger.warning(
+            "create_scoped_range: launch refused scenario_id=%s exc_type=%s",
+            safe_log_value(scenario),
+            type(exc).__name__,
+        )
         from ._range_launch_common import _ACTIVE_RANGE_MESSAGE
 
         if str(exc) == _ACTIVE_RANGE_MESSAGE:
@@ -255,7 +264,12 @@ def create_scoped_range(
         allowed_codes = {POLICY_DENIAL_CODE, PREREQUISITE_DENIAL_CODE, UNSUPPORTED_CAPABILITY_CODE}
         details = {"code": code} if code in allowed_codes else None
         raise CMSError("Range launch unavailable", details=details) from None
-    except Exception:
+    except Exception as exc:  # noqa: BLE001  # dispatch causes can carry private provider material
+        logger.warning(
+            "create_scoped_range: launch refused scenario_id=%s exc_type=%s",
+            safe_log_value(scenario),
+            type(exc).__name__,
+        )
         raise CMSError("Range launch unavailable") from None
 
 

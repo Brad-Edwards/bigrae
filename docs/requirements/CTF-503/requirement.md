@@ -6,7 +6,7 @@ type: FUNCTIONAL
 priority: SHOULD
 wave: 2
 created_at: 2026-03-18T05:28:22.611975Z
-updated_at: 2026-10-28T00:00:00Z
+updated_at: 2026-10-29T00:00:00Z
 ---
 
 # CTF-503: Team Captains
@@ -21,6 +21,9 @@ Teams need a designated manager for administrative actions. Without a captain ro
 
 ## Traceability
 
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (CTFTeam.captain FK field - data model only, no captain actions implemented)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/admin/` (Django admin exposes captain field for organizer reassignment (partial))
-- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#646` (CTF-503: Team Captains)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/team.py` (CTFTeam.captain)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/team.py` (Captain-only rename, remove member, transfer captaincy and disband)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/api/team_views.py` (Participant team API for the captain actions)
+- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/admin/_participant.py` (Django admin CTFTeamAdmin can edit the captain field)
+- TESTS → TEST `shifter/shifter_platform/tests/ctf/test_team_api.py` (Creator becomes captain; transfer, captain-only guard and disband)
+- DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#646` (Gap: disband is allowed after solves, and organizers cannot reassign captaincy in the app)

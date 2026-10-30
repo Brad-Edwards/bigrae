@@ -13,20 +13,23 @@ transport call happens outside the lock, and a committed claim is the recall
 boundary, never proof of delivery. Retry policy has exactly one owner here: bounded
 exponential backoff with jitter, an attempt ceiling, and an elapsed-time ceiling.
 
-The worker only claims channels that have a registered adapter, so an unregistered
-channel (``email`` before #1525) is never claimed, downgraded, or falsely accepted.
+The worker only claims channels whose registered adapter is available, so an
+unavailable channel is never claimed, downgraded, or falsely accepted. The attempt
+and elapsed ceilings apply before transport I/O as well as after a retriable
+result, a graceful stop releases claims that never reached I/O, and every
+settlement refreshes the occurrence delivery state (ADR-071, #1525).
 """
 
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from secrets import SystemRandom, token_hex
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -34,6 +37,7 @@ from django.utils import timezone
 from ctf.enums import EventStatus
 from ctf.enums_communication import CampaignStatus, DeliveryStatus, IntentStatus
 from ctf.models import DeliveryAttempt, RecipientSnapshot
+from ctf.services.communication import disposition
 from ctf.services.communication.adapters import (
     DeliveryCommand,
     DeliveryOutcome,
@@ -41,6 +45,7 @@ from ctf.services.communication.adapters import (
     get_adapter,
     registered_channels,
 )
+from ctf.services.communication.worker_config import WorkerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -53,60 +58,14 @@ _UNLEASED = ""
 # value is a scheduling nicety, not a security control.
 _JITTER = SystemRandom()
 
-# Bounded default policy. The typed, relationally-validated owner is
-# ``config._ctf_communication_settings``; these getattr defaults keep the worker
-# importable and unit-testable without a full settings surface.
-_DEFAULTS = {
-    "CTF_COMMUNICATION_WORKER_BATCH_SIZE": 100,
-    "CTF_COMMUNICATION_WORKER_PER_EVENT_CAP": 25,
-    "CTF_COMMUNICATION_WORKER_LEASE_SECONDS": 120,
-    "CTF_COMMUNICATION_TRANSPORT_TIMEOUT_SECONDS": 10,
-    "CTF_COMMUNICATION_MAX_ATTEMPTS": 6,
-    "CTF_COMMUNICATION_MAX_ELAPSED_SECONDS": 86400,
-    "CTF_COMMUNICATION_BACKOFF_BASE_SECONDS": 30,
-    "CTF_COMMUNICATION_BACKOFF_CAP_SECONDS": 3600,
-    "CTF_COMMUNICATION_BACKOFF_JITTER_FRACTION": 0.25,
-}
-
-
-def _setting(name: str) -> int | float:
-    """Return a bounded worker setting, defaulting when the settings owner is absent."""
-    return getattr(settings, name, _DEFAULTS[name])
-
-
-@dataclass(frozen=True)
-class WorkerConfig:
-    """Immutable snapshot of the worker's bounded operational policy for one run."""
-
-    batch_size: int
-    per_event_cap: int
-    lease_seconds: int
-    timeout_seconds: float
-    max_attempts: int
-    max_elapsed_seconds: int
-    backoff_base_seconds: int
-    backoff_cap_seconds: int
-    backoff_jitter_fraction: float
-
-    @classmethod
-    def from_settings(cls) -> WorkerConfig:
-        """Build the config from Django settings (typed owner) or bounded defaults."""
-        return cls(
-            batch_size=int(_setting("CTF_COMMUNICATION_WORKER_BATCH_SIZE")),
-            per_event_cap=int(_setting("CTF_COMMUNICATION_WORKER_PER_EVENT_CAP")),
-            lease_seconds=int(_setting("CTF_COMMUNICATION_WORKER_LEASE_SECONDS")),
-            timeout_seconds=float(_setting("CTF_COMMUNICATION_TRANSPORT_TIMEOUT_SECONDS")),
-            max_attempts=int(_setting("CTF_COMMUNICATION_MAX_ATTEMPTS")),
-            max_elapsed_seconds=int(_setting("CTF_COMMUNICATION_MAX_ELAPSED_SECONDS")),
-            backoff_base_seconds=int(_setting("CTF_COMMUNICATION_BACKOFF_BASE_SECONDS")),
-            backoff_cap_seconds=int(_setting("CTF_COMMUNICATION_BACKOFF_CAP_SECONDS")),
-            backoff_jitter_fraction=float(_setting("CTF_COMMUNICATION_BACKOFF_JITTER_FRACTION")),
-        )
-
 
 @dataclass
 class DeliveryRunStats:
-    """Bounded per-run counters (no identities) for logging and metrics."""
+    """Bounded per-run counters (no identities) for logging and metrics.
+
+    ``by_channel`` counts the same outcomes keyed by (outcome, channel), both from
+    closed vocabularies, so metrics can distinguish channels.
+    """
 
     claimed: int = 0
     accepted: int = 0
@@ -116,6 +75,13 @@ class DeliveryRunStats:
     suppressed: int = 0
     stale: int = 0
     reclaimed: int = 0
+    released: int = 0
+    by_channel: Counter[tuple[str, str]] = field(default_factory=Counter)
+
+    def count(self, outcome: str, channel: str) -> None:
+        """Add one outcome to the total and to its channel."""
+        setattr(self, outcome, getattr(self, outcome) + 1)
+        self.by_channel[(outcome, channel)] += 1
 
 
 NowFunc = Callable[[], datetime]
@@ -153,9 +119,14 @@ def _due_event_ids(channels: frozenset[str], now: datetime, limit: int) -> list[
 
 def _claim_for_event(
     event_id: UUID, channels: frozenset[str], now: datetime, take: int, lease_seconds: int
-) -> list[DeliveryAttempt]:
-    """Claim up to ``take`` due commands for one event in a short locked transaction."""
+) -> tuple[list[DeliveryAttempt], list[DeliveryAttempt]]:
+    """Claim up to ``take`` due commands for one event in a short locked transaction.
+
+    Returns the claimed rows and the subset reclaimed from an expired lease (a
+    worker that stopped without settling).
+    """
     claimed: list[DeliveryAttempt] = []
+    reclaimed: list[DeliveryAttempt] = []
     with transaction.atomic():
         rows = list(
             DeliveryAttempt.objects.select_for_update(skip_locked=True)
@@ -163,6 +134,8 @@ def _claim_for_event(
             .order_by("due_at", "id")[:take]
         )
         for row in rows:
+            if row.status == DeliveryStatus.CLAIMED.value:
+                reclaimed.append(row)
             row.status = DeliveryStatus.CLAIMED.value
             row.lease_token = token_hex(16)
             row.lease_expires_at = now + timedelta(seconds=lease_seconds)
@@ -173,14 +146,15 @@ def _claim_for_event(
             row.observed_at = None
             row.save(update_fields=_LEASE_FIELDS)
             claimed.append(row)
-    return claimed
+    return claimed, reclaimed
 
 
-def claim_batch(cfg: WorkerConfig, *, now: datetime) -> list[DeliveryAttempt]:
+def claim_batch(cfg: WorkerConfig, *, now: datetime, stats: DeliveryRunStats | None = None) -> list[DeliveryAttempt]:
     """Claim a fair, bounded batch across events so one event cannot monopolize.
 
     Each event is claimed in its own short transaction; ``skip_locked`` lets many
-    worker replicas run without contention or double-claiming.
+    worker replicas run without contention or double-claiming. When ``stats`` is
+    given, reclaimed expired leases are counted on it.
     """
     channels = registered_channels()
     if not channels:
@@ -190,7 +164,11 @@ def claim_batch(cfg: WorkerConfig, *, now: datetime) -> list[DeliveryAttempt]:
         if len(claimed) >= cfg.batch_size:
             break
         take = min(cfg.per_event_cap, cfg.batch_size - len(claimed))
-        claimed.extend(_claim_for_event(event_id, channels, now, take, cfg.lease_seconds))
+        rows, reclaimed = _claim_for_event(event_id, channels, now, take, cfg.lease_seconds)
+        claimed.extend(rows)
+        if stats is not None:
+            for row in reclaimed:
+                stats.count("reclaimed", row.channel)
     return claimed
 
 
@@ -244,6 +222,7 @@ def _command(row: DeliveryAttempt) -> DeliveryCommand:
         participant_public_id=row.snapshot.participant_public_id,
         recipient_user_id=row.snapshot.user_id,
         occurrence_key=row.intent.occurrence_key,
+        idempotency_key=row.idempotency_key,
     )
 
 
@@ -256,6 +235,16 @@ def _clear_lease(row: DeliveryAttempt) -> None:
     """Release the row's lease so it is claimable again (or terminal)."""
     row.lease_token = _UNLEASED
     row.lease_expires_at = None
+
+
+def _budget_spent(row: DeliveryAttempt, cfg: WorkerConfig, now: datetime) -> bool:
+    """Return True when the command may not reach the transport again.
+
+    Crash/reclaim cycles increment the attempt number at claim, so a crash loop
+    reaches the ceiling here without any caught provider error.
+    """
+    baseline = row.first_attempt_at or row.created_at
+    return row.attempt_number > cfg.max_attempts or (now - baseline).total_seconds() >= cfg.max_elapsed_seconds
 
 
 def _backoff_seconds(attempt_number: int, cfg: WorkerConfig) -> float:
@@ -271,30 +260,42 @@ def _preflight(pk: UUID, token: str, cfg: WorkerConfig, now_func: NowFunc) -> De
     lease always covers the imminent I/O (lease_seconds >> transport timeout). The
     ``select_for_update`` row lock serializes this against a concurrent stale-lease
     reclaim, so an item can never be processed by two workers at once even when the
-    surrounding batch is large. Returns the command, or ``"not_ours"`` /
-    ``"suppressed"``.
+    surrounding batch is large. The encrypted coordinate is deferred: only the
+    email adapter reads it, inside its own error boundary. Returns the command, or
+    ``"not_ours"`` / ``"suppressed"`` / ``"expired"``.
     """
     with transaction.atomic():
         row = (
-            DeliveryAttempt.objects.select_for_update()
+            DeliveryAttempt.objects.select_for_update(of=("self",))
             .select_related("intent", "intent__campaign", "snapshot", "snapshot__event")
+            .defer("snapshot__delivery_coordinate")
             .get(pk=pk)
         )
         if not _lease_held(row, token):
             return "not_ours"
-        reason = _fence_reason(row)
         now = now_func()
-        if reason:
-            row.status = DeliveryStatus.SUPPRESSED.value
-            row.result_reason = reason
+        stopped = _pre_io_stop(row, cfg, now)
+        if stopped is not None:
+            row.status, row.result_reason = stopped
             row.observed_at = now
             _clear_lease(row)
             row.save(update_fields=_LEASE_FIELDS)
-            return "suppressed"
+            return "suppressed" if row.status == DeliveryStatus.SUPPRESSED.value else "expired"
         row.attempted_at = now
         row.lease_expires_at = now + timedelta(seconds=cfg.lease_seconds)
         row.save(update_fields=["attempted_at", "lease_expires_at", "updated_at"])
         return _command(row)
+
+
+def _pre_io_stop(row: DeliveryAttempt, cfg: WorkerConfig, now: datetime) -> tuple[str, str] | None:
+    """Return the (status, reason) that stops this command before I/O, or ``None``.
+
+    A visible lifecycle fence suppresses; a spent attempt or elapsed budget expires.
+    """
+    reason = _fence_reason(row)
+    if reason:
+        return DeliveryStatus.SUPPRESSED.value, reason
+    return (DeliveryStatus.EXPIRED.value, "budget_exhausted") if _budget_spent(row, cfg, now) else None
 
 
 def _settle(pk: UUID, token: str, outcome: DeliveryOutcome, cfg: WorkerConfig, now_func: NowFunc) -> str:
@@ -333,28 +334,84 @@ def _settle(pk: UUID, token: str, outcome: DeliveryOutcome, cfg: WorkerConfig, n
         return row.status
 
 
+def _release_unattempted(pk: UUID, token: str) -> bool:
+    """Return a claim that never reached I/O to its claimable state.
+
+    Used on graceful shutdown. The claim's attempt number and, for a first claim,
+    its first-attempt baseline are restored, because no transport attempt happened.
+    Returns True when this worker still owned the claim and released it.
+    """
+    with transaction.atomic():
+        row = DeliveryAttempt.objects.select_for_update().get(pk=pk)
+        if not _lease_held(row, token) or row.attempted_at is not None:
+            return False
+        row.attempt_number = max(row.attempt_number - 1, 0)
+        if row.attempt_number == 0:
+            row.status = DeliveryStatus.QUEUED.value
+            row.first_attempt_at = None
+        else:
+            row.status = DeliveryStatus.RETRY_DUE.value
+        _clear_lease(row)
+        row.save(update_fields=_LEASE_FIELDS)
+        return True
+
+
 def process_attempt(attempt: DeliveryAttempt, cfg: WorkerConfig, now_func: NowFunc = timezone.now) -> str:
     """Deliver one claimed command: pre-flight fence, transport I/O (no lock), settle.
 
-    Returns a bounded result token: a ``DeliveryStatus`` value, ``"stale"`` (lease
-    lost), or ``"suppressed"`` (fenced before I/O).
+    Returns a bounded result token: a ``DeliveryStatus`` value or ``"stale"``
+    (lease lost). After a settlement it refreshes the occurrence delivery state in
+    its own transaction and writes one bounded log line.
     """
     token = attempt.lease_token
     decision = _preflight(attempt.pk, token, cfg, now_func)
     if isinstance(decision, str):
-        return "stale" if decision == "not_ours" else DeliveryStatus.SUPPRESSED.value
-    command = decision
+        return _stopped_before_io(attempt, decision)
+    outcome = _deliver(attempt.pk, decision, cfg)
+    result = _settle(attempt.pk, token, outcome, cfg, now_func)
+    return result if result == "stale" else _after_settle(attempt, result, outcome.reason)
+
+
+def _stopped_before_io(attempt: DeliveryAttempt, decision: str) -> str:
+    """Report a command that preflight stopped: a lost lease, a fence, or a spent budget."""
+    stopped = {
+        "suppressed": (DeliveryStatus.SUPPRESSED.value, "fenced"),
+        "expired": (DeliveryStatus.EXPIRED.value, "budget_exhausted"),
+    }.get(decision)
+    return "stale" if stopped is None else _after_settle(attempt, *stopped)
+
+
+def _deliver(pk: UUID, command: DeliveryCommand, cfg: WorkerConfig) -> DeliveryOutcome:
+    """Hand ``command`` to its channel adapter once, isolating any adapter failure."""
     adapter = get_adapter(command.channel)
-    # Defensive: the channel was de-registered mid-run.
     if adapter is None:
-        return "stale"
+        # The channel became unavailable after the claim: retry within the budget.
+        return DeliveryOutcome(OutcomeClass.RETRIABLE, reason="channel_unavailable")
     try:
-        outcome = adapter.deliver(command, timeout=cfg.timeout_seconds)
+        return adapter.deliver(command, timeout=cfg.timeout_seconds)
     # Never let one transport error abort the batch (partial-failure isolation).
-    except Exception:
-        logger.warning("communication adapter raised for attempt %s channel %s", attempt.pk, command.channel)
-        outcome = DeliveryOutcome(OutcomeClass.RETRIABLE, reason="adapter_error")
-    return _settle(attempt.pk, token, outcome, cfg, now_func)
+    except Exception as exc:  # noqa: BLE001  # transport errors may carry provider payloads; the attempt is retried
+        logger.warning(
+            "communication adapter raised for attempt %s channel %s exc_type=%s",
+            pk,
+            command.channel,
+            type(exc).__name__,
+        )
+        return DeliveryOutcome(OutcomeClass.RETRIABLE, reason="adapter_error")
+
+
+def _after_settle(attempt: DeliveryAttempt, status: str, reason: str) -> str:
+    """Log the settlement and refresh the occurrence delivery state."""
+    logger.info(
+        "communication delivery settled: attempt=%s channel=%s status=%s reason=%s attempt_number=%d",
+        attempt.pk,
+        attempt.channel,
+        status,
+        reason[:64] or "-",
+        attempt.attempt_number,
+    )
+    disposition.refresh_after_settlement(attempt.intent_id, attempt.channel)
+    return status
 
 
 def run_once(
@@ -362,6 +419,7 @@ def run_once(
     *,
     now_func: NowFunc = timezone.now,
     heartbeat: Callable[[], None] | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> DeliveryRunStats:
     """Claim and process one bounded batch. Returns per-run counters.
 
@@ -371,32 +429,44 @@ def run_once(
     every attempt so a long serial batch keeps the worker's liveness marker fresh
     (it never waits for the whole batch), and each attempt renews its own lease
     right before I/O, so a slow batch never lets a later command's lease lapse into
-    a concurrent send.
+    a concurrent send. When ``should_stop`` turns true, the attempt in flight
+    finishes and every other claim is released unattempted, so a graceful stop
+    fits the termination grace period. Each run also reconciles occurrence states
+    whose refresh a crash interrupted.
     """
     cfg = cfg or WorkerConfig.from_settings()
-    claimed = claim_batch(cfg, now=now_func())
-    stats = DeliveryRunStats(claimed=len(claimed))
-    for attempt in claimed:
-        result = process_attempt(attempt, cfg, now_func)
-        _record(stats, result)
+    stats = DeliveryRunStats()
+    claimed = claim_batch(cfg, now=now_func(), stats=stats)
+    for row in claimed:
+        stats.count("claimed", row.channel)
+    for index, attempt in enumerate(claimed):
+        if should_stop is not None and should_stop():
+            for pending in claimed[index:]:
+                if _release_unattempted(pending.pk, pending.lease_token):
+                    stats.count("released", pending.channel)
+            break
+        _record(stats, process_attempt(attempt, cfg, now_func), attempt.channel)
         if heartbeat is not None:
             heartbeat()
+    disposition.reconcile_delivery_states(limit=cfg.batch_size)
     from ctf.services.communication import metrics
 
     metrics.emit_worker_run(stats, now_func=now_func)
     return stats
 
 
-def _record(stats: DeliveryRunStats, result: str) -> None:
+_RESULT_COUNTERS = {
+    DeliveryStatus.ACCEPTED.value: "accepted",
+    DeliveryStatus.RETRY_DUE.value: "retried",
+    DeliveryStatus.EXPIRED.value: "expired",
+    DeliveryStatus.PERMANENT_FAILURE.value: "failed",
+    DeliveryStatus.SUPPRESSED.value: "suppressed",
+    "stale": "stale",
+}
+
+
+def _record(stats: DeliveryRunStats, result: str, channel: str) -> None:
     """Fold one attempt result into the run counters."""
-    mapping = {
-        DeliveryStatus.ACCEPTED.value: "accepted",
-        DeliveryStatus.RETRY_DUE.value: "retried",
-        DeliveryStatus.EXPIRED.value: "expired",
-        DeliveryStatus.PERMANENT_FAILURE.value: "failed",
-        DeliveryStatus.SUPPRESSED.value: "suppressed",
-        "stale": "stale",
-    }
-    attr = mapping.get(result)
-    if attr:
-        setattr(stats, attr, getattr(stats, attr) + 1)
+    outcome = _RESULT_COUNTERS.get(result)
+    if outcome:
+        stats.count(outcome, channel)

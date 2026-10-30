@@ -91,6 +91,32 @@ describe("ChallengeDetailPage", () => {
     expect(await screen.findByText("Incorrect flag")).toBeInTheDocument();
   });
 
+  it("reports a submission that fails without an API error, using authored copy", async () => {
+    mockApi.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (options?.method === "POST" && path.includes("/submit/")) {
+        throw new TypeError("Failed to fetch");
+      }
+      return detail();
+    });
+    renderRoute(<ChallengeDetailPage />, ROUTE);
+    fireEvent.change(await screen.findByLabelText("Submit flag"), { target: { value: "FLAG{x}" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(await screen.findByText("Could not submit")).toBeInTheDocument();
+    expect(screen.getByText("The flag could not be submitted. Please try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
+
+  it("reports a failed attachment download", async () => {
+    mockApi.mockImplementation(async (path: string) => {
+      if (path.endsWith("/files/f1/download/")) throw new TypeError("Failed to fetch");
+      return detail({ files: [{ id: "f1", filename: "notes.txt", display_name: "Notes" }] });
+    });
+    renderRoute(<ChallengeDetailPage />, ROUTE);
+    fireEvent.click(await screen.findByRole("button", { name: "Download" }));
+    expect(await screen.findByText("Could not download the file. Try again.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
+
   it("has no axe violations when loaded", async () => {
     mockApi.mockResolvedValue(detail());
     const { container } = renderRoute(<ChallengeDetailPage />, ROUTE);

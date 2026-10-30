@@ -85,7 +85,7 @@ class ControlApplication:
             await json_response(send, _control_error_status(exc.code), {"error": exc.code})
         except (ValueError, TimeoutError):
             await json_response(send, 400, {"error": "control.invalid_request"})
-        except Exception:
+        except Exception:  # noqa: BLE001  # request arguments can carry credentials; return a fixed code, no logs
             # No raw exception logging: request arguments can contain credentials.
             await json_response(send, 503, {"error": "control.unavailable"})
 

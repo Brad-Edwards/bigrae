@@ -6,6 +6,8 @@ import logging
 import os
 from typing import Any
 
+from log_redact import safe_log_value
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +31,7 @@ def get_agent_presigned_url(inst_config: dict[str, Any]) -> str | None:
                 expires_in=3600,
             )
         except Exception:
-            logger.exception("Failed to generate presigned URL for %s", s3_key)
+            logger.exception("Failed to generate presigned URL for key=%s", safe_log_value(s3_key))
     else:
         logger.warning("AGENT_STORAGE_BUCKET/AGENT_S3_BUCKET not set, cannot generate presigned URL")
 

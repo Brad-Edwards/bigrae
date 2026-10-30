@@ -91,7 +91,7 @@ def project_range_authority(request_uuid: UUID) -> RangeAuthorityProjection:
             parent,
             row.resource_generation,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed range authority; only bounded denial escapes
         raise EngineError(_RANGE_UNAVAILABLE) from None
 
 
@@ -142,7 +142,7 @@ def require_native_range_action(credential: CredentialContext, request_uuid: UUI
         if row is None or project_range_authority(request_uuid) != projection:
             raise ValueError("Range projection changed")
         return row
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed range authority; only bounded denial escapes
         raise PermissionError(_RANGE_UNAVAILABLE) from None
 
 
@@ -169,5 +169,5 @@ def authorized_instance_range(
         if len(candidates) != 1 or candidates[0].request is None:
             raise ValueError("Missing guest binding")
         return require_native_range_action(credential, candidates[0].request.request_id, "range.access")
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority check; every failure is one bounded denial
         raise PermissionError("Instance unavailable") from None

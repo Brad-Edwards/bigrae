@@ -386,7 +386,8 @@ class TestNgfwTerraformOrchestrationHelpers:
         assert reported.args[:2] == ("req-1", "failed")
         assert reported.kwargs["step"] == ResultStep.NGFW_TERMINAL_FAILED
         assert reported.kwargs["operation"] == "provision"
-        assert reported.kwargs["error_message"] == "apply failed"
+        # The diagnostic is durable: authored text only, never the raw exception text (ADR-043-R5).
+        assert reported.kwargs["error_message"] == "NGFW provision failed (RuntimeError)"
 
     def test_short_circuit_local_dev_post_provision_marks_ready_then_paused(self, monkeypatch):
         """Local-dev post-provision should emit ready and paused states without PAN-OS calls."""
@@ -719,8 +720,11 @@ class TestRunPanOsPostProvision:
         _mock_sleep,
         _mock_cleanup,
         monkeypatch,
+        caplog,
     ):
         """Bootstrap cleanup failures should surface only after auto-stop is attempted."""
+        import logging
+
         from ngfw_terraform import _run_pan_os_post_provision
 
         mock_update_instance_state = MagicMock()
@@ -731,10 +735,16 @@ class TestRunPanOsPostProvision:
         monkeypatch.setattr("ngfw_terraform.update_instance_state", mock_update_instance_state)
         mock_get_secrets_store.return_value.get_secret.return_value = "private-key"
         mock_ngfw_executor = mock_ngfw_executor_class.return_value
-        mock_ngfw_executor.run_command.return_value = MagicMock(success=True, stdout="", stderr="")
+        # PAN-OS license output lists each license's authcode.
+        mock_ngfw_executor.run_command.return_value = MagicMock(
+            success=True, stdout="Authcode: SYNTHETIC-AUTHCODE-1", stderr=""
+        )
         mock_setup_orchestrator_class.return_value.orchestrate.return_value = MagicMock(success=True)
 
-        with pytest.raises(RuntimeError, match="bootstrap object cleanup failed"):
+        with (
+            caplog.at_level(logging.DEBUG, logger="ngfw_terraform"),
+            pytest.raises(RuntimeError, match="bootstrap object cleanup failed"),
+        ):
             _run_pan_os_post_provision(
                 request_id="req-1",
                 instance_id="inst-1",
@@ -752,6 +762,7 @@ class TestRunPanOsPostProvision:
         mock_run_ngfw_operation.assert_called_once_with(
             "stop", "req-1", operation_id=None, owning_operation="provision"
         )
+        assert "SYNTHETIC-AUTHCODE-1" not in caplog.text
 
 
 class TestBuildProviderState:

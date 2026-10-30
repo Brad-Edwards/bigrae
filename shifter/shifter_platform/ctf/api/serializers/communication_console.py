@@ -11,7 +11,7 @@ from typing import Any
 
 from rest_framework import serializers
 
-from ctf.enums_communication import DeliveryStatus
+from ctf.enums_communication import DeliveryStatus, IntentDeliveryState
 from shared.api.closed_serializer import ClosedSerializer
 
 _MAX_PAGE = 100
@@ -171,6 +171,11 @@ class CommunicationPreviewSerializer(serializers.Serializer):
     audience_cap = serializers.IntegerField(read_only=True)
     exceeds_audience_cap = serializers.BooleanField(read_only=True)
     observed_at = serializers.DateTimeField(read_only=True)
+    allowed_link_hosts = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Deployment HTTPS link hosts the renderer may link to, as in the participant inbox",
+    )
 
 
 class CommunicationChannelCountsSerializer(serializers.Serializer):
@@ -218,6 +223,7 @@ class CommunicationDeliveryOccurrenceSerializer(serializers.Serializer):
     due_at = serializers.DateTimeField(read_only=True, allow_null=True)
     released_at = serializers.DateTimeField(read_only=True, allow_null=True)
     schedule_status = serializers.CharField(read_only=True, allow_null=True)
+    delivery_state = serializers.ChoiceField(read_only=True, choices=IntentDeliveryState.choices())
     events = CommunicationDeliveryEventSerializer(many=True, read_only=True)
     totals = CommunicationDeliveryTotalsSerializer(read_only=True)
 

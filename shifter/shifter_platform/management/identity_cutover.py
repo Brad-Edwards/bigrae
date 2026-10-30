@@ -6,14 +6,16 @@ import hashlib
 from collections.abc import Mapping
 from uuid import UUID
 
+from django.contrib.auth import get_user_model
 from django.contrib.sessions.models import Session
+from django.db import transaction
 from django.utils import timezone
 
 from management.models import Principal, PrincipalConflictError, PrincipalSession, ProviderBinding
 from shared.api_tokens.models import ApiToken
 from shared.identity_scope import PrincipalRef
 
-from .principals import bind_principal_provider_identity
+from .principals import bind_principal_provider_identity, ensure_human_principal
 
 
 def identity_cutover_principals() -> dict[int, UUID]:
@@ -94,6 +96,31 @@ def bootstrap_principal_uuid(issuer: str, subject: str) -> UUID | None:
         .values_list("principal__uuid", flat=True)
         .first()
     )
+
+
+def prepare_empty_installation_bootstrap(issuer: str, subject: str) -> UUID | None:
+    """Create the first administrator principal on an empty installation (#2671).
+
+    A first install has no user, principal, or provider binding, so the
+    bootstrap facts are the only source of the first administrator. This runs
+    before the cutover plan, so the plan and its digest include the principal.
+    It creates nothing when any user or human principal already exists: a
+    retained installation binds its users through the cutover facts instead.
+    The username derives from the provider tuple, so a concurrent second run
+    fails on the unique username and binding constraints.
+    """
+    existing = bootstrap_principal_uuid(issuer, subject)
+    if existing is not None:
+        return existing
+    user_model = get_user_model()
+    with transaction.atomic():
+        if user_model.objects.exists() or Principal.objects.filter(kind=Principal.Kind.HUMAN).exists():
+            return None
+        username = "principal-" + hashlib.sha256(f"{issuer}\0{subject}".encode()).hexdigest()[:24]
+        user = user_model.objects.create_user(username=username, email="", is_active=True)
+        principal = ensure_human_principal(user)
+        bind_principal_provider_identity(principal, issuer, subject)
+        return principal.uuid
 
 
 def invalidate_pre_cutover_admission() -> None:

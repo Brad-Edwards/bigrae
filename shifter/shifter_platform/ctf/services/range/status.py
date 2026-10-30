@@ -7,6 +7,7 @@ provides the participant-with-range loader shared by the lifecycle actions in
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -15,6 +16,8 @@ from ctf.models import CTFParticipant
 
 if TYPE_CHECKING:
     from shared.credentials import CredentialContext
+
+logger = logging.getLogger(__name__)
 
 
 def get_range_status(participant_id: UUID, *, credential: CredentialContext | None = None) -> dict[str, Any]:
@@ -135,6 +138,4 @@ def _notify_range_ready(participant: CTFParticipant) -> None:
             )
     # pragma: no cover — defensive; notification must never break status reads
     except Exception:
-        import logging
-
-        logging.getLogger(__name__).exception("Range-ready notification failed for %s", participant.pk)
+        logger.exception("Range-ready notification failed for %s", participant.pk)

@@ -97,6 +97,28 @@ def test_gcp_adapter_collects_required_gate_metrics_and_connection_ratios():
     assert result.metrics["load_balancer.backend_latency_p95_ms"].value == 700
 
 
+class _FailingRedisPeakReader(_FakeGcpReader):
+    def read(self, signal, window_start, window_end, targets):
+        if signal.name == "redis.connections_peak":
+            raise PermissionError("denied for projects/example-project")
+        return super().read(signal, window_start, window_end, targets)
+
+
+def test_gcp_adapter_names_a_failed_read_as_a_gap_without_its_message():
+    adapter = GcpMetricsAdapter(
+        region="us-central1",
+        targets={"project_id": "example-project", "sql_connection_budget": "200", "redis_connection_budget": "100"},
+        reader=_FailingRedisPeakReader(),
+    )
+
+    result = adapter.collect(*WINDOW)
+
+    assert "redis.connections_peak (read failed: PermissionError)" in result.gaps
+    assert not any("denied" in gap for gap in result.gaps)
+    assert "redis.connections_peak" not in result.metrics
+    assert result.metrics["cloud_sql.connection_utilization_pct"].value == 20
+
+
 def test_gcp_gate_signals_filter_failures_instead_of_counting_all_traffic():
     signals = {signal.name: signal for signal in _SIGNALS}
     assert signals["cloud_sql.connection_error_delta"].metric_filter == 'metric.labels.login_status = "failed"'
@@ -317,3 +339,27 @@ def test_metric_value_can_be_flagged_as_proxy():
     )
     assert mv.is_proxy is True
     assert "derivative" in mv.provenance
+
+
+class _FailingCloudWatch:
+    """Fails every read the way a denied CloudWatch call does."""
+
+    def get_metric_statistics(self, **kwargs):
+        raise PermissionError("denied for arn:aws:iam::123456789012:role/example")
+
+
+def test_aws_adapter_names_failed_reads_as_gaps_without_their_message():
+    adapter = AwsMetricsAdapter(
+        region="us-east-2",
+        targets={"alb": "app/portal/abc", "target_group": "targetgroup/dev-portal/abc", "rds_instance": "portal-db"},
+        client=_FailingCloudWatch(),
+    )
+
+    result = adapter.collect("2026-01-01T00:00:00Z", "2026-01-01T00:10:00Z")
+
+    assert result.metrics == {}
+    assert "ALB RequestCountPerTarget (read failed: PermissionError)" in result.gaps
+    assert "RDS connection churn proxy (read failed: PermissionError)" in result.gaps
+    configured = [gap for gap in result.gaps if "configured)" not in gap]
+    assert configured and all(gap.endswith("(read failed: PermissionError)") for gap in configured)
+    assert not any("denied" in gap for gap in result.gaps)

@@ -1,0 +1,18 @@
+{# SPDX-FileCopyrightText: 2026 Palo Alto Networks, Inc. #}
+{# SPDX-License-Identifier: MIT #}
+{# Trusted wrapper for a pinned communication revision (ADR-071). The authored #}
+{# Markdown source is escaped and shown as text; it is never rendered as HTML. #}
+<!DOCTYPE html>
+<html lang="{{ locale }}">
+    <head>
+        <meta charset="utf-8">
+        <link rel="icon" href="data:,">
+        <title>{{ subject }}</title>
+    </head>
+    <body style="font-family: Arial, sans-serif;
+                 max-width: 600px;
+                 margin: 0 auto">
+        <h1 style="font-size: 1.25em">{{ subject }}</h1>
+        {{ body|linebreaks }}
+    </body>
+</html>

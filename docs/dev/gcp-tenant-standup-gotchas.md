@@ -25,18 +25,19 @@ Credentials.
 ## Release from dev or a deploy-test branch
 
 `release-gcp.yml` publishes from `refs/heads/main`, `refs/heads/dev`, and
-`refs/heads/deploy-test`. GitHub dispatches a `workflow_dispatch`-only workflow
-only after the file is on the default branch. After `release-gcp.yml` is on
-`main` once, dispatch it on another release ref:
+`refs/heads/deploy-test`. A Release Please release on `main` starts it
+automatically. GitHub dispatches a workflow only after the file is on the
+default branch. After `release-gcp.yml` is on `main` once, dispatch it on
+another release ref:
 
 ```bash
 gh workflow run release-gcp.yml --ref deploy-test
 ```
 
-The run uses the workflow file of that ref. Each release ref needs a `release`
-purpose context in the foundation and a deployment branch policy in the
-`gcp-release` Environment. Protect `deploy-test` against force pushes and
-deletion.
+The run uses the workflow file of that ref. Each release ref needs a deployment
+branch policy in the `gcp-release` Environment. Protect `deploy-test` against
+force pushes and deletion. The release goes to the public registry
+`ghcr.io/<owner>/<repository>`, so every deployment can use it.
 
 `gcp-deploy` requires that its own revision equals the release revision. A deploy
 fix therefore needs a new release. Put the fixes on `deploy-test` and release
@@ -58,19 +59,57 @@ The release images and their provenance stay those of the release. Use this
 only for a fix that is already in a pull request, and release again after it
 merges to `deploy-test`.
 
-## Release registry in the deployment project
+## Make new release packages public
 
-One project can hold the release registry and the deployment. Apply the
-foundation in GitHub mode with the `release` purpose contexts and also set
-`impersonation_principals` and `deployment_config_bucket_name`. The root then
-creates the release WIF trust, the purpose identities, and the config bucket in
-one state.
+GHCR makes a new package private. After the first release from a repository,
+make the `portal`, `provisioner`, `guacd`, `guacamole-client`, `openvpn`, and
+`deployer-gcp` packages public in the GitHub package settings. Until then, a
+deploy cannot pull the release images.
+
+## The foundation needs project IAM administration
+
+`roles/editor` is not enough for `gcp-foundation`. Editor creates the service
+accounts and buckets, but it cannot set IAM policy, create custom roles, or
+change the audit configuration. The apply then stops partway with `403`
+errors. Get `roles/owner`, or `roles/resourcemanager.projectIamAdmin`,
+`roles/iam.roleAdmin`, and `roles/iam.serviceAccountAdmin`, and run the same
+command again. It continues from the resources that it created.
+
+## A foundation with release purpose contexts
+
+Releases publish to the public registry with the workflow token, so the
+`cicd-oidc` root no longer accepts a `release` purpose context. A foundation
+applied before that change must remove its `release` contexts from
+`purpose_contexts` before its next `gcp-foundation` run.
+
+## Write the identity facts for a first install
+
+A first install needs two owner-only files (mode `0600`) outside the bundle.
+On an empty database, the cutover facts have empty maps:
+
+```json
+{"schema": "shifter.identity-cutover-facts/v1", "account_types_by_organization": {}, "bootstrap_personal_token_eligibility": true, "owner_user_ids_by_workspace": {}}
+```
+
+The bootstrap facts name the Identity Platform account of the first
+administrator. The issuer is `https://securetoken.google.com/<project>`. The
+subject is the `localId` of the account that the infrastructure stage creates
+for `settings.operator_bootstrap.admin_email`:
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "x-goog-user-project: <project>" -H 'Content-Type: application/json' \
+  https://identitytoolkit.googleapis.com/v1/projects/<project>/accounts:lookup \
+  -d '{"email":["<admin email>"]}' | jq -r '.users[0].localId'
+```
+
+Run the first deploy without the files once to create the account, or write
+the files after the infrastructure stage. Do not commit or publish the subject.
 
 ## Manual Terraform runs and a stale ADC quota project
 
-`gcp-foundation` sets the quota project of its child processes. A manual run,
-for example the `release-registry` apply, uses the quota project in your ADC
-file. If that project is deleted, each call fails with the error `The requested
+`gcp-foundation` sets the quota project of its child processes. A manual
+Terraform run uses the quota project in your ADC file. If that project is deleted, each call fails with the error `The requested
 project was not found`. Set the quota project and a private data directory for the run:
 
 ```bash
@@ -84,14 +123,15 @@ manifest at `/opt/bigrae/release.json`, and the release run summary prints it.
 Without Docker, extract it from the image layer with ORAS:
 
 ```bash
-REF=<release registry>/deployer@<digest>
+REF=<release registry>/deployer-gcp@<digest>
 IMAGE=$(oras manifest fetch "$REF" | jq -r '.manifests[0].digest')
 for layer in $(oras manifest fetch "${REF%@*}@$IMAGE" | jq -r '.layers[] | select(.size < 200000) | .digest'); do
   oras blob fetch "${REF%@*}@$layer" --output - | tar -xzO opt/bigrae/release.json 2>/dev/null > release.json && break
 done
 ```
 
-ORAS uses the Docker credential helper for Artifact Registry, so
+The release registry is public, so ORAS needs no credentials for it. For an
+Artifact Registry mirror, ORAS uses the Docker credential helper, so
 `docker-credential-gcloud` must be on `PATH`.
 
 ## Range images that are already in the project
@@ -181,7 +221,63 @@ the certificate challenge. Run the first deploy with `--first-install`; it
 finishes when the certificate covers the hostname, before the certificate is
 `ACTIVE`. First issuance can take longer than one deploy run. After the
 certificate is `ACTIVE`, run `gcp-deploy` again without `--first-install`; a
-normal deploy waits up to 60 minutes for an `ACTIVE` certificate.
+normal deploy waits up to 60 minutes for an `ACTIVE` certificate. The domain
+status can show `FailedNotVisible` for a while after the A record resolves,
+because Google checks the record again on its own schedule. In one standup it
+changed to `ACTIVE` about 45 minutes after the record resolved. No action is
+needed while the hostname resolves to the ingress address and the load balancer
+answers on port 80.
+
+## A destroy releases the ingress address
+
+The `shifter-<environment>-platform-ip` global address is part of the platform
+Terraform, so `gcp-destroy` releases it. A fresh install after a destroy can get
+a different address; one reinstall got the same address again. Update the DNS A record to the address that the `--first-install`
+run prints before you run the deploy again.
+
+## Pin the gcloud account for a long run
+
+The commands use the active gcloud account to impersonate the purpose
+identities. If another shell changes the active account during a run, the next
+gcloud call in the run fails, for example the lock release at the end of a
+destroy. Pin the account for the run instead of relying on the global setting:
+
+```bash
+CLOUDSDK_CORE_ACCOUNT=<operator> uv run --project scripts/bootstrap scripts/bootstrap/deploy.py gcp-deploy --store gs://<bucket>
+```
+
+## Credentials expire during a long run
+
+A test cycle can run for several hours. The gcloud user credentials and the
+Application Default Credentials (ADC) can expire during that time. Then the
+next gcloud call fails with `Reauthentication failed. cannot prompt during
+non-interactive execution`. Before each deploy or destroy, check both
+credentials:
+
+```bash
+CLOUDSDK_CORE_ACCOUNT=<operator> gcloud auth print-access-token > /dev/null
+gcloud auth application-default print-access-token > /dev/null
+```
+
+If a check fails, run `gcloud auth login` or `gcloud auth application-default
+login` again. Then run the stopped command again. Use `--break-lock` only if
+the stopped run held the deployment lock.
+
+## Deploy from a checkout without Docker
+
+Without Docker, run the commands from a worktree of the release revision.
+`gcp-deploy` stops when `HEAD` is not the release revision or when tracked
+files have changes. Use a separate worktree for each release, so that other
+work does not change it:
+
+```bash
+git worktree add --detach <path> <release revision>
+cd <path>
+uv run --project scripts/bootstrap scripts/bootstrap/deploy.py gcp-deploy \
+  --store gs://<bucket> --release-manifest release.json
+```
+
+Install the tool versions that `platform/deployer/gcp/Dockerfile` pins.
 
 ## Never commit a deployment identity
 

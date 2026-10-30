@@ -305,12 +305,7 @@ class GCPObjectStorage:
             blob = client.bucket(bucket).blob(key)
             body = blob.download_as_bytes(start=0, end=max_bytes - 1, **precondition)
         except Exception as e:
-            logger.exception(
-                "read_object_header: failed bucket=%s key=%s error=%s",
-                bucket,
-                safe_key,
-                safe_log_value(e),
-            )
+            logger.exception("read_object_header: failed bucket=%s key=%s", bucket, safe_key)
             raise CloudStorageError(f"Failed to read GCS object header: {e}") from e
         return body[:max_bytes]
 

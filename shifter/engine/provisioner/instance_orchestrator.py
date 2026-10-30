@@ -183,7 +183,9 @@ def _setup_one_other_instance(
     except Exception as e:
         # Catch-all so any single instance's failure becomes a tuple the
         # orchestrator can fail the whole range on, rather than crashing
-        # the executor thread.
+        # the executor thread. Log the traceback here because the tuple keeps
+        # only the message.
+        logger.exception("Instance setup failed instance_id=%s role=%s", inst_id, spec.role)
         return (inst_id, False, str(e))
 
 

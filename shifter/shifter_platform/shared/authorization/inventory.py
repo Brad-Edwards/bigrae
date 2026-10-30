@@ -83,7 +83,7 @@ def resolve_authorization_range_binding(range_uuid: UUID) -> tuple[TargetRef, Re
         if not isinstance(parent, TargetRef) or not isinstance(scope, ResourceScope):
             raise ValueError("Invalid range binding")
         return parent, scope
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise AuthorizationDescendantResolutionError(_AUTHORIZATION_RANGE_BINDING_UNAVAILABLE) from None
 
 
@@ -94,7 +94,7 @@ def resolve_authorization_event_ranges(event_uuid: UUID, limit: int) -> tuple[tu
     scope = resolve_authorization_event_scope(event_uuid)
     try:
         rows = _event_range_resolver(event_uuid, limit + 1)
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise AuthorizationDescendantResolutionError("Authorization event range inventory unavailable") from None
     if len(rows) > limit or len(set(rows)) != len(rows) or any(row.type != "range" for row in rows):
         raise AuthorizationDescendantResolutionError("Authorization event range inventory invalid")

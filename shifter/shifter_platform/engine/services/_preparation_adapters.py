@@ -66,7 +66,7 @@ def require_preparation_permission(user: User | CredentialContext, permission: s
                 )
             )
             return current
-        except Exception:
+        except Exception:  # noqa: BLE001  # fail-closed preparation authority; only bounded denial escapes
             raise ValidationError(_PREPARATION_ACCESS_DENIED) from None
     # Trusted synchronous administration can supply a human identity. It still
     # uses the same application policy and is never serialized as native proof.
@@ -86,7 +86,7 @@ def require_preparation_permission(user: User | CredentialContext, permission: s
             )
         )
         return current
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed preparation authority; only bounded denial escapes
         raise ValidationError(_PREPARATION_ACCESS_DENIED) from None
 
 

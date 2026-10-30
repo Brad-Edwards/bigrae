@@ -320,6 +320,31 @@ quality_units:
       security: [container-images-lint-security]
       test: [stack-smoke]
 
+  # Chart admission policies and the provisioner Job builder they admit. The
+  # admission-apiserver job applies the policies to a real kube-apiserver
+  # (#2651). The paths overlap the charts and shifter_platform units, which own
+  # their lint and security. The server start script is a CI helper (see the
+  # config exclusion below).
+  - id: provisioner_admission
+    paths:
+      - platform/charts/shifter/templates/validatingadmissionpolicy-*.yaml
+      - platform/charts/shifter/templates/runtime-plugins.yaml
+      - platform/charts/shifter/templates/feature-artifact-acquisition.yaml
+      - platform/charts/shifter/templates/runtime-plugin-node-labeler.yaml
+      - platform/charts/shifter/templates/configmap-runtime.yaml
+      - platform/charts/shifter/templates/_helpers.tpl
+      - platform/charts/shifter/values*.yaml
+      - shifter/shifter_platform/shared/cloud/kubernetes/**
+      - shifter/shifter_platform/shared/cloud/gcp/task_runner.py
+      - shifter/shifter_platform/shared/cloud/aws/task_runner.py
+      - shifter/shifter_platform/tests/platform/test_admission_policy_apiserver.py
+      - shifter/shifter_platform/tests/platform/test_gcp_job_launcher_manifests.py
+    sonar: false
+    responsibilities:
+      lint: []
+      security: []
+      test: [admission-apiserver]
+
   # The Helm chart is the only Kubernetes renderer (ADR-007, #2571). Every
   # Kubernetes gate validates the rendered chart for each supported profile.
   - id: charts
@@ -411,13 +436,13 @@ exclusions:
       - scripts/check_gcp_tf_modules/**
       - scripts/check_checkov_invocation_parity/**
       - scripts/post_deploy_smoke/**
+      - scripts/admission_apiserver/**
       - scripts/terraform/**
       - scripts/tests/**
       # Root-level helper scripts are enumerated (not a scripts/* wildcard) so a
       # new script package under scripts/ still fails closed as unclassified.
       - scripts/ami.sh
       - scripts/bump-version.sh
-      - scripts/check-ngfw.sh
       - scripts/config-claude.sh
       - scripts/count-loc.sh
       - scripts/delete-user.sh

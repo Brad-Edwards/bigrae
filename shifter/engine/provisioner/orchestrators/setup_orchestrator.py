@@ -153,7 +153,7 @@ class SetupOrchestrator(_SetupOrchestratorPanOSMixin, _SetupOrchestratorLoggingM
                         ) from e
 
             except ExecutorError as e:
-                logger.exception("orchestrate: step failed step=%s error=%s", step.name, e)
+                logger.exception("orchestrate: step failed step=%s", step.name)
                 raise SetupError(
                     f"Step '{step.name}' failed: {e}",
                     step_name=step.name,
@@ -176,7 +176,7 @@ class SetupOrchestrator(_SetupOrchestratorPanOSMixin, _SetupOrchestratorLoggingM
                         step_name=plan.verify_step.name,
                     )
             except ExecutorError as e:
-                logger.exception("orchestrate: verification failed error=%s", e)
+                logger.exception("orchestrate: verification failed step=%s", plan.verify_step.name)
                 raise SetupError(
                     f"Verification failed: {e}",
                     step_name=plan.verify_step.name,

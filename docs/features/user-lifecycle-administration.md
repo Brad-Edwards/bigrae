@@ -54,7 +54,10 @@ a usable password and a valid email address:
 - A temporary event account keeps its own event-scoped credential flow.
 
 The action returns only whether the request was accepted. The reset link is
-delivered by email only and is never shown in the interface.
+delivered by email only and is never shown in the interface. If the mail provider
+does not accept the message, the action reports that the email could not be
+delivered. Try the action again later. If the deployment has no mail provider,
+the action reports that password reset delivery is unavailable.
 
 ## Transfer ownership
 

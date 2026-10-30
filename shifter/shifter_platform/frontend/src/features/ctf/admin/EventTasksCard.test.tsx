@@ -69,6 +69,17 @@ describe("EventTasksCard", () => {
     );
   });
 
+  it("reports a task that fails to run", async () => {
+    mockApi.mockImplementation(async (path: string, options?: { method?: string }) => {
+      if (options?.method === "POST" && path.endsWith("/run/")) throw new TypeError("Failed to fetch");
+      return TASKS;
+    });
+    renderRoute(<EventTasksCard eventId="e1" />);
+    await userEvent.click((await screen.findAllByRole("button", { name: "Run now" }))[0]);
+    expect(await screen.findByText("Could not run the task.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
+
   it("defers and cancels pending cleanup", async () => {
     mockApi.mockResolvedValue(TASKS);
     renderRoute(<EventTasksCard eventId="e1" />);

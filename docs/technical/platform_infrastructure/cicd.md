@@ -14,7 +14,7 @@ GitHub Actions with self-hosted runners.
 ├── _shifter-platform.yml   # Portal infrastructure and app deployment
 ├── _gcp-dev.yml            # GCP CI wrapper over the gcp-deploy commands
 ├── gcp-dev-destroy.yml     # GCP CI wrapper over gcp-destroy
-├── release-gcp.yml         # GCP release: images, attestations, deployer image
+├── release-gcp.yml         # GCP release: images, attestations, deployer image (release-please.yml calls it)
 ├── packer.yml              # AMI builds (AWS)
 └── packer-promote.yml      # AMI promotion to prod (AWS)
 ```
@@ -68,7 +68,6 @@ OIDC federation per cloud. No long-lived credentials.
 | `GCP_PACKER_VALIDATE_SERVICE_ACCOUNT` | Purpose-scoped GCE image validation service account email |
 | `GCP_PACKER_PROMOTE_SERVICE_ACCOUNT` | Purpose-scoped GCE image promotion service account email |
 | `GCP_RELEASE_SCAN_SERVICE_ACCOUNT` | Purpose-scoped GCP release-scan service account email |
-| `GCP_RELEASE_SERVICE_ACCOUNT` | GCP release publisher service account email (`gcp-release` Environment) |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | GCP Workload Identity Federation provider |
 
 AWS roles defined in `platform/terraform/global/iam/github-oidc.tf`. The GCP

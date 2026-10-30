@@ -96,7 +96,7 @@ class ValidationError(Exception):
     Attributes:
         message: Human-readable error description.
         field: Name of the field that failed validation.
-        value: The invalid value (sanitized for logging).
+        value: The invalid value (sanitized for logging), or None when no value was given.
     """
 
     def __init__(
@@ -115,14 +115,13 @@ class ValidationError(Exception):
         super().__init__(message)
         self.message = message
         self.field = field
-        # Sanitize value to avoid logging sensitive data
-        self.value = self._sanitize_value(value)
+        # Sanitize value to avoid logging sensitive data. No value stays None, so
+        # the string form does not report a fabricated "value=None".
+        self.value = None if value is None else self._sanitize_value(value)
 
     @staticmethod
-    def _sanitize_value(value: object | None) -> str:
+    def _sanitize_value(value: object) -> str:
         """Sanitize value for safe logging."""
-        if value is None:
-            return "None"
         str_value = str(value)
         if len(str_value) > 50:
             return f"{str_value[:50]}..."

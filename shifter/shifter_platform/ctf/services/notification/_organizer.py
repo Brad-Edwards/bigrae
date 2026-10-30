@@ -1,7 +1,8 @@
-"""Retired organizer email alerts remain explicitly unavailable (#1525).
+"""Retired organizer email alerts remain explicitly unavailable (ADR-065).
 
-The participant communication ledger does not represent organizer-only recipients.
-Never turn these alerts into participant broadcasts or invent participant rows.
+The participant communication ledger does not represent organizer-only recipients,
+so the email channel (#1525) cannot carry these alerts. Never turn them into
+participant broadcasts or invent participant rows.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 def _unavailable(event_id: UUID, *args: Any, **kwargs: Any) -> dict[str, str]:
     """Report organizer-only delivery as an unavailable dependency."""
 
-    logger.info("Organizer notification unavailable: event=%s dependency=1525", event_id)
+    logger.info("Organizer notification unavailable: event=%s reason=no_organizer_recipient_contract", event_id)
     return {"outcome": "channel_unavailable"}
 
 

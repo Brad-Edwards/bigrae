@@ -291,7 +291,7 @@ def _principal_mission_control_range(credential: CredentialContext, operation: s
         return require_range_action(current, candidate.uuid, operation)
     except CMSError:
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise RangeLeaseNotFound(_RANGE_NOT_FOUND) from None
 
 

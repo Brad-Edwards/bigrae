@@ -94,7 +94,38 @@ describe("communication Markdown profile", () => {
   });
   it.each(["https://untrusted.test/path", "//docs.example.test/path", "mailto:a@example.test", "/\\untrusted.test/path", "https://user:pass@docs.example.test/path"])("blocks %s", (url) => {
     const { container } = render(<MarkdownContent text={`[x](${url})`} profile="ctf-communication-markdown/v1" allowedLinkHosts={["docs.example.test"]} />);
-    expect(anchorHref(container)).toBe("");
+    // A neutralized destination is inert text, not an anchor that points at the page.
+    expect(container.querySelector("a")).toBeNull();
+    expect(container).toHaveTextContent("x");
+  });
+  it.each([
+    "Visit www.untrusted.test today",
+    "Mail help@example.test",
+    "[x](jav&#x09;ascript:alert(1))",
+    "[x](&#106;avascript:alert(1))",
+    "[x][ref]\n\n[ref]: https://untrusted.test",
+  ])("renders %s without a link", (text) => {
+    const { container } = render(<MarkdownContent text={text} profile="ctf-communication-markdown/v1" allowedLinkHosts={["docs.example.test"]} />);
+    expect(container.querySelector("a")).toBeNull();
+  });
+  it.each([
+    "<img src=x onerror=alert(1)>",
+    "<iframe src=https://untrusted.test></iframe>",
+    "<svg onload=alert(1)></svg>",
+    "<a href=javascript:alert(1)>x</a>",
+    "<object data=x></object><embed src=x>",
+    "<video src=x></video><audio src=x></audio>",
+  ])("keeps stored markup %s inert", (text) => {
+    const { container } = render(<MarkdownContent text={text} profile="ctf-communication-markdown/v1" allowedLinkHosts={["docs.example.test"]} />);
+    expect(container.querySelector("img, iframe, svg, a, object, embed, video, audio, script")).toBeNull();
+    for (const element of container.querySelectorAll("*")) {
+      expect(element.getAttributeNames().some((name) => name.startsWith("on"))).toBe(false);
+    }
+  });
+  it("renders template-like expressions as literal text", () => {
+    const text = "{{ constructor.constructor('alert(1)')() }} {% debug %}";
+    const { container } = render(<MarkdownContent text={text} profile="ctf-communication-markdown/v1" />);
+    expect(container).toHaveTextContent(text);
   });
   it.each(["/events/rules", "#rules", "https://docs.example.test/rules"])("permits %s", (url) => {
     const { container } = render(<MarkdownContent text={`[x](${url})`} profile="ctf-communication-markdown/v1" allowedLinkHosts={["docs.example.test"]} />);

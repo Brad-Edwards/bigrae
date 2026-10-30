@@ -284,7 +284,7 @@ def _gcp_identity_admin_request(
     parsed_url = urllib_parse.urlparse(url)
     if parsed_url.scheme != "https" or parsed_url.netloc != "identitytoolkit.googleapis.com" or parsed_url.query:
         raise RuntimeError(f"Refusing to call unexpected Identity Platform endpoint: {url}")
-    request = urllib_request.Request(  # noqa: S310 - URL is validated immediately above
+    request = urllib_request.Request(  # noqa: S310  # URL is validated immediately above
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers={
@@ -324,7 +324,7 @@ def ensure_gcp_identity_platform_operator(
     _validate_gcp_bootstrap_operator_email(email, outputs=outputs)
 
     if dry_run:
-        info(f"[DRY-RUN] Would create or verify the Identity Platform operator account for {email}")
+        info("[DRY-RUN] Would create or verify the Identity Platform operator account")
         return email
 
     try:
@@ -339,11 +339,11 @@ def ensure_gcp_identity_platform_operator(
                 "emailVerified": True,
             },
         )
-        success(f"Created Identity Platform operator {email}")
+        success("Created the Identity Platform operator account")
         return email
     except RuntimeError as exc:
         if "EMAIL_EXISTS" in str(exc):
-            info(f"Identity Platform operator {email} already exists")
+            info("The Identity Platform operator account already exists")
             return email
         raise
 
@@ -689,7 +689,7 @@ def ensure_gcp_artifact_registry_service_identity(config: GDCBootstrapConfig, dr
     parsed_url = urllib_parse.urlparse(url)
     if parsed_url.scheme != "https" or parsed_url.netloc != "serviceusage.googleapis.com" or parsed_url.query:
         raise RuntimeError(f"Refusing to call unexpected Service Usage endpoint: {url}")
-    request = urllib_request.Request(  # noqa: S310 - URL is validated immediately above
+    request = urllib_request.Request(  # noqa: S310  # URL is validated immediately above
         url,
         data=b"",
         headers={

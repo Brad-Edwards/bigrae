@@ -189,7 +189,7 @@ def _quality_package_reconciliation(contract: _QualityContract, repo_root: Path,
     neither side may reference a package the other does not know about."""
     try:
         classified = _classified_packages(repo_root)
-    except Exception as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         return [
             viol(
                 _QUALITY_CONTRACT_REL,

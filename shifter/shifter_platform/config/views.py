@@ -108,6 +108,8 @@ def _parse_id_token(request: HttpRequest) -> str:
         payload = json.loads(request.body.decode("utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError("Request body must be valid JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("Request body must be a JSON object.")
     id_token = str(payload.get("idToken", "")).strip()
     if not id_token:
         raise ValueError("An ID token is required.")
@@ -177,10 +179,7 @@ def dashboard_router(request: HttpRequest) -> HttpResponse:
     if continuation is not None:
         return HttpResponseRedirect(continuation)
     user = cast(User, request.user)
-    logger.debug(
-        "Routing user=%s to the platform SPA dashboard",
-        safe_log_fingerprint(user.email),
-    )
+    logger.debug("Routing user_id=%s to the platform SPA dashboard", user.pk)
     return HttpResponseRedirect(reverse("home"))
 
 
@@ -203,6 +202,7 @@ def logout_view(request: HttpRequest) -> HttpResponse:
     is_identity_platform = backend_class is not None and issubclass(
         backend_class, identity_platform_auth.IdentityPlatformBackend
     )
+    user_id = request.user.pk
     email = request.user.email
     redirect_url = settings.LOGOUT_REDIRECT_URL
 
@@ -222,11 +222,11 @@ def logout_view(request: HttpRequest) -> HttpResponse:
         logout_url_method = getattr(settings, "OIDC_OP_LOGOUT_URL_METHOD", "")
         if logout_url_method:
             redirect_url = import_string(logout_url_method)(request)
-        logger.debug("OIDC logout for user=%s", safe_log_fingerprint(email))
+        logger.debug("OIDC logout for user_id=%s", user_id)
     elif is_identity_platform:
-        logger.debug("Identity Platform logout for user=%s", safe_log_fingerprint(email))
+        logger.debug("Identity Platform logout for user_id=%s", user_id)
     else:
-        logger.debug("Session logout for user=%s", safe_log_fingerprint(email))
+        logger.debug("Session logout for user_id=%s", user_id)
 
     logout(request)
     if is_identity_platform:

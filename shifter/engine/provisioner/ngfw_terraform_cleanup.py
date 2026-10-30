@@ -44,10 +44,9 @@ def _cleanup_ngfw_bootstrap_objects(instance_id: str) -> None:
             storage.delete_object(bucket=bootstrap_bucket, key=key)
         except Exception as e:
             logger.exception(
-                "Failed to delete NGFW bootstrap object: bucket=%s key=%s error=%s",
+                "Failed to delete NGFW bootstrap object: bucket=%s key=%s",
                 bootstrap_bucket,
                 key,
-                e,
             )
             failures.append((key, e))
 
@@ -106,7 +105,7 @@ def _run_gdc_deprovision(
                 management_ip=management_ip,
                 ssh_key_secret_arn=ssh_key_secret_arn,
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001  # best-effort license deactivation; destroy proceeds regardless
             logger.warning("GDC VM-Series license deactivation error: %s, proceeding with destroy", e)
     else:
         logger.warning(
@@ -156,7 +155,7 @@ def _deactivate_aws_vmseries_license(current_state: dict[str, Any]) -> None:
             management_ip=management_ip,
             ssh_key_secret_arn=ssh_key_secret_arn,
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001  # best-effort license deactivation; destroy proceeds regardless
         logger.warning("License deactivation error: %s, proceeding with destroy", e)
 
 

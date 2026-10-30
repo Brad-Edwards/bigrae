@@ -288,10 +288,11 @@ def pause_ngfw_for_range(request_id: str, *, ref: OperationRef | None = None) ->
     result = orchestrator.orchestrate(ngfw_info["ec2_instance_id"], plan, context)
 
     if not result.success:
-        error_msg = result.error or "NGFW stop failed"
-        logger.error("pause_ngfw_for_range: %s", error_msg)
+        # Provider stderr stays out of logs and error text (see OpsOrchestrator);
+        # the executor already logged the provider error code.
+        logger.error("pause_ngfw_for_range: NGFW stop failed request_id=%s", request_id)
         _report_cascade(_pkg, ngfw_info, STATUS_FAILED, ref=ref, operation="pause")
-        raise RuntimeError(error_msg)
+        raise RuntimeError("NGFW stop failed")
 
     _report_cascade(_pkg, ngfw_info, STATUS_PAUSED, ref=ref, operation="pause")
 
@@ -313,7 +314,8 @@ def _wait_for_ngfw_pause_to_complete(ngfw_info: dict[str, Any]) -> None:
     executor = _pkg.AWSExecutor()
     wait_result = executor.wait_for_stopped(ngfw_info["ec2_instance_id"])
     if not wait_result.success:
-        raise RuntimeError(f"NGFW failed to reach paused state: {wait_result.stderr}")
+        # Provider stderr stays out of error text; the executor logged the failure.
+        raise RuntimeError("NGFW failed to reach paused state")
     logger.info("ensure_ngfw_running: NGFW is now paused, proceeding to resume")
 
 
@@ -372,19 +374,23 @@ def _run_ngfw_start_with_retry(ngfw_info: dict[str, Any], request_id: str, *, re
             return
 
         if attempt == NGFW_START_MAX_RETRIES - 1:
-            error_msg = result.error or "NGFW start failed"
-            logger.error("ensure_ngfw_running: %s", error_msg)
+            # Provider stderr stays out of logs and error text (see OpsOrchestrator);
+            # the executor already logged the provider error code.
+            logger.error(
+                "ensure_ngfw_running: NGFW start failed after %d attempts request_id=%s",
+                NGFW_START_MAX_RETRIES,
+                request_id,
+            )
             _publish_ngfw_status(ngfw_info, STATUS_FAILED, ref=ref)
-            raise RuntimeError(error_msg)
+            raise RuntimeError("NGFW start failed")
 
         delay = NGFW_START_RETRY_DELAYS[attempt]
         logger.warning(
-            "ensure_ngfw_running: attempt %d/%d failed, retrying in %ds request_id=%s error=%s",
+            "ensure_ngfw_running: attempt %d/%d failed, retrying in %ds request_id=%s",
             attempt + 1,
             NGFW_START_MAX_RETRIES,
             delay,
             request_id,
-            result.error,
         )
         _pkg.time.sleep(delay)
 

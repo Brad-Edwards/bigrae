@@ -44,7 +44,7 @@ variable "purpose_contexts" {
   validation {
     condition = alltrue([
       for purpose, contexts in var.purpose_contexts :
-      contains(["build", "validate", "promote", "release_scan", "deploy", "destroy", "release"], purpose) && length(contexts) > 0
+      contains(["build", "validate", "promote", "release_scan", "deploy", "destroy"], purpose) && length(contexts) > 0
     ])
     error_message = "purpose_contexts must enable only supported purposes with non-empty contexts."
   }
@@ -75,13 +75,6 @@ variable "purpose_contexts" {
       contains(["refs/heads/dev", "refs/heads/main"], context.ref) && endswith(context.workflow_ref, "@${context.ref}")
     ])
     error_message = "Destroy trust tuples must bind protected refs/heads/dev or refs/heads/main; gcp-dev-destroy.yml rejects every other dispatch ref."
-  }
-  validation {
-    condition = alltrue([
-      for context in lookup(var.purpose_contexts, "release", []) :
-      contains(["refs/heads/main", "refs/heads/dev", "refs/heads/deploy-test"], context.ref) && endswith(context.workflow_ref, "/release-gcp.yml@${context.ref}") && context.reusable_workflow_ref == ""
-    ])
-    error_message = "Release trust tuples must bind release-gcp.yml on refs/heads/main, refs/heads/dev, or refs/heads/deploy-test; the workflow rejects every other dispatch ref."
   }
 }
 

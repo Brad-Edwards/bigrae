@@ -13,6 +13,35 @@ records the preview, reporting, timeline, and console architecture. The #2052
 [scheduling](../../architecture/ctf-multi-event-communications-preflight-2052.md)
 preflights record the boundaries.
 
+The [email delivery design (#1525)](../../architecture/email-delivery-design-1525.md),
+its [preflight](../../architecture/ctf-email-durable-delivery-preflight-1525.md),
+ADR-051-R14, and ADR-071 define the email channel on this same ledger and
+worker.
+
+## Email channel
+
+`adapters/email.py` registers `EmailAdapter` in the closed adapter mapping.
+`registered_channels()` returns `email` only when `EMAIL_DELIVERY_AVAILABLE` is
+true. That setting is false for console, file, and dummy backends outside
+development and test runtimes. Release, preview, cutover, and lifecycle notices
+read the same value in the web and worker processes.
+
+The adapter reads only the coordinate of its own snapshot. It renders the
+pinned subject and Markdown source through the trusted `ctf/email/communication`
+template, which escapes the source. It calls `shared.email.attempt_email()` with
+the worker transport timeout and the row `idempotency_key`. The key becomes a
+stable Message-ID. A missing snapshot or erased coordinate is terminal. An
+unreadable coordinate is retriable within the worker budget.
+
+The worker expires a claim before I/O when its attempt or elapsed ceiling is
+spent. On SIGTERM it finishes the attempt in flight and releases the other
+unattempted claims. When the last transport command of an occurrence settles,
+it refreshes `CommunicationIntent.delivery_state` through
+`disposition.refresh_after_settlement()`.
+Each cycle reconciles pending occurrences whose commands are all terminal.
+`WorkerOutcome` metrics carry `Outcome` and `Channel` dimensions, and each
+settlement writes one log line with the attempt, channel, status, and reason.
+
 ## Console read projections
 
 `ctf/services/communication/reporting.py` owns the console reads. It writes no
@@ -24,7 +53,7 @@ state. Direct service calls require an `AdmissionActor` and a campaign UUID.
 | --- | --- | --- |
 | Targets | `targets.py`: current `event.manage_communications` on each exact event scope, before offsets | 100 events per page |
 | Preview | `recipient_queryset` grouped by event; no row load | Target count |
-| Delivery | `DeliveryAttempt` and `RecipientSnapshot` in separate grouped queries | 100 occurrences per page |
+| Delivery | `DeliveryAttempt` and `RecipientSnapshot` in separate grouped queries, plus the persisted `delivery_state` | 100 occurrences per page |
 | Recipients | Snapshots for one occurrence and one event; also needs current `event.manage_participants` | 100 rows per page |
 | Activity | Campaign, revision, and intent attribution columns | 100 revisions and 100 intents |
 
@@ -74,12 +103,35 @@ with bounded errors. API errors use authored messages through `shared.api.errors
 
 ## Inbox and socket policy
 
+The [participant inbox boundary note](../../design/ctf-participant-inbox-boundaries-2053.md)
+(#2053) records the preflight constraints, including CTF-014's trusted-app,
+branding and Django/gettext boundaries. It does not claim multilingual SPA support.
+The [participant inbox design](../../architecture/ctf-participant-inbox-design-2053.md)
+records the receipt states, views, content checks, security controls and data flow.
+
 `ctf.services.communication.inbox` matches event, immutable participant public
 identity and user together. A committed receipt and released intent prove in-app
-availability. A GET never creates or changes a receipt. Read/ack actions lock and
-recheck live participation, then set the first timestamp idempotently. The pinned
+availability. Inbox reads exclude campaigns past the retention cut-off from
+`retention.expired_campaign_ids`, so purge lag does not extend access. A GET never
+creates or changes a receipt. `interact_with_receipt` takes one closed
+`ReceiptAction` (`read`, `dismiss`, `acknowledge`). It locks the event, the
+participant and the receipt, rechecks live participation, and then sets that
+action's first timestamp. No action changes another timestamp. The pinned
 acknowledgement policy governs explicit acknowledgement. Retained inbox access
 is distinct from permission to compete or temporary-account lifetime.
+
+`InboxFilter` selects the list view. `inbox` hides a dismissed message only when
+its pinned policy has no open obligation. `action_required` lists open
+obligations. `dismissed` lists dismissed messages. The list adds inbox-wide counts
+and the deployment link-host allowlist. Every inbox response carries Django's
+never-cache headers (`no-store`, `private`). Validation errors use one generic
+`invalid` envelope that does not repeat the input.
+
+Admission parses the body with `markdown-it-py` (CommonMark, tables and
+strikethrough). It rejects image tokens, HTML tokens, link targets outside the
+policy, GFM `www.` autolinks and rendered output above 131,072 bytes. The link-host
+setting rejects `localhost` and IP literals at startup. The participant inbox and
+the organizer preview render under the same server-projected allowlist.
 
 The exact `/ws/notifications/` path is admitted for an eligible temporary account
 after password change, through the existing origin/session/account stack. The
@@ -87,8 +139,11 @@ consumer retains the actual native credential and checks topic policy on
 subscription, replay and each delivery. It projects retained payloads
 through the current registration. CTF wake-ups contain references only; legacy
 bodies become a refresh hint. Revocation at final send retains the undelivered
-receipt. The communication Markdown profile on the canonical
-renderer rejects media and non-allowlisted navigation at render time.
+receipt. The SPA shell refetches the inbox on a `communication` hint and
+refetches CTF reads on a `refresh` hint. It drops other frames. The
+communication Markdown profile on the canonical renderer drops media and renders
+non-allowlisted links as plain text. An unknown content profile shows no body
+and offers no read or acknowledge action.
 
 ## Public contract and verification
 
@@ -150,7 +205,7 @@ writer and retained fence. Do not reverse migrations, delete the marker, or
 restart an old sender. A database restore requires another full maintenance
 reconciliation before any workers are admitted.
 
-When the email adapter is installed, recover one mapped schedule through
+When email is available, recover one mapped schedule through
 `resume_migrated_schedule(legacy_id)`. It uses the original campaign, actor, due
 instant and stable `legacy:<id>` occurrence. Retries return the same declaration;
 a past-due declaration obeys the existing lateness policy rather than silently

@@ -48,6 +48,13 @@ def _stream_capped_to_file(stream: BinaryIO, dest_path: str, max_bytes: int) -> 
     return written
 
 
+def _is_not_found(error: ClientError) -> bool:
+    """Return True when an S3 ClientError reports a missing object (HTTP 404)."""
+    code = (error.response.get("Error") or {}).get("Code")
+    status = (error.response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+    return code in {"404", "NoSuchKey", "NotFound"} or status == 404
+
+
 class AWSObjectStorage:
     """S3 implementation of ObjectStorage protocol."""
 
@@ -216,7 +223,14 @@ class AWSObjectStorage:
                 "content_length": response["ContentLength"],
                 "etag": response["ETag"].strip('"'),
             }
-        except (ClientError, BotoCoreError) as e:
+        except ClientError as e:
+            if _is_not_found(e):
+                # A missing object is the caller's outcome to judge (the GCS adapter
+                # does not log it either), so it carries no traceback here.
+                raise CloudStorageError(f"S3 object not found: s3://{bucket}/{key}") from e
+            logger.exception("head_object: failed bucket=%s key=%s", bucket, safe_key)
+            raise CloudStorageError(f"Failed to head S3 object: {e}") from e
+        except BotoCoreError as e:
             logger.exception("head_object: failed bucket=%s key=%s", bucket, safe_key)
             raise CloudStorageError(f"Failed to head S3 object: {e}") from e
 
@@ -255,12 +269,7 @@ class AWSObjectStorage:
             finally:
                 stream.close()
         except (ClientError, BotoCoreError) as e:
-            logger.exception(
-                "read_object_header: failed bucket=%s key=%s error=%s",
-                bucket,
-                safe_key,
-                safe_log_value(e),
-            )
+            logger.exception("read_object_header: failed bucket=%s key=%s", bucket, safe_key)
             raise CloudStorageError(f"Failed to read S3 object header: {e}") from e
         return body[:max_bytes]
 
@@ -325,10 +334,9 @@ class AWSObjectStorage:
             client.head_object(Bucket=bucket, Key=key, **self._owner_kwargs())
             return True
         except ClientError as e:
-            code = (e.response.get("Error") or {}).get("Code")
-            status = (e.response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
-            if code in {"404", "NoSuchKey", "NotFound"} or status == 404:
+            if _is_not_found(e):
                 return False
+            code = (e.response.get("Error") or {}).get("Code")
             logger.exception(
                 "object_exists: unexpected ClientError bucket=%s key=%s code=%s",
                 bucket,

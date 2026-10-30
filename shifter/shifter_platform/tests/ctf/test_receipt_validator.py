@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from datetime import timedelta
 from unittest.mock import patch
 from uuid import uuid4
@@ -202,19 +201,14 @@ def test_receipt_response_rejects_every_foreign_binding(registered_profile, fiel
 
 def test_receipt_failure_logs_only_bounded_categories(registered_profile, caplog):
     context = _context()
-    receipt_logger = logging.getLogger("ctf.validators._receipt")
-    receipt_logger.addHandler(caplog.handler)
     receipt_canary = "PENR1.receipt-canary"
     secret_canary = "service-auth-canary-value"
     exception_canary = "provider-exception-canary-value"
-    try:
-        with receipt_wire(
-            connection_error=OSError(exception_canary),
-            service_auth=secret_canary,
-        ):
-            assert validate_receipt(receipt_canary, registered_profile, context) is None
-    finally:
-        receipt_logger.removeHandler(caplog.handler)
+    with receipt_wire(
+        connection_error=OSError(exception_canary),
+        service_auth=secret_canary,
+    ):
+        assert validate_receipt(receipt_canary, registered_profile, context) is None
 
     rendered = caplog.text
     assert "Receipt validator provider is unavailable" in rendered
@@ -225,13 +219,8 @@ def test_receipt_failure_logs_only_bounded_categories(registered_profile, caplog
 
 def test_well_formed_negative_verdict_is_not_logged_as_provider_failure(registered_profile, caplog):
     context = _context()
-    receipt_logger = logging.getLogger("ctf.validators._receipt")
-    receipt_logger.addHandler(caplog.handler)
-    try:
-        with receipt_wire(b'{"valid":false}'):
-            assert validate_receipt("PENR1.token", registered_profile, context) is None
-    finally:
-        receipt_logger.removeHandler(caplog.handler)
+    with receipt_wire(b'{"valid":false}'):
+        assert validate_receipt("PENR1.token", registered_profile, context) is None
 
     assert "Receipt validator" not in caplog.text
 

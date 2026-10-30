@@ -60,7 +60,10 @@ its verified terminal state. There is no legacy authorization fallback or mixed
 runtime mode. The one-time converter preserves stable resource identifiers,
 stops on ambiguous ownership/provider facts, verifies relationship readback,
 bootstraps one exact provider-bound administrator, and invalidates pre-cutover
-sessions and API tokens before activation. No live deployment currently exists,
+sessions and API tokens before activation. On an empty database, a preparation
+step before the plan creates that administrator's user, principal, and provider
+binding from the bootstrap facts (#2671). It creates nothing when any user
+already exists. No live deployment currently exists,
 so repository and clean/legacy fixture evidence is not live-cloud acceptance.
 [Content/range authority](shifter_platform/content-range-authority.md) and
 [account administration](shifter_platform/account-administration.md) explain the
@@ -120,7 +123,11 @@ A GCP deployment runs from a published release. Operators and CI use the same
 `deploy.py gcp-deploy` command, which reads the deployment input bundle from the
 deployment config bucket or a local directory. Secret values stay in Secret
 Manager (ADR-070, [GitHub-less GCP deployment guide](handbook/gcp-github-less-deployment.md)). Keep platform
-hosting separate from the range guest backend.
+hosting separate from the range guest backend. `gcp-destroy` keeps the Artifact
+Registry key ring and key, which GCP can not delete. A later install adopts them
+with import blocks. The range network peers with the platform network after the
+Service Networking connection, because GCP runs one peering operation for each
+network at a time (#2643).
 
 | Boundary | GCP | AWS |
 | --- | --- | --- |
@@ -316,6 +323,10 @@ Pack content never authorizes executable installation. Private content, adapters
 image recipes, answers and acceptance evidence stay in their owner's repository.
 A compatibility probe, buildable SDK, or accepted manifest proves neither a
 published package release nor a qualified live range.
+
+The 2026-10-28 logging and exception-handling cleanup (#2569) changed only the
+Ruff lint rules in the SDK package manifest. It did not change the adapter ABI,
+the public contracts, or the installation boundary on this page.
 
 ## Install, exercise and maintain
 

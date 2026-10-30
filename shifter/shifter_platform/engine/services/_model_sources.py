@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -20,6 +21,7 @@ if TYPE_CHECKING:
     from engine.models import ModelSource, ModelSourceRevision
     from shared.credentials import CredentialContext
 
+logger = logging.getLogger(__name__)
 
 REVISION_CONFLICT = "source.revision_conflict"
 
@@ -79,7 +81,7 @@ def _authorize(actor: CredentialContext, organization_uuid: UUID) -> CredentialC
             )
         )
         return current
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
         raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
 
 
@@ -174,7 +176,7 @@ def _store_credential(
         if current_actor is not None:
             try:
                 resolve_local_credential(current_actor)
-            except Exception:
+            except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
                 failure = OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED)
         current = ModelSource.objects.select_for_update().get(pk=source.pk)
         try:
@@ -214,7 +216,14 @@ def _persist_source_secret(source: ModelSource, revision: ModelSourceRevision, p
         raise ContractError("source.credential_unavailable")
     try:
         reference = get_secrets_store().create_owned_secret(source.id, revision.credential_version, payload)
-    except CloudSecretsError:
+    except CloudSecretsError as exc:
+        logger.error(
+            "model source credential store failed source_id=%s credential_version=%s exc_type=%s",
+            source.id,
+            revision.credential_version,
+            type(exc).__name__,
+            exc_info=False,
+        )
         ModelSourceRevision.objects.filter(pk=revision.pk, state="pending").update(state="failed")
         raise ContractError("source.credential_unavailable") from None
     revision.credential_reference = reference
@@ -239,7 +248,7 @@ def create_model_source(
         ModelSourceRegistry.objects.select_for_update().get(organization_uuid=organization_uuid)
         try:
             resolve_local_credential(current_actor)
-        except Exception:
+        except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
             from workspaces.services import OrganizationAuthorizationError
 
             raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
@@ -281,7 +290,7 @@ def update_model_source(
 
         try:
             resolve_local_credential(current_actor)
-        except Exception:
+        except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
             from workspaces.services import OrganizationAuthorizationError
 
             raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
@@ -436,7 +445,7 @@ def retire_unused_model_source_credentials(actor: CredentialContext, organizatio
 
         try:
             resolve_local_credential(current_actor)
-        except Exception:
+        except Exception:  # noqa: BLE001  # fail-closed authority boundary; suppress private causes
             from workspaces.services import OrganizationAuthorizationError
 
             raise OrganizationAuthorizationError(_ORGANIZATION_ACCESS_DENIED) from None
@@ -472,7 +481,13 @@ def retire_unused_model_source_credentials(actor: CredentialContext, organizatio
             raise ContractError("source.credential_cleanup_pending")
         try:
             get_secrets_store().retire_owned_secret(source.id, version)
-        except CloudSecretsError:
+        except CloudSecretsError as exc:
+            logger.warning(
+                "model source credential retirement deferred source_id=%s credential_version=%s exc_type=%s",
+                source.id,
+                version,
+                type(exc).__name__,
+            )
             raise ContractError("source.credential_cleanup_pending") from None
         ModelSourceRevision.objects.filter(source=source, credential_version=version, state="retired").update(
             retired_at=timezone.now()

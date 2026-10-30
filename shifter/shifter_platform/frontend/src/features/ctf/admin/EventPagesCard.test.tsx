@@ -50,6 +50,18 @@ describe("EventPagesCard", () => {
     expect(screen.queryByText("/briefing")).not.toBeInTheDocument();
   });
 
+  it("reports a page that fails to remove", async () => {
+    mockApi.mockImplementation((...args: unknown[]) => {
+      const options = args[1] as { method?: string } | undefined;
+      if (options?.method === "DELETE") return Promise.reject(new TypeError("Failed to fetch"));
+      return Promise.resolve({ pages: [{ id: "p1", title: "Rules", slug: "rules", body: "be nice", order: 1 }] });
+    });
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Remove" }));
+    expect(await screen.findByText("Could not remove the page.")).toBeInTheDocument();
+    expect(screen.queryByText("Failed to fetch")).not.toBeInTheDocument();
+  });
+
   it("edits a published briefing through the update endpoint", async () => {
     mockApi.mockImplementation((...args: unknown[]) => {
       const url = String(args[0] ?? "");

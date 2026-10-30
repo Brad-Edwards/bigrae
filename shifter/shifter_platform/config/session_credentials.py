@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import time
 from collections.abc import Callable
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
 
     from shared.credentials import CredentialContext
 
+
+logger = logging.getLogger(__name__)
 
 IDENTITY_BACKEND = "config.identity_platform.IdentityPlatformBackend"
 COGNITO_BACKEND = "config.oidc.ShifterOIDCBackend"
@@ -173,8 +176,14 @@ def _identity_session_valid(
             state["seen"] = now
         session[ASSURANCE_KEY] = state
         return True
-    except Exception:
-        # Provider/database outages and malformed state never extend a proof.
+    except ValueError:
+        # Expired, unbound, revoked, or malformed assurance never extends a proof.
+        logger.info("Identity session rejected: user_id=%s", user.pk)
+        return False
+    # fail closed; provider SDK errors can carry credential payloads, so log the type only
+    except Exception as exc:  # noqa: BLE001
+        # Provider and database outages never extend a proof.
+        logger.warning("Identity session check failed closed: user_id=%s exc_type=%s", user.pk, type(exc).__name__)
         return False
 
 
@@ -233,7 +242,7 @@ def session_credential(user: User, session: SessionBase, *, provider_check: bool
             CredentialCeiling(frozenset(action.code for action in ACTION_CATALOG)),
             frozenset(),
         )
-    except Exception:
+    except Exception:  # noqa: BLE001  # fail-closed credential boundary; the cause stays out of the chain
         raise ValueError("Credential unavailable") from None
 
 
@@ -264,10 +273,15 @@ def validate_socket_session(scope: dict[str, object], *, touch: bool = False) ->
             current = resolve_current_credential(original)
             if original.kind in {"personal", "service"}:
                 scope["credential_context"] = current
-                return True
-        _validate_browser_socket(scope, original, current, touch=touch)
+        if original is None or original.kind not in {"personal", "service"}:
+            _validate_browser_socket(scope, original, current, touch=touch)
         return True
+    except ValueError:
+        # Logout, expiry, password change, or revocation ends socket admission.
+        logger.debug("Socket session rejected: user_id=%s", getattr(scope.get("user"), "pk", None))
+        return False
     except Exception:
+        logger.exception("Socket session check failed closed: user_id=%s", getattr(scope.get("user"), "pk", None))
         return False
 
 

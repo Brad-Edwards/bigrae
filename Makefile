@@ -62,7 +62,7 @@ test-adapter-sdk: ## Independent adapter contract and packaging checks
 test-platform: ## Platform fast local lane (SQLite; CI runs the PostgreSQL lane)
 	cd shifter/shifter_platform && uv sync --group dev && \
 	  $(PLATFORM_ENV) uv run python manage.py collectstatic --noinput && \
-	  $(PLATFORM_ENV) uv run pytest tests/ -m "not redis and not postgres" --cov
+	  $(PLATFORM_ENV) uv run pytest tests/ -m "not redis and not postgres and not apiserver" --cov
 
 # Mirrors the sharded `shifter-platform-tests` CI job, including collectstatic.
 POSTGRES_ENV := TESTING=1 DJANGO_DEBUG=true TEST_DB_BACKEND=postgres DJANGO_SECRET_KEY=$(TEST_DJANGO_SECRET_KEY) \
@@ -71,7 +71,7 @@ POSTGRES_ENV := TESTING=1 DJANGO_DEBUG=true TEST_DB_BACKEND=postgres DJANGO_SECR
 test-platform-postgres: ## Platform CI lane: PostgreSQL suite and coverage floor (needs Postgres on :5432)
 	cd shifter/shifter_platform && uv sync --group dev && \
 	  $(POSTGRES_ENV) uv run python manage.py collectstatic --noinput && \
-	  $(POSTGRES_ENV) uv run pytest tests/ -m "not redis and not openfga" --cov
+	  $(POSTGRES_ENV) uv run pytest tests/ -m "not redis and not openfga and not apiserver" --cov
 
 test-platform-redis: ## Platform Redis channel-layer integration lane (needs a Redis service on :6379)
 	cd shifter/shifter_platform && uv sync --group dev && \
@@ -132,6 +132,7 @@ test-platform-e2e: ## Authenticated SPA E2E (Playwright) against the hermetic Dj
 	  $(PLATFORM_ENV) uv run python manage.py collectstatic --noinput && \
 	  $(PLATFORM_ENV) uv run python manage.py migrate --noinput && \
 	  $(PLATFORM_ENV) uv run python manage.py seed_e2e && \
+	  $(PLATFORM_ENV) uv run python manage.py seed_e2e_ctf && \
 	  cd frontend && npx playwright install chromium && \
 	  ( $(PLATFORM_ENV) npm run test:e2e; status=$$?; rm -f ../db.sqlite3; exit $$status )
 
@@ -145,6 +146,7 @@ test-platform-a11y: ## Browser accessibility (Playwright + axe) against the herm
 	  $(PLATFORM_ENV) uv run python manage.py collectstatic --noinput && \
 	  $(PLATFORM_ENV) uv run python manage.py migrate --noinput && \
 	  $(PLATFORM_ENV) uv run python manage.py seed_e2e && \
+	  $(PLATFORM_ENV) uv run python manage.py seed_e2e_ctf && \
 	  cd frontend && npx playwright install chromium && \
 	  ( $(PLATFORM_ENV) npm run test:e2e:a11y; status=$$?; rm -f ../db.sqlite3; exit $$status )
 

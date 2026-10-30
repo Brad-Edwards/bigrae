@@ -209,26 +209,35 @@ class TestConnectNGFWTerminalLogging:
             connect_ngfw_terminal(user, str(ngfw.uuid))
         assert "Creating SSH connection" in caplog.text or str(ngfw.uuid) in caplog.text
 
-    def test_logs_error_when_ngfw_not_found(self, user, caplog):
+    def test_logs_warning_when_ngfw_not_found(self, user, caplog):
         from engine import connect_ngfw_terminal
 
-        with caplog.at_level(logging.ERROR, logger="engine"), pytest.raises(ValueError):
+        with caplog.at_level(logging.WARNING, logger="engine"), pytest.raises(ValueError):
             connect_ngfw_terminal(user, str(uuid4()))
-        assert "error" in caplog.text.lower() or "not found" in caplog.text.lower()
+        assert any(
+            record.levelno == logging.WARNING and "not found" in record.getMessage().lower()
+            for record in caplog.records
+        )
 
-    def test_logs_error_when_permission_denied(self, user, django_user_model, caplog):
+    def test_logs_warning_when_permission_denied(self, user, django_user_model, caplog):
         from engine import connect_ngfw_terminal
 
         other = django_user_model.objects.create_user(username="ngfw-other2@e.com", email="ngfw-other2@e.com")
         ngfw = _ngfw(user, owner=other)
-        with caplog.at_level(logging.ERROR, logger="engine"), pytest.raises(PermissionError):
+        with caplog.at_level(logging.WARNING, logger="engine"), pytest.raises(PermissionError):
             connect_ngfw_terminal(user, str(ngfw.uuid))
-        assert "permission" in caplog.text.lower() or "does not own" in caplog.text.lower()
+        assert any(
+            record.levelno == logging.WARNING and "does not own" in record.getMessage().lower()
+            for record in caplog.records
+        )
 
-    def test_logs_error_when_ngfw_not_accessible(self, user, caplog):
+    def test_logs_warning_when_ngfw_not_accessible(self, user, caplog):
         from engine import connect_ngfw_terminal
 
         ngfw = _ngfw(user, status=ResourceStatus.PROVISIONING.value)
-        with caplog.at_level(logging.ERROR, logger="engine"), pytest.raises(ValueError):
+        with caplog.at_level(logging.WARNING, logger="engine"), pytest.raises(ValueError):
             connect_ngfw_terminal(user, str(ngfw.uuid))
-        assert "error" in caplog.text.lower() or "not accessible" in caplog.text.lower()
+        assert any(
+            record.levelno == logging.WARNING and "not accessible" in record.getMessage().lower()
+            for record in caplog.records
+        )

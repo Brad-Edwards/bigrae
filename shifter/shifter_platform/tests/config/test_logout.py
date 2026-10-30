@@ -143,27 +143,19 @@ class TestLogoutView:
         client = Client()
         oidc_login(client, user)
         view_logger = logging.getLogger("config.views")
-        view_logger.addHandler(caplog.handler)
-        try:
-            with caplog.at_level(logging.DEBUG, logger=view_logger.name):
-                client.post(LOGOUT_URL)
-        finally:
-            view_logger.removeHandler(caplog.handler)
+        with caplog.at_level(logging.DEBUG, logger=view_logger.name):
+            client.post(LOGOUT_URL)
 
-        assert "logout for user=" in caplog.text
+        assert f"logout for user_id={user.pk}" in caplog.text
         assert user.email not in caplog.text
 
     def test_dashboard_debug_log_does_not_retain_email(self, user, caplog, oidc_login):
         client = Client()
         oidc_login(client, user)
         view_logger = logging.getLogger("config.views")
-        view_logger.addHandler(caplog.handler)
-        try:
-            with caplog.at_level(logging.DEBUG, logger=view_logger.name):
-                response = client.get("/dashboard/")
-        finally:
-            view_logger.removeHandler(caplog.handler)
+        with caplog.at_level(logging.DEBUG, logger=view_logger.name):
+            response = client.get("/dashboard/")
 
         assert response.status_code == 302
-        assert "Routing user=" in caplog.text
+        assert f"Routing user_id={user.pk} " in caplog.text
         assert user.email not in caplog.text

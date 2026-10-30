@@ -16,6 +16,7 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
+from shared.log_sanitize import safe_log_value
 from shared.model_access import ScenarioNeed, ScenarioNeedProjection
 from shared.model_access.catalog import ContractError
 
@@ -104,7 +105,9 @@ def project_scenario_model_needs(
         # A read failure or a malformed stored need is a *resolution failure*, not
         # a confirmed absence: fail closed rather than letting the launch gate
         # treat an unreadable/untrusted overlay as "no need".
-        logger.exception("model-access: could not resolve scenario model needs")
+        logger.exception(
+            "model-access: could not resolve scenario model needs scenario_id=%s", safe_log_value(scenario_id)
+        )
         return ScenarioModelNeedsProjection(needs={}, digest_verified=False, resolution_failed=True)
     if row is None:
         return ScenarioModelNeedsProjection(needs={}, digest_verified=False)

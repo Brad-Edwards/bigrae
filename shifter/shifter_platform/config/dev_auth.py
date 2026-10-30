@@ -126,7 +126,7 @@ def _handle_dev_login_post(request: HttpRequest) -> HttpResponse:
         # organizer explicitly and audited here to keep the organizer surface
         # testable in development.
         grant_local_organizer(user, source="dev_login", request=request)
-    logger.info("Dev login: set user_type=%s for %s", safe_log_value(user_type), safe_log_value(email))
+    logger.info("Dev login: set user_type=%s for user_id=%s", safe_log_value(user_type), user.pk)
 
     # Redirect to appropriate dashboard
     redirect_url = reverse(USER_TYPE_REDIRECTS.get(user_type, DASHBOARD_URL))

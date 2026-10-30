@@ -5,10 +5,8 @@ that emit user-controlled strings verbatim, because an attacker who can inject
 newlines or carriage returns into the string can forge log entries — or smuggle
 ANSI escape sequences / control characters if logs are rendered in a terminal.
 
-This module exposes four helpers, in order of taint-break strength:
+This module exposes three helpers, in order of taint-break strength:
 
-* :func:`safe_log` — a minimal CR/LF escaper preserved for backward
-  compatibility with existing call sites that already rely on it.
 * :func:`safe_log_value` — the canonical sanitizer for ``py/log-injection``
   sites. It escapes CR/LF/tab, replaces other non-printable characters with
   ``\\xNN`` markers, and truncates to a sane upper bound. Returned value is
@@ -53,20 +51,6 @@ _fingerprint_cache: OrderedDict[str, str] = OrderedDict()
 _fingerprint_cache_lock = Lock()
 
 
-def safe_log(value: object) -> object:
-    """Return *value* with CR/LF escaped when it is a string.
-
-    Backward-compatible minimal sanitizer. Non-string values are returned
-    as-is so the caller's format spec (``%s``, ``%d``, ``%r``, ...) still
-    behaves normally. New call sites should prefer :func:`safe_log_value`
-    because CodeQL's ``py/log-injection`` rule only recognises the
-    full-strength sanitizer as breaking the taint flow.
-    """
-    if isinstance(value, str):
-        return value.replace("\r", "\\r").replace("\n", "\\n")
-    return value
-
-
 def safe_log_value(value: object, max_len: int = _MAX_LEN) -> str:
     """Return ``value`` rendered safe for inclusion in a log line.
 
@@ -77,7 +61,7 @@ def safe_log_value(value: object, max_len: int = _MAX_LEN) -> str:
     - output is truncated to ``max_len`` characters (with a ``...`` suffix)
     """
     if value is None:
-        return "<none>"
+        return _NONE_SENTINEL
     text = str(value)
     text = text.replace("\\", "\\\\").replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
     cleaned_chars: list[str] = []

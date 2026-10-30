@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 
 from django.core.cache import cache
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -15,6 +16,8 @@ from shared.audit import get_client_ip
 from shared.rate_limit import consume_fixed_window
 from shared.workspace_invitation_handoff import INVITATION_OUTCOME_SESSION_KEY, STAGED_INVITATION_SESSION_KEY
 from workspaces import services
+
+logger = logging.getLogger(__name__)
 
 _STAGING_LIMIT = 12
 _STAGING_WINDOW_SECONDS = 60 * 60
@@ -59,6 +62,7 @@ def invitation_stage(request: HttpRequest) -> JsonResponse:
     except (UnicodeDecodeError, json.JSONDecodeError, services.WorkspaceInvitationError):
         response = JsonResponse({"error": "invitation_invalid"}, status=400)
     except Exception:
+        logger.exception("Workspace invitation staging failed")
         response = JsonResponse({"error": "invitation_unavailable"}, status=503)
     else:
         request.session[STAGED_INVITATION_SESSION_KEY] = {

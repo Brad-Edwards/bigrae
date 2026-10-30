@@ -17,6 +17,9 @@ from config import resolve_cloud_provider
 
 logger = logging.getLogger(__name__)
 
+#: Bound on an authored failure message persisted as range error text.
+_MAX_FAILURE_MESSAGE_CHARS = 1000
+
 
 def _assert_subnet_output(subnet_name: str, subnet_data: dict[str, Any]) -> None:
     """Reject a Pulumi subnet record missing any required field."""
@@ -63,6 +66,33 @@ def _validate_provisioned_outputs(
         extra = actual_subnets - expected_subnet_names
         if extra:
             logger.warning("Unexpected subnets in output: %s", extra)
+
+
+def _authored_failure_message(exc: BaseException, stage: str) -> str:
+    """Return the failure text that can be persisted for ``exc`` (STANDARD A5, ADR-043-R5).
+
+    Range error text and operation diagnostics are durable, and range error text
+    reaches the range owner. Only failures whose text this package authors pass
+    their message through. ADR-039 classified cloud errors carry operator guidance.
+    Terraform failures name only the subcommand and the exit code. Guest readiness
+    timeouts carry a fixed probe category. A shared validation error keeps its
+    fixed contract text. Any other exception gives the stage and the exception
+    class name only, and the provisioner log keeps the detail.
+    ``raes_range_contract._classify_failure`` applies the same rule to the RAES path.
+    """
+    # Function-local imports keep this module light; this runs only on a failure.
+    from shared.range_cells import RangeCellContractError
+
+    from cloud.exceptions import CloudError
+    from executors.base import GuestReadinessTimeoutError
+    from terraform_base import TerraformCommandError
+
+    if isinstance(exc, RangeCellContractError):
+        return "Range-cell contract validation failed"
+    classified = isinstance(exc, CloudError) and bool(exc.code)
+    if classified or isinstance(exc, (TerraformCommandError, GuestReadinessTimeoutError)):
+        return str(exc)[:_MAX_FAILURE_MESSAGE_CHARS]
+    return f"{stage} failed ({type(exc).__name__})"
 
 
 def _get_cloud_provider() -> str:

@@ -1,6 +1,6 @@
 schema_version: 1
 project: shifter
-github_repo: Brad-Edwards/bigrae
+github_repo: OpenRAE/bigrae
 workflow:
   # The root Makefile provides the no-service completion and policy boundaries
   # consumed by the synchronized /implement workflow.

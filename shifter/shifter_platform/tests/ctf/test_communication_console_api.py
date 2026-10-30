@@ -13,6 +13,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from django.db.models import TextField, Value
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -155,7 +156,8 @@ def _ledger_counts():
     )
 
 
-def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf_event, second_event, roster):
+def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf_event, second_event, roster, settings):
+    settings.CTF_COMMUNICATION_ALLOWED_LINK_HOSTS = frozenset({"docs.example.com"})
     client = _client(organizer_user)
     campaign = _draft(client, workspace, [ctf_event, second_event])
     assert {t["id"] for t in campaign["target_events"]} == {str(ctf_event.pk), str(second_event.pk)}
@@ -175,6 +177,8 @@ def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf
     assert body["recipient_total"] == 3
     assert body["exceeds_audience_cap"] is False
     assert body["channels"] == [{"channel": "in_app", "available": True}]
+    # The preview renders under the same deployment link policy as the inbox.
+    assert body["allowed_link_hosts"] == ["docs.example.com"]
     assert "ada@example.test" not in preview.content.decode()
 
     # Another tab revises the draft; the reviewed revision is still what is sent.
@@ -207,6 +211,8 @@ def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf
     assert occurrence["intent_id"] == str(intent.pk)
     assert occurrence["status"] == "released"
     assert occurrence["revision_number"] == 1
+    # In-app availability is committed at release; wake-up commands never hold it pending.
+    assert occurrence["delivery_state"] == "accepted"
     totals = occurrence["totals"]
     assert totals["recipients"] == 3
     assert totals["inbox_available"] == 3
@@ -219,6 +225,10 @@ def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf
     assert per_event[str(second_event.pk)]["recipients"] == 1
     assert sum(row["recipients"] for row in occurrence["events"]) == 3
 
+    # Recipient rows never decrypt a coordinate: an unreadable one cannot break them.
+    RecipientSnapshot.objects.filter(intent=intent, participant=roster[0]).update(
+        delivery_coordinate=Value("enc:v1:unreadable", output_field=TextField())
+    )
     rows = client.get(
         f"{URL}{campaign['id']}/recipients/", {"intent_id": str(intent.pk), "event_id": str(ctf_event.pk)}
     )

@@ -108,15 +108,8 @@ def test_is_csrf_exempt():
 
 @pytest.mark.django_db
 def test_logs_sanitized_event_without_secrets(caplog):
-    # The ``config`` logger sets propagate=False, so attach the capture handler
-    # directly instead of relying on propagation to the root logger.
-    csp_logger = logging.getLogger("config.csp_report")
-    csp_logger.addHandler(caplog.handler)
-    csp_logger.setLevel(logging.INFO)
-    try:
+    with caplog.at_level(logging.INFO, logger="config.csp_report"):
         _post(Client(), _LEGACY_REPORT, "application/csp-report")
-    finally:
-        csp_logger.removeHandler(caplog.handler)
     records = [r for r in caplog.records if "csp" in r.getMessage().lower()]
     assert records, "expected a CSP violation log event"
     joined = " ".join(r.getMessage() for r in records)

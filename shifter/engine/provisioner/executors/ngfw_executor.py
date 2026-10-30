@@ -212,7 +212,7 @@ class NGFWExecutor:
             except (NGFWTimeoutError, NGFWConnectionError):
                 pass
 
-            logger.info(
+            logger.debug(
                 "Waiting for NGFW at host_fp=%s... (%.1fs / %ds)",
                 safe_log_fingerprint(host),
                 elapsed,
@@ -248,7 +248,7 @@ class NGFWExecutor:
         """
         del document_name
         host = instance_id
-        logger.info("Rebooting %s...", host)
+        logger.info("Rebooting host_fp=%s...", safe_log_fingerprint(host))
 
         try:
             self.run_command(

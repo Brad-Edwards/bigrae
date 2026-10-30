@@ -86,8 +86,14 @@ class SSHConsumer(AsyncWebsocketConsumer):
             await self._disconnect_ssh_best_effort()
             await self._release_session_slot()
             raise
-        except Exception:
-            logger.error("Terminal connection failed unexpectedly")
+        # the chained SSH/secret-store cause can carry key material; log the type only
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Terminal connection failed unexpectedly: uuid=%s exc_type=%s",
+                self.instance_uuid,
+                type(exc).__name__,
+                exc_info=False,
+            )
             await self._disconnect_ssh_best_effort()
             await self._release_session_slot()
             await self.close(code=WebSocketCloseCode.SERVER_ERROR)
@@ -210,10 +216,13 @@ class SSHConsumer(AsyncWebsocketConsumer):
             await self._release_session_slot()
             logger.warning("Terminal connection unavailable: uuid=%s", instance_uuid)
             await self.close(code=WebSocketCloseCode.NOT_FOUND)
-        except Exception:
+        # SSH and secret-store errors can carry key material; log the type only
+        except Exception as exc:  # noqa: BLE001
             await self._disconnect_ssh_best_effort()
             await self._release_session_slot()
-            logger.error("SSH connection failed: uuid=%s", instance_uuid)
+            logger.error(
+                "SSH connection failed: uuid=%s exc_type=%s", instance_uuid, type(exc).__name__, exc_info=False
+            )
             await self.close(code=WebSocketCloseCode.SSH_CONNECTION_FAILED)
         return False
 
@@ -326,8 +335,13 @@ class SSHConsumer(AsyncWebsocketConsumer):
         if self.ssh_conn:
             try:
                 await self.ssh_conn.disconnect()
-            except Exception:
-                logger.error("SSH connection cleanup failed: uuid=%s", self.instance_uuid)
+            # best-effort SSH teardown; transport errors are logged by type only
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "SSH connection cleanup failed: uuid=%s exc_type=%s",
+                    self.instance_uuid,
+                    type(exc).__name__,
+                )
             finally:
                 self.ssh_conn = None
 
@@ -397,8 +411,11 @@ class SSHConsumer(AsyncWebsocketConsumer):
                     break
         except asyncio.CancelledError:
             raise
-        except Exception:
-            logger.error("SSH output failed: uuid=%s", self.instance_uuid)
+        # terminal stream errors can carry session output; log the type only
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "SSH output failed: uuid=%s exc_type=%s", self.instance_uuid, type(exc).__name__, exc_info=False
+            )
             self._close_reason = "error"
         finally:
             # The client may already have disconnected by the time the read loop
@@ -465,5 +482,8 @@ class SSHConsumer(AsyncWebsocketConsumer):
 
         except json.JSONDecodeError:
             logger.warning("Invalid JSON from terminal: uuid=%s", self.instance_uuid)
-        except Exception:
-            logger.error("Terminal input failed: uuid=%s", self.instance_uuid)
+        # terminal input can carry typed secrets; log the type only
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Terminal input failed: uuid=%s exc_type=%s", self.instance_uuid, type(exc).__name__, exc_info=False
+            )

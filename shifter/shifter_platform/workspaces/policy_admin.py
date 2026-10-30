@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, cast
 
 from django.core.exceptions import PermissionDenied
 
-from shared.admin_policy import PolicyReadOnlyAdmin
+from shared.admin_policy import EXPECTED_ADMIN_DENIALS, PolicyReadOnlyAdmin
 from shared.authorization import configured_authorization_provider
 from workspaces.models import WorkspaceInvitation, WorkspaceQuotaPolicy
 from workspaces.services._account_policy_admin import _active_actor
@@ -16,6 +17,8 @@ if TYPE_CHECKING:
     from django.db.models import Model, QuerySet
     from django.http import HttpRequest
 
+logger = logging.getLogger(__name__)
+
 
 class _ScopedReadOnlyAdmin(PolicyReadOnlyAdmin):
     """Derive the complete authorized queryset before Django counts or paginates."""
@@ -24,22 +27,29 @@ class _ScopedReadOnlyAdmin(PolicyReadOnlyAdmin):
         try:
             _active_actor(self._credential(request))
             return True
+        except EXPECTED_ADMIN_DENIALS:
+            return False
         except Exception:
+            logger.exception("Workspace policy admin module check failed; access denied")
             return False
 
     def has_view_permission(self, request: HttpRequest, obj: Model | None = None) -> bool:
         if obj is None:
             return self.has_module_permission(request)
         try:
-            return _allowed_batch(
+            allowed = _allowed_batch(
                 self._credential(request),
                 configured_authorization_provider(),
                 self.policy_action,
                 "workspace",
                 (cast("WorkspaceQuotaPolicy | WorkspaceInvitation", obj).workspace.uuid,),
             )[0]
+        except EXPECTED_ADMIN_DENIALS:
+            allowed = False
         except Exception:
-            return False
+            logger.exception("Workspace policy admin object check failed; access denied")
+            allowed = False
+        return allowed
 
     def get_queryset(self, request: HttpRequest) -> QuerySet[Model]:
         if not self.has_module_permission(request):

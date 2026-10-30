@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import timedelta
 
 import pytest
@@ -186,7 +187,7 @@ def stored_content(monkeypatch, settings):
 
 
 @pytest.mark.django_db
-def test_both_activation_paths_require_pristine_receipt(organizer_user, organizer_credential) -> None:
+def test_both_activation_paths_require_pristine_receipt(organizer_user, organizer_credential, caplog) -> None:
     event = _event(organizer_user)
     with override_settings(CTF_CONTENT_REFERENCES=_configured_references()):
         assert open_registration(event, actor=organizer_credential) is True
@@ -194,7 +195,10 @@ def test_both_activation_paths_require_pristine_receipt(organizer_user, organize
         with pytest.raises(CTFStateError) as error:
             start_event(event.pk)
         assert error.value.code == "CTF_CONTENT_NOT_READY"
-        assert activate_event(event) is False
+        lifecycle_logger = logging.getLogger("ctf.services.event._lifecycle")
+        with caplog.at_level(logging.WARNING, logger=lifecycle_logger.name):
+            assert activate_event(event) is False
+        assert "code=CTF_CONTENT_NOT_READY" in caplog.text
         event.refresh_from_db()
         assert event.status == EventStatus.REGISTRATION.value
 

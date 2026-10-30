@@ -56,7 +56,12 @@ def _persist_credential(user: User, credential_type_slug: str, kwargs: dict[str,
     try:
         return cms_create_credential(user, credential_type_slug, **kwargs)
     except (CMSError, ValueError) as e:
-        logger.exception("Credential creation failed: user=%s type=%s", user.pk, credential_type_slug)
+        logger.warning(
+            "Credential creation failed: user_id=%s type=%s exc_type=%s",
+            user.pk,
+            credential_type_slug,
+            type(e).__name__,
+        )
         raise _CredentialError(
             JsonResponse({"error": classify_user_message(str(e), default="Invalid credential data")}, status=400)
         ) from e
@@ -67,5 +72,5 @@ def _persist_credential(user: User, credential_type_slug: str, kwargs: dict[str,
             response_msg = "A credential with this name already exists"
         else:
             response_msg = "Invalid credential data"
-        logger.exception("Credential validation failed: user=%s type=%s", user.pk, credential_type_slug)
+        logger.warning("Credential validation failed: user_id=%s type=%s", user.pk, credential_type_slug)
         raise _CredentialError(JsonResponse({"error": response_msg}, status=400)) from e

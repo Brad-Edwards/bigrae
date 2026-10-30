@@ -17,6 +17,7 @@ first operator's credentials never enter Terraform; the bootstrap script consume
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import time
 from collections.abc import Callable, Mapping
@@ -32,13 +33,18 @@ from bootstrap_core import (
 from gcp_inputs import DeploymentInputs, private_workdir, write_private_file
 from gcp_process import GcpCommandError, ProcessRunner
 
-SQL_INSTANCE_SUFFIX = "google_sql_database_instance.platform"
+# Resource types whose deletion behavior is a stored setting: the Cloud SQL
+# instance (deletion_protection), buckets (force_destroy), and databases
+# (deletion_policy).
+DESTROY_SETTING_TYPES = frozenset({"google_sql_database_instance", "google_storage_bucket", "google_sql_database"})
+_RESOURCE_ADDRESS_RE = re.compile(r"(?:^|\.)(?P<type>[a-z0-9_]+)\.[A-Za-z0-9_-]+(?:\[[^\]]*\])?$")
 # Terraform also reads TF_INPUT=0; each command that prompts carries the flag too.
 _NO_INPUT = "-input=false"
 KMS_KEY_SUFFIXES = ("google_kms_crypto_key.artifact_registry", "google_kms_key_ring.artifact_registry")
 COMMAND_OWNED_KEYS = frozenset(
     {
         "project_id",
+        "adopt_artifact_registry_kms",
         "region",
         "artifact_registry_location",
         "environment",
@@ -221,9 +227,14 @@ def terraform_apply(
     max_attempts: int = 12,
     sleep_seconds: int = 10,
     sleep: Callable[[float], None] = time.sleep,
+    variables: Mapping[str, str] | None = None,
 ) -> None:
-    """Apply the platform root, retrying only IAM propagation failures."""
-    argv = ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args())
+    """Apply the platform root, retrying only IAM propagation failures.
+
+    ``variables`` are command-owned values that the command decides at apply time.
+    """
+    extra = [f"-var={name}={value}" for name, value in (variables or {}).items()]
+    argv = ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), *extra)
     for attempt in range(1, max_attempts + 1):
         result = runner.run(argv, env=ctx.env, check=False)
         if result.stdout:
@@ -257,19 +268,48 @@ def terraform_outputs(runner: ProcessRunner, ctx: TerraformContext) -> dict[str,
     return outputs
 
 
-def lift_sql_deletion_protection(runner: ProcessRunner, ctx: TerraformContext) -> None:
-    """Apply the rendered ``cloud_sql_deletion_protection = false`` to the live instance."""
-    matches = [address for address in state_addresses(runner, ctx) if address.endswith(SQL_INSTANCE_SUFFIX)]
-    if not matches:
-        info("Cloud SQL instance not in state; skipping the deletion-protection lift")
+def _resource_type(address: str) -> str:
+    """Return the resource type of a state address, or an empty string."""
+    match = _RESOURCE_ADDRESS_RE.search(address)
+    return match.group("type") if match else ""
+
+
+def apply_destroy_settings(runner: ProcessRunner, ctx: TerraformContext) -> None:
+    """Apply the destroy-time deletion settings to the live resources before the destroy.
+
+    ``terraform destroy`` reads deletion_protection, force_destroy, and
+    deletion_policy from state, not from the destroy values. A targeted apply
+    stores them first (#2640).
+    """
+    targets = [address for address in state_addresses(runner, ctx) if _resource_type(address) in DESTROY_SETTING_TYPES]
+    if not targets:
+        info("No resource with a destroy-time deletion setting is in state")
         return
-    for address in matches:
-        info(f"Lifting Cloud SQL deletion protection on {address}")
-        runner.run(
-            ctx.argv("apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), f"-target={address}"),
-            env=ctx.env,
-            capture=False,
-        )
+    info("Applying destroy-time deletion settings to: " + ", ".join(targets))
+    runner.run(
+        ctx.argv(
+            "apply", "-auto-approve", _NO_INPUT, *ctx.var_file_args(), *[f"-target={address}" for address in targets]
+        ),
+        env=ctx.env,
+        capture=False,
+    )
+
+
+def artifact_registry_kms_adoption(runner: ProcessRunner, ctx: TerraformContext, inputs: DeploymentInputs) -> bool:
+    """Return whether the install must adopt a key ring that a previous destroy left behind (#2643)."""
+    if any(address.endswith(suffix) for address in state_addresses(runner, ctx) for suffix in KMS_KEY_SUFFIXES):
+        return False
+    key_ring = f"shifter-{inputs.environment}-ar"
+    exists = runner.run(
+        ["gcloud", "kms", "keyrings", "describe", key_ring]
+        + ["--location", inputs.region, "--project", inputs.project_id],
+        env=ctx.env,
+        check=False,
+    )
+    if exists.returncode != 0:
+        return False
+    info(f"Adopting the existing Artifact Registry key ring {key_ring} and its key")
+    return True
 
 
 def drop_unremovable_kms_resources(runner: ProcessRunner, ctx: TerraformContext) -> None:

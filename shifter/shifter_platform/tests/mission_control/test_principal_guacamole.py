@@ -1,5 +1,6 @@
 """Guacamole work and handoff retain the originating non-secret authority."""
 
+import logging
 from uuid import UUID, uuid4
 
 import pytest
@@ -38,7 +39,7 @@ class Gateway:
         return self.termination_available
 
 
-def test_gateway_renewal_denies_revoked_original_credential(remote):
+def test_gateway_renewal_denies_revoked_original_credential(remote, caplog):
     from management.models import ServiceCredentialAdmission
     from mission_control.guacamole_authority import renew_gateway_authority
 
@@ -46,7 +47,9 @@ def test_gateway_renewal_denies_revoked_original_credential(remote):
     submitted = launch(remote)
     assert renew_gateway_authority(str(submitted.bootstrap_id))
     ServiceCredentialAdmission.objects.filter(uuid=fixture.credential.credential_uuid).update(is_active=False)
-    assert not renew_gateway_authority(str(submitted.bootstrap_id))
+    with caplog.at_level(logging.WARNING, logger="mission_control.guacamole_authority"):
+        assert not renew_gateway_authority(str(submitted.bootstrap_id))
+    assert "Guacamole bootstrap reauthorization denied" in caplog.text
 
 
 def test_signed_json_identity_binds_only_the_server_created_bootstrap(remote):

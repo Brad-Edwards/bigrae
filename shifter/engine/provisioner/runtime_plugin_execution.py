@@ -45,7 +45,7 @@ class GuestPluginPlans:
         """Run configure then verify inside apply's existing cleanup boundary."""
         try:
             _execute(self, instances)
-        except Exception:
+        except Exception:  # noqa: BLE001  # value-free boundary: plugin scripts and runtime values stay out
             raise RuntimePluginExecutionError("Runtime plugin guest execution failed") from None
 
 
@@ -93,7 +93,7 @@ def load_guest_plugin_plans(run: RaesOperationRun) -> GuestPluginPlans | None:
                 _validate_value_requirements(requests, complete, parsed.access_bindings)
                 return GuestPluginPlans(requests, complete)
             time.sleep(2)
-    except Exception:
+    except Exception:  # noqa: BLE001  # value-free boundary: plugin plans and runtime values stay out
         raise RuntimePluginExecutionError("Runtime plugin planning failed") from None
     raise RuntimePluginExecutionError("Runtime plugin planning timed out")
 

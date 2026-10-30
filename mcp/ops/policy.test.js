@@ -1004,7 +1004,8 @@ describe("registerTool gates (Phase 2): idempotency keys", () => {
     });
     await assert.rejects(
       callRegisteredTool(server, "create_thing", { idempotency_key: "k1", title: "beta" }),
-      (e) => e instanceof PolicyError && /different args/.test(e.message),
+      // The caller-supplied key is not echoed into the error envelope (ADR-014-R4).
+      (e) => e instanceof PolicyError && /different args/.test(e.message) && !e.message.includes("k1"),
     );
     assert.equal(a.content[0].text, "r-1:alpha");
     assert.equal(runs(), 1, "handler must not run again for the mismatched retry");
@@ -1062,7 +1063,8 @@ describe("registerTool gates (Phase 2): idempotency keys", () => {
     await tool.started;
     await assert.rejects(
       callRegisteredTool(server, "create_thing", { idempotency_key: "k1", title: "beta" }),
-      (e) => e instanceof PolicyError && /different args/.test(e.message),
+      // The caller-supplied key is not echoed into the error envelope (ADR-014-R4).
+      (e) => e instanceof PolicyError && /different args/.test(e.message) && !e.message.includes("k1"),
     );
     const a = await first;
     assert.equal(a.content[0].text, "r-1:alpha");

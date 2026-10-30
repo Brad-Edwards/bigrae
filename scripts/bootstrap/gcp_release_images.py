@@ -7,6 +7,11 @@ deployment identity is ``<deployment root>@<release digest>``. Workloads keep pu
 from the deployment project, and the copied referrers let the provenance gate verify the
 bytes that will run. CI-built images already live in the deployment roots, so the copy is
 skipped for them.
+
+A release lives in a public registry (#2659). An operator who cannot reach it copies the
+release images by digest, with their referrers, into a mirror and passes the mirror
+prefix as the release source. The digests do not change, so the provenance gate verifies
+the same bytes.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from pathlib import Path
 
 from bootstrap_core import info
 from gcp_inputs import private_workdir, write_private_file
+from gcp_oci import is_artifact_registry_host
 from gcp_process import GcpCommandError, ProcessRunner
 
 #: Release image name -> Terraform ``artifact_registry_image_roots`` key.
@@ -30,6 +36,7 @@ DEPLOYMENT_ROOT_KEYS = {
 }
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _TAG_RE = re.compile(r"^\w[\w.-]{0,127}$", re.ASCII)
+_SOURCE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::\d+)?(?:/[a-z0-9][a-z0-9._-]*)+$", re.ASCII)
 
 
 class ReleaseImageError(RuntimeError):
@@ -55,15 +62,38 @@ def write_image_roots(path: Path, outputs: Mapping[str, Mapping[str, object]]) -
     return write_private_file(path, json.dumps(deployment_image_roots(outputs), indent=2, sort_keys=True) + "\n")
 
 
+def release_identities(release_images: Mapping[str, str], source: str = "") -> dict[str, str]:
+    """Return the identity of each release image in ``source``, or the manifest identities.
+
+    A mirror keeps each image at ``<source>/<image name>`` with the release digest.
+    """
+    if not source:
+        return dict(release_images)
+    if not _SOURCE_RE.fullmatch(source):
+        raise ReleaseImageError("the release source must be a registry prefix such as <host>/<path>")
+    identities: dict[str, str] = {}
+    for name, identity in release_images.items():
+        digest = identity.rpartition("@")[2]
+        if not _DIGEST_RE.fullmatch(digest):
+            raise ReleaseImageError(f"release image {name} has no exact digest")
+        identities[name] = f"{source}/{name}@{digest}"
+    return identities
+
+
 def registry_hosts(*identities: str) -> list[str]:
     """Return the distinct registry hosts of image identities or roots."""
     return sorted({identity.split("/", 1)[0] for identity in identities})
 
 
 def docker_config(workdir: Path, hosts: list[str]) -> Path:
-    """Write an isolated Docker client config that uses the gcloud credential helper."""
+    """Write an isolated Docker client config.
+
+    Only Artifact Registry hosts use the gcloud credential helper. Other registries, such
+    as the public release registry, get anonymous pulls and never a Google credential.
+    """
     directory = private_workdir(workdir / "docker")
-    write_private_file(directory / "config.json", json.dumps({"credHelpers": dict.fromkeys(hosts, "gcloud")}))
+    google_hosts = [host for host in hosts if is_artifact_registry_host(host)]
+    write_private_file(directory / "config.json", json.dumps({"credHelpers": dict.fromkeys(google_hosts, "gcloud")}))
     return directory
 
 

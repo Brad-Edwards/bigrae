@@ -9,6 +9,16 @@ from django.db.models.functions import Lower
 from workspaces.roles import WorkspaceRole
 
 
+class InvitationDeliveryStatus(models.TextChoices):
+    """Observed outcome of the latest invitation send (ADR-071, #1525)."""
+
+    PENDING = "pending", "Pending"
+    ACCEPTED = "accepted", "Accepted"
+    FAILED = "failed", "Failed"
+    UNAVAILABLE = "unavailable", "Unavailable"
+    UNKNOWN = "unknown", "Unknown"
+
+
 class WorkspaceInvitation(models.Model):
     """One revocable, expiring pre-membership grant for a workspace address."""
 
@@ -39,6 +49,14 @@ class WorkspaceInvitation(models.Model):
     )
     accepted_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    delivery_status = models.CharField(
+        max_length=16,
+        choices=InvitationDeliveryStatus.choices,
+        default=InvitationDeliveryStatus.PENDING,
+        help_text="Observed outcome of the send for the current generation; accepted is not mailbox delivery",
+    )
+    delivery_reason = models.CharField(max_length=32, blank=True, default="", help_text="Closed transport reason")
+    delivery_observed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -83,6 +101,10 @@ class WorkspaceInvitation(models.Model):
             models.CheckConstraint(
                 condition=models.Q(accepted_by__isnull=True) | models.Q(accepted_at__isnull=False),
                 name="workspace_invitation_acceptance_complete",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(delivery_status__in=InvitationDeliveryStatus.values),
+                name="workspace_invitation_delivery_status_valid",
             ),
         ]
 

@@ -26,6 +26,7 @@ from events import (
     STATUS_PROVISIONING,
     STATUS_READY,
 )
+from executors.base import ExecutorError
 from executors.ngfw_executor import NGFWExecutor
 from log_redact import safe_log_fingerprint
 from ngfw_polling import poll_for_serial_number, wait_for_autocommit
@@ -169,7 +170,7 @@ def find_stale_routes_by_cidr(
             stdin_input=query_cmd + "\nexit\n",
             timeout_seconds=30,
         )
-    except Exception as e:
+    except ExecutorError as e:
         logger.warning("Failed to query NGFW routes for cleanup: %s", e)
         return []
 
@@ -207,7 +208,7 @@ def find_stale_routes_by_db(
             stdin_input=query_cmd + "\nexit\n",
             timeout_seconds=30,
         )
-    except Exception as e:
+    except ExecutorError as e:
         logger.warning("Failed to query NGFW routes for DB cleanup check: %s", e)
         result = None
 

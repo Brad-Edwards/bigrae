@@ -134,9 +134,20 @@ def _delivery_is_current(webhook_pk: UUID, url: str, secret: str, event_type: st
     return bool(
         row is not None
         and row.url == url
-        and hmac.compare_digest(row.secret, secret)
+        # Compare UTF-8 bytes: compare_digest raises TypeError for non-ASCII str values.
+        and hmac.compare_digest(row.secret.encode("utf-8"), secret.encode("utf-8"))
         and (event_type is None or not row.subscribed_events or event_type in row.subscribed_events)
     )
+
+
+def _attempt_delivery(
+    webhook_pk: UUID, url: str, secret: str, body: bytes, event_type: str | None, headers: dict[str, str]
+) -> str:
+    """Return one current subscription's HTTP outcome, or refuse a revoked one."""
+    if not _delivery_is_current(webhook_pk, url, secret, event_type):
+        return "failed:revoked"
+    status = _post_pinned(url, body, headers)
+    return f"{'ok' if 200 <= status < 300 else 'failed'}:{status}"
 
 
 def _deliver_with_retries(webhook_pk: UUID, url: str, secret: str, body: bytes, event_type: str | None = None) -> None:
@@ -154,14 +165,9 @@ def _deliver_with_retries(webhook_pk: UUID, url: str, secret: str, body: bytes, 
     status = "failed"
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         try:
-            if not _delivery_is_current(webhook_pk, url, secret, event_type):
-                status = "failed:revoked"
+            status = _attempt_delivery(webhook_pk, url, secret, body, event_type, headers)
+            if status.startswith("ok:") or status == "failed:revoked":
                 break
-            response_status = _post_pinned(url, body, headers)
-            if 200 <= response_status < 300:
-                status = f"ok:{response_status}"
-                break
-            status = f"failed:{response_status}"
         except _BlockedDestinationError:
             status = "failed:blocked_destination"
             break
@@ -170,6 +176,14 @@ def _deliver_with_retries(webhook_pk: UUID, url: str, secret: str, body: bytes, 
             break
         except (OSError, http.client.HTTPException):
             status = "failed:transport"
+        # delivery errors may carry the webhook URL, which can embed a token
+        except Exception as exc:  # noqa: BLE001
+            # Thread-pool boundary: an unexpected error must not end the delivery without a record.
+            logger.error(
+                "Webhook %s delivery failed unexpectedly exc_type=%s", webhook_pk, type(exc).__name__, exc_info=False
+            )
+            status = "failed"
+            break
         if attempt < _MAX_ATTEMPTS:
             time.sleep(_BACKOFF_BASE_SECONDS**attempt)
     _record_delivery(webhook_pk, status)

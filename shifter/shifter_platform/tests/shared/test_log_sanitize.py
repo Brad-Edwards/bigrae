@@ -12,7 +12,7 @@ import logging
 import pytest
 
 from shared import log_sanitize
-from shared.log_sanitize import safe_log, safe_log_fingerprint, safe_log_id, safe_log_value
+from shared.log_sanitize import safe_log_fingerprint, safe_log_id, safe_log_value
 
 
 class TestSafeLogValue:
@@ -92,20 +92,6 @@ class TestSafeLogValue:
         formatted = caplog.records[0].getMessage()
         assert formatted == "hello foo\\nbar"
         assert "\n" not in formatted
-
-
-class TestSafeLog:
-    """The legacy helper is kept for backward compat — keep it tested too."""
-
-    def test_escapes_newline_in_string(self) -> None:
-        assert safe_log("foo\nbar") == "foo\\nbar"
-
-    def test_escapes_carriage_return_in_string(self) -> None:
-        assert safe_log("foo\rbar") == "foo\\rbar"
-
-    def test_passes_through_non_string(self) -> None:
-        assert safe_log(42) == 42
-        assert safe_log(None) is None
 
 
 class TestSafeLogId:

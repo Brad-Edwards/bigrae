@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted 2026-10-28. Amends ADR-003-R6, ADR-004-R5, ADR-004-R23, ADR-006,
+Accepted 2026-10-28. Amended 2026-10-29 by
+[#2659](https://github.com/Brad-Edwards/bigrae/issues/2659): the release
+registry is public. Amends ADR-003-R6, ADR-004-R5, ADR-004-R23, ADR-006,
 ADR-007, ADR-033-R2, ADR-037, ADR-053-R3, and ADR-069-R3. Issue
 [#2571](https://github.com/Brad-Edwards/bigrae/issues/2571) records the work.
 The [design](https://github.com/Brad-Edwards/bigrae/blob/dev/docs/architecture/github-less-gcp-deployment-design-2571.md)
@@ -34,12 +36,16 @@ tracks the AWS path.
 ## Decision
 
 1. **A release is built once.** `.github/workflows/release-gcp.yml` runs only
-   through `workflow_dispatch` from protected `refs/heads/main`, `refs/heads/dev`,
-   or `refs/heads/deploy-test`. It runs on
+   from protected `refs/heads/main`, `refs/heads/dev`, or
+   `refs/heads/deploy-test`. Two events start it. The `release-gcp` job of
+   `release-please.yml` calls it (`workflow_call`) when a release tag points at
+   the pushed `main` commit (#2660). The maintainer dispatches it
+   (`workflow_dispatch`) for test builds or to publish a release again. It runs on
    GitHub-hosted runners in the `gcp-release` Environment. It builds the five
    control-plane images (portal, provisioner, guacd, guacamole-client, and
    openvpn) and the deployer image. It pushes each image by digest to the
-   release registry. For each digest it signs build provenance with an SBOM and
+   public release registry `ghcr.io/<owner>/<repository>` with the workflow
+   `GITHUB_TOKEN`. It uses no cloud identity. For each digest it signs build provenance with an SBOM and
    stores the attestation with the image (`push-to-registry: true`). The release
    manifest (`bigrae.gcp-release.v1`) inside the deployer image names the source
    revision, the chart version, and the exact image identities. Before it attests
@@ -106,8 +112,16 @@ tracks the AWS path.
 8. **Base guest images come from an explicit source.** `deploy.py gcp-images`
    imports from an explicit `--source` registry prefix. It keeps the digest pins
    and the OCI contract checks, and it writes the exact image references to
-   `range-images.json`. When `GCP_RELEASE_REGISTRY` is set, `packer-gcp.yml`
-   copies each published base-image artifact by digest into the release registry.
+   `range-images.json`. The source is the public GHCR packages that
+   `packer-gcp.yml` publishes, or a mirror of the same digests.
+9. **The release registry is public.** One release serves every deployment.
+   A deployment trusts a release only through the provenance policy of
+   decision 5, not through the owner of the registry. The commands send the
+   Google access token only to Artifact Registry hosts. Any other registry
+   gets anonymous pulls. An operator who cannot reach the public registry
+   copies the release images by digest, with their referrers, to a mirror. The
+   operator then passes `--release-source`, and the commands verify, scan, and
+   import the mirror copy of each digest.
 
 Catalog initialization is an application operation after verified native
 activation and readiness. It uses the existing content services with an actual
@@ -120,8 +134,11 @@ outside the deployment input bundle and logs.
 
 ## Consequences
 
-- An operator can deploy, update, and tear down a GCP deployment from a release
-  in the release registry, with no GitHub, GHCR, or github.com access.
+- An operator can deploy, update, and tear down a GCP deployment from a public
+  release. A deployment that cannot reach GHCR deploys from a mirror, with no
+  GitHub, GHCR, or github.com access.
+- A new deployment needs no change to the release workflow, no GitHub
+  Environment, and no release identity.
 - A deployment trusts releases through `settings.release_trust`, not through a
   GitHub token or the GitHub API.
 - CI deploys and operator deploys run the same code, the same gates, and the same
@@ -132,4 +149,4 @@ outside the deployment input bundle and logs.
 - The `release-workflow-provenance` and `workflow-action-sha-pinning` ADR guard
   checks and `scripts/check_tf_gcp_wif_trust` enforce the decision. The deploy
   workflow guard tests, the bootstrap unit tests, and the native Terraform tests
-  of the identity and release-registry roots also enforce it.
+  of the identity root also enforce it.

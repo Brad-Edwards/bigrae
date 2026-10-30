@@ -28,6 +28,7 @@ triggers a deploy (#730).
 | Manual dispatch, `environment: orthanc` | Quality, then Orthanc deploy |
 | Manual dispatch, `environment: sauron` | Quality, then Sauron deploy |
 | Manual dispatch, `environment: balrog` | Quality, then Balrog deploy |
+| Release Please release on `main` | GCP release (`release-gcp.yml`) for the tagged commit; no deploy |
 
 GCP dispatches bind deployment and release scanning to separate protected
 Environments. The deploy Environment matches the selected Terraform root; the
@@ -58,7 +59,7 @@ picks where it goes. `dev` is the integration branch (Quality only).
 ├── _shifter-engine.yml     # Shifter Engine container
 ├── _shifter-platform.yml   # Shifter Platform infra + deploy
 ├── gcp-dev-destroy.yml     # GCP teardown wrapper over gcp-destroy
-└── release-gcp.yml         # GCP release images and deployer image
+└── release-gcp.yml         # GCP release images and deployer image (release-please.yml calls it)
 ```
 
 Underscore prefix (`_*.yml`) indicates reusable workflows called by `deploy.yml`.

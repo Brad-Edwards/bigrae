@@ -203,6 +203,14 @@ def _run_bootstrap(
         )
     except GuacamoleBootstrapRequest.DoesNotExist:
         logger.warning("Guacamole bootstrap request disappeared before execution: request_id=%s", request_id)
+    # worker thread boundary; errors here can carry session-token material, so log the type only
+    except Exception as exc:  # noqa: BLE001
+        logger.error(
+            "Guacamole bootstrap worker failed: request_id=%s exc_type=%s",
+            request_id,
+            type(exc).__name__,
+            exc_info=False,
+        )
     finally:
         slots.release()
         close_old_connections()
@@ -292,13 +300,14 @@ def _build_bootstrap_url(
     except BootstrapFailure as exc:
         _finish_failure(bootstrap, started, exc.user_message, exc.status_code)
         return None
-    except Exception as exc:
-        # Keep the original exception text out of logs: Guacamole failures
-        # can contain credential-bearing upstream values. ``exc_info=False``
-        # preserves the sanitized fingerprint without appending that text.
-        logger.exception(
-            "Guacamole bootstrap failed: request_id=%s reason=%s",
-            safe_log_value(bootstrap.pk),
+    # Guacamole failures can carry credential-bearing upstream values; log the type only
+    except Exception as exc:  # noqa: BLE001
+        # Keep the original exception text and traceback out of logs; the
+        # fingerprint still correlates repeated failures within the process.
+        logger.error(
+            "Guacamole bootstrap failed: request_id=%s exc_type=%s reason=%s",
+            bootstrap.pk,
+            type(exc).__name__,
             safe_log_fingerprint(exc),
             exc_info=False,
         )
@@ -429,7 +438,7 @@ def _consume_admitted_url(request_id: UUID, admitted: _DeliveryAdmission) -> str
         fields = dict(admitted.binding)
         try:
             assert_remote_authority_binding(fields, str(fields["protocol"]), str(fields["target_id"]))
-        except Exception:
+        except Exception:  # noqa: BLE001  # deny handoff when the retained binding is uncertain
             return None
         row = GuacamoleBootstrapRequest.objects.select_for_update().filter(pk=request_id).first()
         if (

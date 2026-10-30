@@ -159,7 +159,8 @@ def activate_event(event: CTFEvent) -> bool:
         try:
             assert_event_content_hydration_ready(locked_event)
             _transition_event(locked_event, EventStatus.ACTIVE)
-        except CTFStateError:
+        except CTFStateError as exc:
+            logger.warning("Cannot activate event %s: transition refused code=%s", locked_event.id, exc.code)
             return False
         event.status = locked_event.status
 
@@ -351,7 +352,8 @@ def resume_event(event: CTFEvent) -> bool:
         try:
             assert_event_content_hydration_ready(locked_event)
             _transition_event(locked_event, EventStatus.ACTIVE)
-        except CTFStateError:
+        except CTFStateError as exc:
+            logger.warning("Cannot resume event %s: transition refused code=%s", locked_event.id, exc.code)
             return False
         event.status = locked_event.status
 
