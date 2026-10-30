@@ -21,7 +21,7 @@ Submodule layout:
 * ``notification`` — ``CTFNotification``, ``CTFScheduledTask``.
 * ``communication``— ``CommunicationCampaign``, ``CommunicationTargetEvent``,
   ``MessageRevision``, ``CommunicationIntent``, ``RecipientSnapshot``,
-  ``DeliveryAttempt``, ``ParticipantReceipt`` (ADR-051, #2048).
+  ``DeliveryAttempt``, ``RecipientReceipt`` (ADR-051, #2048).
 * ``recovery``     — ``CTFRangeRecovery``.
 * ``spare_range``  — ``CTFSpareRange``.
 * ``content_image``— ``CTFContentImage``, ``ContentImageStatus`` (#2090).
@@ -47,7 +47,7 @@ from .communication import (
     RecipientSnapshot,
 )
 from .communication_cutover import CommunicationCutover, LegacyCommunication
-from .communication_delivery import DeliveryAttempt, ParticipantReceipt
+from .communication_delivery import DeliveryAttempt, RecipientReceipt
 from .content_hydration import CTFContentHydrationReceipt
 from .content_image import ContentImageStatus, CTFContentImage
 from .event import CTFEvent
@@ -111,7 +111,7 @@ __all__ = [
     "DeliveryAttempt",
     "LegacyCommunication",
     "MessageRevision",
-    "ParticipantReceipt",
+    "RecipientReceipt",
     "RecipientSnapshot",
     "SoftDeleteManager",
     "timezone",

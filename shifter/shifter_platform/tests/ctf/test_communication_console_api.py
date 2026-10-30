@@ -26,7 +26,7 @@ from ctf.models import (
     CTFParticipant,
     CTFScheduledTask,
     DeliveryAttempt,
-    ParticipantReceipt,
+    RecipientReceipt,
     RecipientSnapshot,
 )
 from ctf.services.event import assign_event_staff, revoke_event_staff
@@ -151,7 +151,7 @@ def _ledger_counts():
         CommunicationIntent.objects.count(),
         RecipientSnapshot.objects.count(),
         DeliveryAttempt.objects.count(),
-        ParticipantReceipt.objects.count(),
+        RecipientReceipt.objects.count(),
         CTFScheduledTask.objects.filter(task_type="release_communication").count(),
     )
 
@@ -204,7 +204,7 @@ def test_compose_preview_send_report_and_timeline(organizer_user, workspace, ctf
     attempts = list(DeliveryAttempt.objects.filter(intent=intent).order_by("snapshot__participant_public_id"))
     DeliveryAttempt.objects.filter(pk=attempts[0].pk).update(status=DeliveryStatus.ACCEPTED.value)
     DeliveryAttempt.objects.filter(pk=attempts[1].pk).update(status=DeliveryStatus.PERMANENT_FAILURE.value)
-    ParticipantReceipt.objects.filter(snapshot__participant=roster[0]).update(read_at=timezone.now())
+    RecipientReceipt.objects.filter(snapshot__participant=roster[0]).update(read_at=timezone.now())
     report = client.get(f"{URL}{campaign['id']}/delivery/")
     assert report.status_code == 200, report.content
     occurrence = report.json()["results"][0]

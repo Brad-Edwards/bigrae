@@ -105,7 +105,7 @@ protected image responses after permission changes.
 | --- | --- |
 | Django ASGI web and React SPA | `config` composes HTTP/WebSocket routes; domain APIs and Mission Control serve the application from one origin. |
 | Domain workers | CMS, Engine and Mission Control consume cloud subscriptions and update their own projections. |
-| Schedulers and reconcilers | CTF scheduling, leases, launch delivery, result application and event-outbox delivery run as separate worker commands. |
+| Schedulers and reconcilers | CTF scheduling, leases, launch delivery, result application and event-outbox delivery run as separate worker commands. The CTF communication worker delivers ledger messages to participants and to event organizers (ADR-065-R4). |
 | Provisioner Jobs | Independently packaged `shifter/engine/provisioner`; exact image, service account and namespace binding; provider effects and guest readback. |
 | Plugin/preparation Jobs | Explicitly installed, isolated executable images; separate administrator grants and pinned worker/verifier identities. |
 | Guacamole and guacd | Remote-access services; BigRAE authorizes the exact target/session and continuing access. Guacamole has separate database credentials. |

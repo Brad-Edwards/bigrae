@@ -94,6 +94,10 @@ def _commit_assignment(
             current.save(update_fields=["role", "updated_at"])
             staff = current
             action = "reroled"
+            if retained_previous_role == EventStaffRole.CO_ORGANIZER.value and role != retained_previous_role:
+                from ctf.services.communication import on_organizer_removed
+
+                on_organizer_removed(locked_event, target_principal.uuid)
         audit_event_staff_change(
             actor_id=actor,
             event_id=event.pk,

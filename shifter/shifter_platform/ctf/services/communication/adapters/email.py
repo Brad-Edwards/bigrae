@@ -60,12 +60,13 @@ class EmailAdapter:
         coordinate, failure = _read_coordinate(command)
         if failure is not None:
             return failure
+        intent = CommunicationIntent.objects.select_related("revision", "campaign").get(pk=command.intent_id)
+        kind = NoticeKind(intent.campaign.notice_kind)
         try:
-            event_url = validated_site_url() + reverse("ctf:participant_event")
+            event_url = validated_site_url() + _event_path(kind, command)
         except SiteUrlUnavailable:
             logger.warning("email portal origin unavailable for attempt %s", command.attempt_id)
             return DeliveryOutcome(OutcomeClass.RETRIABLE, reason="site_url_unavailable")
-        intent = CommunicationIntent.objects.select_related("revision", "campaign").get(pk=command.intent_id)
         revision = intent.revision
         subject = " ".join(revision.subject.splitlines())
         context = {
@@ -75,10 +76,17 @@ class EmailAdapter:
             "event_url": event_url,
             **_recipient_facts(command),
         }
-        template = f"{_TEMPLATE_DIR}/{NoticeKind(intent.campaign.notice_kind).value}"
+        template = f"{_TEMPLATE_DIR}/{kind.value}"
         html, text = render_template(template, context)
         result = attempt_email(coordinate, subject, html, text, timeout=timeout, message_key=command.idempotency_key)
         return DeliveryOutcome(_OUTCOMES[result.outcome], reason=result.reason, provider_receipt=result.receipt)
+
+
+def _event_path(kind: NoticeKind, command: DeliveryCommand) -> str:
+    """Link organizer alerts to the event's organizer Alerts tab, and every other notice to the participant event."""
+    if kind is NoticeKind.ORGANIZER_ALERT:
+        return reverse("ctf:admin_event_alerts", kwargs={"event_id": command.event_id})
+    return reverse("ctf:participant_event")
 
 
 def _recipient_facts(command: DeliveryCommand) -> dict[str, str]:

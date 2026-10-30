@@ -168,30 +168,60 @@ def activate_event(event: CTFEvent) -> bool:
     return True
 
 
-def complete_event(event: CTFEvent, *, actor: object | None = None) -> bool:
-    """End an active event (transition to ended).
+def complete_event(
+    event: CTFEvent, *, actor: object | None = None, automatic: bool = False, task_id: UUID | None = None
+) -> bool:
+    """End an active event, or a paused event at its scheduled end (transition to ended).
 
-    Range teardown is enforced independently by each range's server-owned
-    lease at ``event.get_cleanup_time()``.
+    The transition runs under the event lock. An ``automatic`` end rechecks the
+    scheduled end time under that lock, also ends a paused event (CTF-701), and
+    declares the ``event_ended`` organizer alert in the same transaction. Range
+    teardown is enforced independently by each range's server-owned lease at
+    ``event.get_cleanup_time()``.
 
     Args:
         event: The CTFEvent to end.
+        actor: The interactive actor, or None for a scheduler end.
+        automatic: True when the scheduler ends the event at its end time.
+        task_id: The claimed scheduler task that retains a refused alert declaration.
 
     Returns:
         True if transition succeeded, False otherwise.
     """
+    from django.utils import timezone
+
+    from ctf.models import CTFEvent
+
     logger.info("Ending CTF event %s", event.id)
 
-    try:
-        _transition_event(event, EventStatus.ENDED)
-    except CTFStateError:
-        logger.warning(
-            "Cannot end event %s: not in active state (current: %s)",
-            event.id,
-            event.status,
-        )
-        return False
+    with transaction.atomic():
+        locked = CTFEvent.objects.select_for_update().get(pk=event.pk)
+        if automatic and timezone.now() < locked.event_end:
+            logger.info("Skipping automatic end of event %s before its end time", locked.pk)
+            return False
+        try:
+            # CTF-701: only the scheduled end may also end a paused event.
+            _transition_event(locked, EventStatus.ENDED, scheduled_end=automatic)
+        except CTFStateError:
+            logger.warning(
+                "Cannot end event %s: not in active or paused state (current: %s)",
+                locked.id,
+                locked.status,
+            )
+            return False
+        if automatic:
+            from ctf.services.notification import declare_or_retain_lifecycle_alert
 
+            declare_or_retain_lifecycle_alert(locked, "event_ended", occurrence=locked.event_end, task_id=task_id)
+        event.status = locked.status
+
+    finish_ended_event(locked, actor=actor)
+    logger.info("Ended CTF event %s", event.id)
+    return True
+
+
+def finish_ended_event(event: CTFEvent, *, actor: object | None = None) -> None:
+    """Apply the idempotent end effects: final scores, due lease cleanup and the results notice."""
     # Finalize the materialized leaderboard (issue #850) from authoritative
     # rows when the event ends, so the stored per-event scores are exact and
     # self-heal any incremental-maintenance drift before the board goes static.
@@ -218,7 +248,7 @@ def complete_event(event: CTFEvent, *, actor: object | None = None) -> bool:
             result = cleanup_event_ranges(event.pk, actor=actor)
         logger.info("Auto-cleanup on event end %s: %s", event.id, result)
 
-    # CTF-801: final-results email to participants; best-effort so a mail
+    # CTF-801: final-results notice to participants; best-effort so a mail
     # outage never blocks the end transition.
     try:
         from ctf.services.notification import send_event_results
@@ -226,9 +256,6 @@ def complete_event(event: CTFEvent, *, actor: object | None = None) -> bool:
         send_event_results(event.pk)
     except Exception:
         logger.exception("Failed to send results for event %s", event.id)
-
-    logger.info("Ended CTF event %s", event.id)
-    return True
 
 
 def cancel_event(event: CTFEvent, *, actor: object) -> bool:
@@ -386,12 +413,14 @@ def archive_event(event: CTFEvent) -> bool:
     return True
 
 
-def _transition_event(event: CTFEvent, target: EventStatus) -> None:
+def _transition_event(event: CTFEvent, target: EventStatus, *, scheduled_end: bool = False) -> None:
     """Perform a validated state transition.
 
     Args:
         event: The event to transition.
         target: The target status.
+        scheduled_end: True only for the scheduler's end at or after the end
+            time, checked by the caller under the event lock (CTF-701).
 
     Raises:
         CTFStateError: If the transition is invalid.
@@ -404,7 +433,7 @@ def _transition_event(event: CTFEvent, target: EventStatus) -> None:
             details={"event_id": str(event.id), "status": event.status},
         ) from None
 
-    if not validate_transition(current, target):
+    if not validate_transition(current, target, scheduled_end=scheduled_end):
         raise CTFStateError(
             f"Cannot transition from {current.value} to {target.value}",
             details={

@@ -13,7 +13,13 @@ from __future__ import annotations
 from .admission import AdmissionActor
 from .audience import resolve_recipients
 from .campaigns import CampaignDraft, create_campaign, create_system_event_campaign, revise_message
-from .lifecycle import cancel_campaign, on_event_cancelled, on_participant_removed, on_range_replaced
+from .lifecycle import (
+    cancel_campaign,
+    on_event_cancelled,
+    on_organizer_removed,
+    on_participant_removed,
+    on_range_replaced,
+)
 from .release import release_campaign, release_due_declaration
 from .retention import purge_expired_communications
 from .scheduling import request_early_release, run_release_communication_task, schedule_declaration
@@ -25,6 +31,7 @@ __all__ = [
     "create_campaign",
     "create_system_event_campaign",
     "on_event_cancelled",
+    "on_organizer_removed",
     "on_participant_removed",
     "on_range_replaced",
     "purge_expired_communications",

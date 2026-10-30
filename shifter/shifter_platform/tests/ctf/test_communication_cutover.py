@@ -5,7 +5,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from ctf.exceptions import CTFCommunicationError
-from ctf.models import CommunicationIntent, CTFNotification, CTFScheduledTask, ParticipantReceipt
+from ctf.models import CommunicationIntent, CTFNotification, CTFScheduledTask, RecipientReceipt
 
 pytestmark = pytest.mark.django_db
 
@@ -72,7 +72,7 @@ def test_conversion_preserves_history_and_transfers_pending_ownership(organizer_
     assert task.status == "cancelled"
     historical.refresh_from_db()
     assert historical.sent_count == 7
-    assert not ParticipantReceipt.objects.exists()
+    assert not RecipientReceipt.objects.exists()
     assert not CommunicationIntent.objects.exists()
 
 

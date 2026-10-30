@@ -127,6 +127,20 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_me_events_communications_acknowledge_create": OperationPolicy((_PARTICIPATE,), "event", "event"),
     "ctf_me_events_communications_read_create": OperationPolicy((_PARTICIPATE,), "event", "event"),
     "ctf_me_events_communications_dismiss_create": OperationPolicy((_PARTICIPATE,), "event", "event"),
+    # Organizer alerts (ADR-065-R4): each alert pins one of these actions; rows
+    # whose action the current organizer does not hold are absent.
+    "ctf_organizer_alert_inbox_list": OperationPolicy(
+        (_EVENT_READ, _MANAGE_RANGES), "event", "event", selector="organizer_alert_action"
+    ),
+    "ctf_organizer_alert_inbox_detail": OperationPolicy(
+        (_EVENT_READ, _MANAGE_RANGES), "event", "event", selector="organizer_alert_action"
+    ),
+    "ctf_events_organizer_alerts_read_create": OperationPolicy(
+        (_EVENT_READ, _MANAGE_RANGES), "event", "event", selector="organizer_alert_action"
+    ),
+    "ctf_events_organizer_alerts_dismiss_create": OperationPolicy(
+        (_EVENT_READ, _MANAGE_RANGES), "event", "event", selector="organizer_alert_action"
+    ),
     "ctf_me_events_participant_retrieve": OperationPolicy((_PARTICIPATE,), "event", "event"),
     "ctf_me_model_access_retrieve": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
     "ctf_me_pages_retrieve": OperationPolicy((_PARTICIPATE,), "event", "active_event"),
@@ -219,6 +233,7 @@ NON_API_ROUTE_POLICY: dict[str, str] = {
             "admin_bracket_edit",
             "admin_bracket_delete",
             "admin_range_list",
+            "admin_event_alerts",
             "admin_notification_list",
             "admin_notification_create",
             "admin_analytics",

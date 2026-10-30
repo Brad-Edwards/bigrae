@@ -88,7 +88,7 @@ The following terms are deliberately distinct:
 | `CommunicationIntent` | Immutable normalized occurrence produced after source validation and authorization. Static, dynamic, manual, timed, and RAES sources converge here. It pins campaign, revision, scope, event targets, occurrence identity, source attribution, and channel policy. |
 | `RecipientSnapshot` | Server-resolved event participation at intent release. One row identifies an internal CTF participant and its event/team/user projection; any delivery coordinate is captured as encrypted sensitive data, never as authority. |
 | `DeliveryAttempt` | One transport attempt for one snapshot, with a stable idempotency key, attempt number, due time, bounded result class, and truthful transport status. Transactional in-app availability is not a transport attempt. |
-| `ParticipantReceipt` | In-app state for `read_at` and explicit `acknowledged_at`. It is independent of email acceptance, WebSocket publication, or socket write. |
+| `RecipientReceipt` | In-app state for `read_at` and explicit `acknowledged_at`. It is independent of email acceptance, WebSocket publication, or socket write. |
 | Audit evidence | Body-free security and workflow evidence emitted through `shared.audit`. Audit rows support investigation; they are not campaign, queue, or delivery state. |
 
 `CTFNotification` currently conflates authoring, content, aggregate status,
