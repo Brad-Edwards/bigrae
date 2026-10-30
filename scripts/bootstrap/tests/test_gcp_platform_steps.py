@@ -127,15 +127,28 @@ class TestTerraformSteps:
         assert not runner.find("terraform", f"-chdir={ctx.root}", "import")
         assert terraform_outputs(runner, ctx) == {"a": {"value": 1}}
 
-    def test_apply_retries_only_iam_propagation(self, inputs, capsys):
+    def test_apply_retries_only_iam_propagation_and_capacity(self, inputs, capsys):
         ctx = terraform_context(inputs, inputs.workdir, {})
-        attempts = iter([ProcessResult(1, "", "Error 403: permission denied"), ProcessResult(0, "done")])
+        stockout = (
+            "Error waiting for creating GKE cluster: Try a different location, or try again later: "
+            "Google Compute Engine does not have enough resources available to fulfill request: us-central1."
+        )
+        attempts = iter(
+            [
+                ProcessResult(1, "", "Error 403: permission denied"),
+                ProcessResult(1, "", stockout),
+                ProcessResult(0, "done"),
+            ]
+        )
         runner = FakeRunner().on(["terraform", f"-chdir={ctx.root}", "apply"], lambda a, e, s: next(attempts))
         sleeps = []
         terraform_apply(runner, ctx, sleep=sleeps.append)
-        assert sleeps == [10]
-        # The retried error stays visible to the operator (#2601).
-        assert "Error 403: permission denied" in capsys.readouterr().out
+        assert sleeps == [10, 10]
+        out = capsys.readouterr().out
+        # The retried error stays visible to the operator (#2601), with its real cause (#2685).
+        assert "Error 403: permission denied" in out and stockout in out
+        assert "hit an IAM propagation error; retrying in 10s (1/12)" in out
+        assert "hit a Compute Engine capacity shortage; retrying in 10s (2/12)" in out
         hard = FakeRunner().on(["terraform", f"-chdir={ctx.root}", "apply"], ProcessResult(1, "", "invalid config"))
         with pytest.raises(TerraformStepError):
             terraform_apply(hard, ctx, sleep=sleeps.append)
