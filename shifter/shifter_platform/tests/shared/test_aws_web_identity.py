@@ -113,7 +113,8 @@ def test_refuses_wrong_keys_and_unapproved_algorithms(issuer_keys):
 def test_key_source_failure_is_denial_without_detail(issuer_keys):
     class _Unavailable:
         def get_signing_key_from_jwt(self, token: str) -> Any:
-            raise RuntimeError("synthetic-secret-marker")
+            # PyJWKClient reports key-set fetch failures this way.
+            raise jwt.PyJWKClientConnectionError("synthetic-secret-marker")
 
     token = jwt.encode(_claims(), issuer_keys["ES384"], algorithm="ES384")
     with pytest.raises(ValueError) as raised:

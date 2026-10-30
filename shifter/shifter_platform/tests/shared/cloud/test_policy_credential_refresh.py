@@ -37,6 +37,10 @@ class _Secrets:
         return {"SecretString": json.dumps({"engine": "postgres", **self.values[SecretId]})}
 
 
+class _ApiError(Exception):
+    """The Kubernetes client's request error."""
+
+
 class _Kubernetes:
     def __init__(self) -> None:
         self.secret_patches: list[tuple[str, dict[str, Any]]] = []
@@ -58,7 +62,7 @@ def clients():
 
 def test_refresh_patches_exact_secrets_then_restarts_only_policy_servers(clients):
     secrets, kubernetes = clients
-    refresh.refresh(secrets, kubernetes, kubernetes, ARNS, now="2026-10-29T12:00:00Z")
+    refresh.refresh(secrets, kubernetes, kubernetes, ARNS, now="2026-10-29T12:00:00Z", api_errors=(_ApiError,))
     assert [name for name, _ in kubernetes.secret_patches] == [
         "openfga-runtime-datastore",
         "openfga-admin-datastore",
@@ -83,14 +87,29 @@ def test_malformed_secret_changes_nothing_and_hides_values(clients, value, caplo
     secrets, kubernetes = clients
     secrets.values[ARNS["admin"]] = value
     with pytest.raises(refresh.RefreshError) as raised:
-        refresh.refresh(secrets, kubernetes, kubernetes, ARNS, now="2026-10-29T12:00:00Z")
+        refresh.refresh(secrets, kubernetes, kubernetes, ARNS, now="2026-10-29T12:00:00Z", api_errors=(_ApiError,))
     assert kubernetes.secret_patches == [] and kubernetes.deployment_patches == []
+    assert MARKER not in str(raised.value) and MARKER not in caplog.text
+
+
+def test_kubernetes_request_errors_are_bounded(clients, caplog):
+    secrets, kubernetes = clients
+
+    def rejected(name: str, namespace: str, body: dict[str, Any]) -> None:
+        raise _ApiError(f"synthetic rejection {MARKER}")
+
+    kubernetes.patch_namespaced_secret = rejected
+    with pytest.raises(refresh.RefreshError) as raised:
+        refresh.refresh(secrets, kubernetes, kubernetes, ARNS, now="2026-10-29T12:00:00Z", api_errors=(_ApiError,))
+    assert raised.value.__cause__ is None
     assert MARKER not in str(raised.value) and MARKER not in caplog.text
 
 
 def test_reference_contract_is_closed():
     with pytest.raises(refresh.RefreshError):
-        refresh.refresh(_Secrets(), _Kubernetes(), _Kubernetes(), {"runtime": ARNS["runtime"]}, now="x")
+        refresh.refresh(
+            _Secrets(), _Kubernetes(), _Kubernetes(), {"runtime": ARNS["runtime"]}, now="x", api_errors=(_ApiError,)
+        )
     with pytest.raises(refresh.RefreshError):
         refresh.parse_references(json.dumps({**ARNS, "extra": ARNS["runtime"]}))
     assert refresh.parse_references(json.dumps(ARNS)) == ARNS
@@ -184,7 +203,7 @@ def _admitted(old: dict[str, Any], new: dict[str, Any], username: str = REFRESH_
 
 def _restart_patch() -> dict[str, Any]:
     secrets, kubernetes = _Secrets(), _Kubernetes()
-    refresh.refresh(secrets, kubernetes, kubernetes, ARNS, now="2026-10-29T12:00:00Z")
+    refresh.refresh(secrets, kubernetes, kubernetes, ARNS, now="2026-10-29T12:00:00Z", api_errors=(_ApiError,))
     return kubernetes.deployment_patches[0][1]
 
 

@@ -135,7 +135,8 @@ def verify_aws_web_identity_token(
             or not 0 < lifetime <= _MAX_LIFETIME_SECONDS
         ):
             raise ValueError(_DENIED)
-    except Exception:
+    except (jwt.PyJWTError, ValueError, TypeError, KeyError):
+        # PyJWT wraps key-set, signature and transport failures in PyJWTError.
         # Never surface key-set, token, claim or transport detail to callers.
         raise ValueError(_DENIED) from None
     assert isinstance(subject, str)

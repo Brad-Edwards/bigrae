@@ -19,6 +19,7 @@ from psycopg import sql
 
 from shared.aws_database_duties import OPENFGA_LOGINS, ensure_password_login, master_connection_parameters
 from shared.cloud import get_secrets_store
+from shared.cloud.exceptions import CloudSecretsError
 
 _DATABASE = "openfga"
 _DUTY_SECRETS = {"runtime": "openfga-runtime", "admin": "openfga-admin", "migrator": "openfga-migrator"}
@@ -42,7 +43,7 @@ class Command(BaseCommand):
             master = json.loads(store.get_secret(master_secret))
             credentials = {duty: json.loads(store.get_secret(references[duty])) for duty in _DUTY_SECRETS}
             created = self._provision(master, credentials)
-        except Exception:
+        except (psycopg.Error, CloudSecretsError, OSError, ValueError, KeyError, TypeError):
             # Driver and provider errors can carry connection or credential detail.
             raise CommandError(
                 "OpenFGA database provisioning failed; verify the master and datastore secrets"

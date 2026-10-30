@@ -25,6 +25,8 @@ from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from botocore.exceptions import BotoCoreError, ClientError
+
 logger = logging.getLogger(__name__)
 
 NAMESPACE = "shifter-platform"
@@ -84,7 +86,7 @@ def _credential(secrets: SecretReader, arn: str) -> dict[str, str]:
     """Read and validate one current credential; provider text never escapes."""
     try:
         value = json.loads(secrets.get_secret_value(SecretId=arn)["SecretString"])
-    except Exception:
+    except (ClientError, BotoCoreError, ValueError, KeyError, TypeError):
         raise RefreshError("Datastore credential is unavailable") from None
     username = value.get("username") if isinstance(value, dict) else None
     password = value.get("password") if isinstance(value, dict) else None
@@ -107,18 +109,23 @@ def refresh(
     references: dict[str, str],
     *,
     now: str,
+    api_errors: tuple[type[Exception], ...],
 ) -> None:
-    """Validate every credential first, then patch the Secrets and restart the servers."""
+    """Validate every credential first, then patch the Secrets and restart the servers.
+
+    ``api_errors`` are the Kubernetes client's request and transport errors.
+    """
     if set(references) != set(DUTIES):
         raise RefreshError("Datastore secret references are invalid")
     credentials = {duty: _credential(secrets, references[duty]) for duty in DUTIES}
+    publication_errors: tuple[type[Exception], ...] = (*api_errors, OSError)
     try:
         for duty in DUTIES:
             core.patch_namespaced_secret(secret_name(duty), NAMESPACE, {"stringData": credentials[duty]})
         restart = {"spec": {"template": {"metadata": {"annotations": {RESTART_ANNOTATION: now}}}}}
         for server in SERVERS:
             apps.patch_namespaced_deployment(server, NAMESPACE, restart)
-    except Exception:
+    except publication_errors:
         raise RefreshError("Policy credential publication failed") from None
 
 
@@ -126,6 +133,9 @@ def main() -> int:
     """Run one refresh with the native SDK credential chain and in-cluster RBAC."""
     import boto3
     from kubernetes import client, config
+    from kubernetes.client.exceptions import OpenApiException
+    from kubernetes.config import ConfigException
+    from urllib3.exceptions import HTTPError
 
     try:
         references = parse_references(os.environ.get("OPENFGA_DATASTORE_LOGIN_ARNS", ""))
@@ -136,11 +146,13 @@ def main() -> int:
             client.AppsV1Api(),
             references,
             now=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            api_errors=(OpenApiException, HTTPError),
         )
     except RefreshError as error:
         logger.error("policy credential refresh failed: %s", error)
         return 1
-    except Exception:
+    except (ConfigException, BotoCoreError, KeyError):
+        # In-cluster configuration, SDK setup or a missing region; no detail is logged.
         logger.error("policy credential refresh failed")
         return 1
     logger.info("policy credentials refreshed; policy servers restarting")

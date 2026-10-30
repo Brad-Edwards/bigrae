@@ -17,6 +17,7 @@ from psycopg import sql
 
 from shared.aws_database_duties import ensure_iam_logins, master_connection_parameters, parse_iam_users
 from shared.cloud import get_secrets_store
+from shared.cloud.exceptions import CloudSecretsError
 
 
 class Command(BaseCommand):
@@ -40,7 +41,7 @@ class Command(BaseCommand):
                 if cursor.fetchone() is not None:
                     for login in users.values():
                         cursor.execute(sql.SQL("GRANT portal_runtime TO {}").format(sql.Identifier(login)))
-        except Exception:
+        except (psycopg.Error, CloudSecretsError, OSError, ValueError, KeyError, TypeError):
             # Driver and provider errors can carry connection or credential detail.
             raise CommandError("RDS IAM login provisioning failed; verify the master secret and login map") from None
         self.stdout.write("RDS IAM runtime logins are provisioned.")
