@@ -143,7 +143,6 @@ sidebar, while organizer pages use the shared icon sidebar.
 | Ranges | `/ctf/admin/events/<event_id>/ranges/` | Organizer | Monitor participant range provisioning. |
 | Notifications | `/ctf/admin/events/<event_id>/notifications/` | Organizer | List event notifications. |
 | Create notification | `/ctf/admin/events/<event_id>/notifications/create/` | Organizer | Send or schedule event communication. |
-| Email templates | `/ctf/admin/events/<event_id>/email-templates/` | Organizer | Manage event email copy. |
 | Analytics | `/ctf/admin/events/<event_id>/analytics/` | Organizer | Review event analytics and outcomes. |
 
 ### Mission Control

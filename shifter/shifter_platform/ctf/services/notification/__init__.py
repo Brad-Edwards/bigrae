@@ -7,8 +7,7 @@ implementation is split across private submodules (``_participant``,
 using ``from ctf.services.notification import X`` / ``from ctf.services
 import notification``.
 
-PATCH LOCALITY: submodules resolve the email helpers (``_send_email`` /
-``_render_email``) and models through this package at call time
+PATCH LOCALITY: submodules resolve the email helper (``_send_email``) and models through this package at call time
 (``from ctf.services import notification as _n``), so a
 ``patch("ctf.services.notification.<name>")`` mutates the single attribute
 those submodules look up when they run.
@@ -20,7 +19,7 @@ from __future__ import annotations
 from ctf.models import CTFEvent, CTFNotification, CTFParticipant
 
 from ._cleanup import send_cleanup_warning
-from ._email import _build_ctf_login_url, _render_email, _send_email
+from ._email import _build_ctf_login_url, _send_email
 from ._organizer import (
     EVENT_NOT_FOUND_LOG,
     NO_ORGANIZER_EMAIL_LOG,
@@ -59,7 +58,6 @@ __all__ = (
     "CTFParticipant",
     "_build_ctf_login_url",
     "_deliver_announcement",
-    "_render_email",
     "_send_email",
     "cancel_scheduled_notification",
     "deliver_scheduled_notification",

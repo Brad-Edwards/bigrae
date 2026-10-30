@@ -1,0 +1,13 @@
+{# SPDX-FileCopyrightText: 2026 Palo Alto Networks, Inc. #}
+{# SPDX-License-Identifier: MIT #}
+{# Plain text has no markup context, so values are not HTML-escaped (#580). #}
+{% autoescape off %}{{ subject }}
+
+{% if participant_name %}Hi {{ participant_name }},{% else %}Hello,{% endif %}
+
+{% block intro %}{% endblock %}
+
+{{ body }}
+
+Open {{ event_name }}: {{ event_url }}
+{% endautoescape %}

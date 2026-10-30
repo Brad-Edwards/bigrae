@@ -1,7 +1,7 @@
 {# SPDX-FileCopyrightText: 2026 Palo Alto Networks, Inc. #}
 {# SPDX-License-Identifier: MIT #}
-{# Trusted wrapper for a pinned communication revision (ADR-071). The authored #}
-{# Markdown source is escaped and shown as text; it is never rendered as HTML. #}
+{# Trusted notice wrapper (#580). Every value is escaped. The authored Markdown #}
+{# source is shown as text; it is never rendered as HTML. #}
 <!DOCTYPE html>
 <html lang="{{ locale }}">
     <head>
@@ -13,6 +13,19 @@
                  max-width: 600px;
                  margin: 0 auto">
         <h1 style="font-size: 1.25em">{{ subject }}</h1>
+        <p>
+            {% if participant_name %}
+                Hi {{ participant_name }},
+            {% else %}
+                Hello,
+            {% endif %}
+        </p>
+        <p>
+            {% block intro %}{% endblock %}
+        </p>
         {{ body|linebreaks }}
+        <p>
+            <a href="{{ event_url }}">Open {{ event_name }}</a>
+        </p>
     </body>
 </html>

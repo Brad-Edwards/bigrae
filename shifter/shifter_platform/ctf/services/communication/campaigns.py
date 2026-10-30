@@ -26,7 +26,7 @@ from ctf.communication_contracts import (
     validate_message_content,
     validate_trigger_spec,
 )
-from ctf.enums_communication import CampaignStatus
+from ctf.enums_communication import CampaignStatus, NoticeKind
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import CommunicationCampaign, CommunicationTargetEvent, CTFEvent, MessageRevision
 from ctf.services.actors import EventActor, event_actor_credential, event_actor_user, event_actor_user_id
@@ -66,6 +66,7 @@ class CampaignDraft:
     body: str
     acknowledgement_policy: str = "none"
     actor_token_id: int | None = None
+    notice_kind: str = NoticeKind.ANNOUNCEMENT.value
 
 
 _TARGET_DENIED = CTFCommunicationError(
@@ -159,6 +160,9 @@ def create_campaign(
     )
     if actor.credential != credential or actor.system:
         raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
+    if draft.notice_kind != NoticeKind.ANNOUNCEMENT.value:
+        # Only trusted lifecycle notices select another email presentation (#580).
+        raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_NOTICE_KIND_DENIED")
     scope, binding = _resolve_parent(parent_type, parent_uuid)
     workspace_id = binding.workspace_id
 
@@ -226,6 +230,10 @@ def create_system_event_campaign(event: CTFEvent, draft: CampaignDraft, *, campa
     if list(dict.fromkeys(validate_campaign_targets(draft.target_event_ids))) != [event.pk]:
         raise _TARGET_DENIED
     try:
+        notice_kind = NoticeKind(draft.notice_kind).value
+    except ValueError:
+        raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_NOTICE_KIND_DENIED") from None
+    try:
         scope = workspace_services.resource_scope_from_ids(
             kind=event.scope_kind,
             account_id=event.account_id,
@@ -256,6 +264,7 @@ def create_system_event_campaign(event: CTFEvent, draft: CampaignDraft, *, campa
         workspace_id=binding.workspace_id,
         title=draft.title,
         origin=draft.origin,
+        notice_kind=notice_kind,
         created_by=event.created_by,
         creator_principal_uuid=event.owner_principal_uuid,
         status=CampaignStatus.DRAFT.value,

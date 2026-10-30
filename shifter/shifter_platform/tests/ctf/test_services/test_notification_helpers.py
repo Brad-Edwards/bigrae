@@ -95,36 +95,6 @@ class TestSendEmailHelper:
         assert not delivered.is_set()
 
 
-class TestRenderEmail:
-    """Tests for _render_email helper."""
-
-    @patch("django.template.loader.render_to_string")
-    def test_renders_templates(self, mock_render, ctf_event, ctf_participant):
-        """Renders both HTML and text templates."""
-        registration_url = "https://example.com/ctf/login/"
-
-        mock_render.side_effect = [
-            f"<html>{ctf_event.name} {registration_url}</html>",
-            f"{ctf_event.name} {registration_url}",
-        ]
-
-        html, text, custom_subject = notification._render_email(
-            "invitation",
-            {
-                "event": ctf_event,
-                "participant": ctf_participant,
-                "registration_url": registration_url,
-            },
-        )
-
-        assert ctf_event.name in html
-        assert ctf_event.name in text
-        assert registration_url in html
-        assert registration_url in text
-        assert custom_subject == ""
-        assert mock_render.call_count == 2
-
-
 class TestBuildCtfLoginUrl:
     """Credential delivery uses a tokenless login URL."""
 

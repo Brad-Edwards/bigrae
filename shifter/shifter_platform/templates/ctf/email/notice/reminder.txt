@@ -1,0 +1,4 @@
+{# SPDX-FileCopyrightText: 2026 Palo Alto Networks, Inc. #}
+{# SPDX-License-Identifier: MIT #}
+{% extends "ctf/email/notice/_base.txt" %}
+{% block intro %}{{ event_name }} starts on {{ event_start }} ({{ event_timezone }}).{% endblock %}

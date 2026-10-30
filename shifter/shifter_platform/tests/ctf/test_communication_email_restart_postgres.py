@@ -74,6 +74,8 @@ def _environment(directory: Path, backend: str) -> dict[str, str]:
             "FIELD_ENCRYPTION_KEY": settings.FIELD_ENCRYPTION_KEY,
             "EMAIL_BACKEND": f"{BACKENDS}.{backend}",
             "SHIFTER_TEST_EMAIL_DIR": str(directory),
+            # The adapter builds the portal link from a safe public origin (#580).
+            "SITE_URL": "https://ctf.example.test",
             # Metrics stay fail-soft and offline: a closed local endpoint, no retries.
             "CLOUD_PROVIDER": "aws",
             "AWS_ACCESS_KEY_ID": "test",

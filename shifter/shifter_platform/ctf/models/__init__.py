@@ -18,7 +18,7 @@ Submodule layout:
 * ``submission``   — ``CTFSubmission``, ``CTFAward``.
 * ``rating``       — ``CTFChallengeRating``.
 * ``hint``         — ``CTFHint``, ``CTFHintUsage``.
-* ``notification`` — ``CTFNotification``, ``CTFEmailTemplate``, ``CTFScheduledTask``.
+* ``notification`` — ``CTFNotification``, ``CTFScheduledTask``.
 * ``communication``— ``CommunicationCampaign``, ``CommunicationTargetEvent``,
   ``MessageRevision``, ``CommunicationIntent``, ``RecipientSnapshot``,
   ``DeliveryAttempt``, ``ParticipantReceipt`` (ADR-051, #2048).
@@ -56,7 +56,7 @@ from .event_page import CTFEventPage
 from .event_staff import CTFEventStaff
 from .flag import CTFFlag
 from .hint import CTFHint, CTFHintUsage
-from .notification import CTFEmailTemplate, CTFNotification, CTFWebhook
+from .notification import CTFNotification, CTFWebhook
 from .public_registration import CTFPublicRegistrationRequest
 from .range_launch import CTFRangeLaunch
 from .rating import CTFChallengeRating
@@ -84,7 +84,6 @@ __all__ = [
     "CTFCohort",
     "CTFContentHydrationReceipt",
     "CTFContentImage",
-    "CTFEmailTemplate",
     "CTFEvent",
     "CTFEventAuthorityTransition",
     "CTFEventPage",
