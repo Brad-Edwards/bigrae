@@ -62,6 +62,10 @@ class TestGeneratedCredentials:
             names = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
             assert f"{server}.shifter-platform.svc.cluster.local" in names.get_values_for_type(x509.DNSName)
             assert isinstance(cert.public_key(), ec.EllipticCurvePublicKey)
+            # RFC 5280 key identifiers link the server certificate to the CA.
+            authority = cert.extensions.get_extension_for_class(x509.AuthorityKeyIdentifier).value
+            subject = ca.extensions.get_extension_for_class(x509.SubjectKeyIdentifier).value
+            assert authority.key_identifier == subject.digest
         assert bundles["runtime"]["api-token"] != bundles["admin"]["api-token"]
         assert bundles["runtime"]["tls.key"] != bundles["admin"]["tls.key"]
 
@@ -105,6 +109,8 @@ class TestPublication:
         assert container["command"] == ["python", "-B", "/publisher/publish.py"]
         token = next(volume for volume in pod["volumes"] if volume["name"] == "admin-token")
         assert token["secret"]["items"] == [{"key": "api-token", "path": "token"}]
+        # The non-root portal user reads the 0440 token through the pod group.
+        assert token["secret"]["defaultMode"] == 0o440 and pod["securityContext"]["fsGroup"] == 1000
         with pytest.raises(PolicySetupError):
             render_publisher([], name="x", model=MODEL, script="")
 
