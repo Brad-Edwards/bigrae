@@ -109,7 +109,7 @@ def rds_ca_path(environ: Mapping[str, str] = os.environ) -> str:
     """Return the RDS CA bundle file; write the published bundle once if needed.
 
     The AWS renderer publishes the region's public RDS CA bundle as base64
-    runtime configuration. The file is read-only and named by its digest.
+    runtime configuration. The file is owner read-only and named by its digest.
     """
     configured = environ.get("DB_SSL_ROOT_CERT", "").strip()
     if configured:
@@ -126,7 +126,8 @@ def rds_ca_path(environ: Mapping[str, str] = os.environ) -> str:
         descriptor, staged = tempfile.mkstemp(dir=directory, suffix=".pem")
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(bundle)
-        os.chmod(staged, 0o444)
+        # Only this process's user reads the bundle; it stays read-only.
+        os.chmod(staged, 0o400)
         os.replace(staged, path)
     return path
 

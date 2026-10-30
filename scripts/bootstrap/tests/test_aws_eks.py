@@ -1207,7 +1207,8 @@ def test_first_publication_status_probe_gets_the_portal_rds_iam_login(tmp_path):
     """The unbound cutover probe clones portal-web, so it must carry its own RDS IAM login."""
     from installation.gcp_identity_cutover import render
 
-    chart = aws_eks.get_repo_root() / "platform" / "charts" / "shifter"
+    # Other tests redirect the repository root, so locate the chart from this file.
+    chart = Path(__file__).resolve().parents[3] / "platform" / "charts" / "shifter"
     secret_prefix = "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/dev/eks"
     values = {
         "rdsIam": {

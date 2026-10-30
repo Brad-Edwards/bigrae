@@ -156,7 +156,7 @@ def test_aws_runtime_materializes_the_published_rds_ca_bundle(tmp_path):
     assert json.loads(output.read_text())["DB_IAM_AUTH"] == "true"
     written = list(tmp_path.glob("rds-ca-*.pem"))
     assert len(written) == 1 and written[0].read_text() == pem
-    assert oct(written[0].stat().st_mode & 0o777) == "0o444"
+    assert oct(written[0].stat().st_mode & 0o777) == "0o400"
 
 
 def test_password_readiness_probe_verifies_the_server_like_django(tmp_path):
