@@ -184,9 +184,15 @@ def _deploy_options(args: argparse.Namespace) -> DeployOptions:
 
 
 def _run_install(args: argparse.Namespace) -> int:
-    """Run ``gcp-install`` from the parsed arguments."""
+    """Run ``gcp-install`` from the parsed arguments.
+
+    The one install command is non-interactive, so it answers the foundation's
+    routine proceed prompts. Destructive actions keep their own opt-in.
+    """
+    from bootstrap_core import set_assume_yes
     from gcp_install import InstallOptions, run_install
 
+    set_assume_yes(True)
     return run_install(
         InstallOptions(
             inputs=args.inputs,
