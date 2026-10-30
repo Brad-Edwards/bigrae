@@ -82,9 +82,9 @@ updates:
       interval: "weekly"
     open-pull-requests-limit: 5
 
-  # OpenFGA datastore rotation function (#2313): requirements.in pins the
-  # driver; the deploy tooling installs the hash-pinned requirements.lock.
-  - package-ecosystem: "pip"
+  # OpenFGA datastore rotation function (#2313): uv.lock pins the driver with
+  # hashes; the deploy tooling exports it into the Lambda package.
+  - package-ecosystem: "uv"
     directory: "/platform/terraform/modules/portal/eks/lambda"
     target-branch: "dev"
     commit-message:

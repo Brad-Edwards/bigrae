@@ -55,6 +55,22 @@ def build_rotation_package(workdir: Path, ca_bundle: bytes) -> Path:
     staging = workdir / "openfga-rotation"
     shutil.rmtree(staging, ignore_errors=True)
     staging.mkdir(parents=True)
+    # uv.lock is the only pin source; the export carries its hashes and markers.
+    requirements = workdir / "openfga-rotation-requirements.txt"
+    run_cmd(
+        [
+            "uv",
+            "export",
+            "--quiet",
+            "--frozen",
+            "--no-dev",
+            "--no-emit-project",
+            "--project",
+            str(source),
+            "--output-file",
+            str(requirements),
+        ]
+    )
     run_cmd(
         [
             "uv",
@@ -72,7 +88,7 @@ def build_rotation_package(workdir: Path, ca_bundle: bytes) -> Path:
             "--target",
             str(staging),
             "-r",
-            str(source / "requirements.lock"),
+            str(requirements),
         ]
     )
     shutil.copy2(source / "openfga_rotation.py", staging / "openfga_rotation.py")

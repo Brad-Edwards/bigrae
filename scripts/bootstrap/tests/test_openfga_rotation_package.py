@@ -53,10 +53,13 @@ def test_rds_ca_bundle_comes_only_from_the_aws_trust_store(monkeypatch):
 
 
 def test_rotation_package_is_hash_pinned_and_deterministic(tmp_path, monkeypatch):
-    installs = []
+    calls = []
 
     def run_cmd(argv, **kwargs):
-        installs.append(argv)
+        calls.append(argv)
+        if argv[:2] == ["uv", "export"]:
+            Path(argv[argv.index("--output-file") + 1]).write_text("psycopg==3.3.4 --hash=sha256:synthetic\n")
+            return
         target = Path(argv[argv.index("--target") + 1])
         (target / "psycopg").mkdir()
         (target / "psycopg" / "__init__.py").write_text("# synthetic\n")
@@ -67,8 +70,12 @@ def test_rotation_package_is_hash_pinned_and_deterministic(tmp_path, monkeypatch
     first = openfga_rotation_package.build_rotation_package(tmp_path / "a", CA)
     second = openfga_rotation_package.build_rotation_package(tmp_path / "b", CA)
     assert first.read_bytes() == second.read_bytes()
-    assert {"--require-hashes", "--no-deps", "--only-binary"} <= set(installs[0])
-    assert installs[0][installs[0].index("-r") + 1].endswith("eks/lambda/requirements.lock")
+    export, install = calls[0], calls[1]
+    # The frozen uv.lock is the only pin source; the install checks every hash.
+    assert export[:2] == ["uv", "export"] and {"--frozen", "--no-dev", "--no-emit-project"} <= set(export)
+    assert export[export.index("--project") + 1].endswith("eks/lambda")
+    assert {"--require-hashes", "--no-deps", "--only-binary"} <= set(install)
+    assert install[install.index("-r") + 1] == export[export.index("--output-file") + 1]
     with zipfile.ZipFile(first) as archive:
         names = archive.namelist()
         assert names == sorted(names)
