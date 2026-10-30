@@ -94,6 +94,7 @@ def provision_event_ranges_throttled(
     shutdown_check: Callable[[], bool] | None = None,
     heartbeat: Callable[[], None] | None = None,
     actor: object | None = None,
+    continuation: bool = False,
 ) -> dict[str, Any]:
     """Provision ranges for all participants with throttled pacing.
 
@@ -111,6 +112,10 @@ def provision_event_ranges_throttled(
             multi-node portal, #942) and the scheduler liveness file fresh (so
             the container healthcheck does not restart it, #943). Failures are
             swallowed so a heartbeat error never aborts provisioning.
+        continuation: True when this run resumes an interrupted or yielded run.
+            The first run's capacity admission covers the cohort, so a
+            continuation does not declare or assess capacity again; repeating it
+            would count the run's own provisioned ranges against its headroom.
 
     Returns:
         Dict with counts of successful, failed, skipped, and whether interrupted.
@@ -132,7 +137,7 @@ def provision_event_ranges_throttled(
 
     credential = event_actor_credential(actor)
     assert_event_action(credential, event, "event.manage_ranges")
-    capacity = _declare_and_assess(event_id)
+    capacity = None if continuation else _declare_and_assess(event_id)
     if capacity is not None and capacity["blocking"]:
         return _capacity_refused_result(event_id, capacity)
     logger.info(

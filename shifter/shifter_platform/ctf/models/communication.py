@@ -3,7 +3,7 @@
 The durable domain for scoped communications: an authoring ``CommunicationCampaign``
 confined to one workspace, immutable ``MessageRevision`` content, normalized
 ``CommunicationIntent`` occurrences, server-resolved ``RecipientSnapshot`` rows,
-per-transport ``DeliveryAttempt`` commands, and per-recipient ``ParticipantReceipt``
+per-transport ``DeliveryAttempt`` commands, and per-recipient ``RecipientReceipt``
 read/acknowledgement state.
 
 This is the model slice of the umbrella capability (issue #2047). It is NOT a
@@ -35,6 +35,7 @@ from ctf.enums_communication import (
     CommunicationOrigin,
     IntentDeliveryState,
     IntentStatus,
+    RecipientKind,
     TriggerKind,
 )
 from ctf.exceptions import CTFCommunicationError
@@ -182,8 +183,10 @@ class CommunicationCampaign(CTFBaseModel):
     def clean(self) -> None:
         """Validate the closed audience/trigger/channel/ack shapes (defense in depth)."""
         errors: dict[str, list[str]] = {}
+        # Organizer recipients are reachable only from trusted system notices.
+        allow_organizer = self.origin == CommunicationOrigin.SYSTEM_MILESTONE.value
         for field, validator in (
-            ("audience_spec", validate_audience_spec),
+            ("audience_spec", lambda spec: validate_audience_spec(spec, allow_organizer=allow_organizer)),
             ("trigger_spec", validate_trigger_spec),
             ("channels", validate_channels),
             ("acknowledgement_policy", validate_acknowledgement_policy),
@@ -380,11 +383,20 @@ class CommunicationIntent(RecordedAuthorityFields, CTFBaseModel):
 class RecipientSnapshot(CTFBaseModel):
     """Immutable, event-qualified recipient captured at intent release (ADR-051).
 
-    One row identifies an internal CTF participant and its event/team/user
-    projection. The delivery coordinate is encrypted sensitive data, never
-    authority, and is erased at retention or participant removal; the immutable
-    snapshot identity remains bounded historical evidence and is never retargeted.
+    A participant row identifies an internal CTF participant and its
+    event/team/user projection. An organizer row (ADR-065-R4) identifies the
+    principal of a current owner or co-organizer and never a participant. The
+    delivery coordinate is encrypted sensitive data, never authority, and is
+    erased at retention or recipient removal; the immutable snapshot identity
+    remains bounded historical evidence and is never retargeted.
     """
+
+    recipient_kind = models.CharField(
+        max_length=16,
+        choices=RecipientKind.choices(),
+        default=RecipientKind.PARTICIPANT.value,
+        help_text="participant | organizer; fixes which identity column is populated",
+    )
 
     intent = models.ForeignKey(
         CommunicationIntent,
@@ -405,7 +417,12 @@ class RecipientSnapshot(CTFBaseModel):
         related_name="communication_recipient_snapshots",
         help_text="Live participant link; cleared on hard delete while the scalar identity persists as evidence",
     )
-    participant_public_id = models.UUIDField(help_text="Immutable participant identity captured at release")
+    participant_public_id = models.UUIDField(
+        null=True, blank=True, help_text="Immutable participant identity captured at release (participant rows only)"
+    )
+    principal_uuid = models.UUIDField(
+        null=True, blank=True, help_text="Organizer principal identity captured at release (organizer rows only)"
+    )
     team_id = models.UUIDField(null=True, blank=True, help_text="Team projection at release")
     user_id = models.IntegerField(null=True, blank=True, db_index=True, help_text="Account projection for inbox reads")
     delivery_coordinate = EncryptedStringField(
@@ -423,14 +440,38 @@ class RecipientSnapshot(CTFBaseModel):
         constraints = [
             models.UniqueConstraint(
                 fields=["intent", "participant_public_id"],
+                condition=models.Q(recipient_kind=RecipientKind.PARTICIPANT.value),
                 name="ctf_comm_unique_intent_recipient",
+            ),
+            models.UniqueConstraint(
+                fields=["intent", "event", "principal_uuid"],
+                condition=models.Q(recipient_kind=RecipientKind.ORGANIZER.value),
+                name="ctf_comm_unique_intent_organizer",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(
+                        recipient_kind=RecipientKind.PARTICIPANT.value,
+                        participant_public_id__isnull=False,
+                        principal_uuid__isnull=True,
+                    )
+                    | models.Q(
+                        recipient_kind=RecipientKind.ORGANIZER.value,
+                        participant_public_id__isnull=True,
+                        participant__isnull=True,
+                        team_id__isnull=True,
+                        principal_uuid__isnull=False,
+                    )
+                ),
+                name="ctf_comm_recipient_kind_shape",
             ),
         ]
         indexes = [
             models.Index(fields=["intent"]),
             models.Index(fields=["participant_public_id"]),
+            models.Index(fields=["recipient_kind", "event", "principal_uuid"]),
         ]
 
     def __str__(self) -> str:
-        """Return the (intent, participant) identity."""
-        return f"{self.intent_id}:{self.participant_public_id}"
+        """Return the (intent, recipient) identity."""
+        return f"{self.intent_id}:{self.participant_public_id or self.principal_uuid}"

@@ -30,7 +30,13 @@ from django.utils import timezone
 
 from ctf.communication_contracts import canonical_digest
 from ctf.enums import EventStatus
-from ctf.enums_communication import CampaignStatus, CommunicationChannel, DeliveryStatus, IntentStatus
+from ctf.enums_communication import (
+    CampaignStatus,
+    CommunicationChannel,
+    DeliveryStatus,
+    IntentStatus,
+    RecipientKind,
+)
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import (
     CommunicationCampaign,
@@ -39,7 +45,7 @@ from ctf.models import (
     CTFParticipant,
     DeliveryAttempt,
     MessageRevision,
-    ParticipantReceipt,
+    RecipientReceipt,
     RecipientSnapshot,
 )
 from ctf.services.audit import audit_communication_release
@@ -51,7 +57,12 @@ from ctf.services.communication.admission import (
     reauthorize,
 )
 from ctf.services.communication.attribution import actor_attribution
-from ctf.services.communication.audience import resolve_recipients
+from ctf.services.communication.audience import (
+    OrganizerRecipient,
+    prepare_organizer_recipients,
+    resolve_organizer_recipients,
+    resolve_recipients,
+)
 from ctf.services.communication.backpressure import AdmissionRequest, enforce_admission
 from ctf.services.communication.disposition import refresh_delivery_state
 
@@ -156,30 +167,58 @@ def _resolve_revision(campaign: CommunicationCampaign, revision: MessageRevision
     return revision
 
 
+Recipient = CTFParticipant | OrganizerRecipient
+
+
+def _snapshot(
+    intent: CommunicationIntent, recipient: Recipient, event_id: UUID | None
+) -> tuple[RecipientSnapshot, UUID]:
+    """Create the immutable snapshot for one recipient and return its stable identity."""
+    if isinstance(recipient, OrganizerRecipient):
+        if event_id is None:
+            raise ValueError("Organizer snapshots need their qualifying event")
+        snapshot = RecipientSnapshot.objects.create(
+            intent=intent,
+            event_id=event_id,
+            recipient_kind=RecipientKind.ORGANIZER.value,
+            principal_uuid=recipient.principal_uuid,
+            user_id=recipient.user_id,
+            delivery_coordinate=recipient.email,
+        )
+        return snapshot, recipient.principal_uuid
+    snapshot = RecipientSnapshot.objects.create(
+        intent=intent,
+        event_id=recipient.event_id,
+        participant=recipient,
+        participant_public_id=recipient.id,
+        team_id=recipient.team_id,
+        user_id=recipient.user_id,
+        delivery_coordinate=recipient.email or "",
+    )
+    return snapshot, recipient.id
+
+
 def _materialize(
-    intent: CommunicationIntent, recipients: list[CTFParticipant], channels: list[str], now: datetime
+    intent: CommunicationIntent,
+    recipients: list[CTFParticipant] | list[OrganizerRecipient],
+    channels: list[str],
+    now: datetime,
+    *,
+    organizer_event_id: UUID | None = None,
 ) -> None:
     """Write the per-recipient snapshots, receipts, and per-channel delivery commands.
 
     In-app availability is committed here, at admission: when ``in_app`` is a
-    selected channel the ``ParticipantReceipt`` (the durable inbox entry) is created
+    selected channel the ``RecipientReceipt`` (the durable inbox entry) is created
     in this transaction, so availability never depends on a worker later processing
     the queued wake-up command (#2098). When ``in_app`` is not selected no receipt is
     created, so an email-only campaign never exposes an in-app inbox item.
     """
     in_app_selected = CommunicationChannel.IN_APP.value in channels
-    for participant in recipients:
-        snapshot = RecipientSnapshot.objects.create(
-            intent=intent,
-            event_id=participant.event_id,
-            participant=participant,
-            participant_public_id=participant.id,
-            team_id=participant.team_id,
-            user_id=participant.user_id,
-            delivery_coordinate=participant.email or "",
-        )
+    for recipient in recipients:
+        snapshot, identity = _snapshot(intent, recipient, organizer_event_id)
         if in_app_selected:
-            ParticipantReceipt.objects.create(snapshot=snapshot)
+            RecipientReceipt.objects.create(snapshot=snapshot)
         DeliveryAttempt.objects.bulk_create(
             [
                 DeliveryAttempt(
@@ -187,12 +226,25 @@ def _materialize(
                     snapshot=snapshot,
                     channel=channel,
                     status=DeliveryStatus.QUEUED.value,
-                    idempotency_key=f"{intent.idempotency_key}:{participant.id}:{channel}",
+                    idempotency_key=f"{intent.idempotency_key}:{identity}:{channel}",
                     due_at=intent.due_at or now,
                 )
                 for channel in channels
             ]
         )
+
+
+def _resolve_audience(
+    campaign: CommunicationCampaign,
+    target_events: list[CTFEvent],
+    target_event_ids: list[UUID],
+    organizers: frozenset[UUID] | None,
+) -> tuple[list[CTFParticipant] | list[OrganizerRecipient], UUID | None]:
+    """Resolve recipients under the locks; organizers intersect the pre-lock policy decision."""
+    if organizers is None:
+        return resolve_recipients(set(target_event_ids), campaign.audience_spec), None
+    event = target_events[0]
+    return resolve_organizer_recipients(event, organizers), event.pk
 
 
 def release_campaign(
@@ -233,6 +285,8 @@ def release_campaign(
         if actor.credential is not None
         else list(campaign.target_events.values_list("id", flat=True))
     )
+    # Remote organizer policy runs before any SQL lock (ADR-065-R4).
+    organizers = prepare_organizer_recipients(campaign.audience_spec)
 
     with transaction.atomic():
         # 1. Lock the live target events in primary-key order (canonical order shared
@@ -259,7 +313,7 @@ def release_campaign(
         assert_occurrence_ready(locked, target_events, now=now, immediate=True, allow_early=actor.allow_early_release)
         _assert_release_allowed(locked, target_events)
         revision = _resolve_revision(locked, revision)
-        recipients = resolve_recipients(set(target_event_ids), locked.audience_spec)
+        recipients, organizer_event_id = _resolve_audience(locked, target_events, target_event_ids, organizers)
         channels = list(locked.channels)
         attribution = actor_attribution(actor)
         attribution_user_id = attribution.user_id
@@ -314,7 +368,7 @@ def release_campaign(
                 return committed
             raise
 
-        _materialize(intent, recipients, channels, now)
+        _materialize(intent, recipients, channels, now, organizer_event_id=organizer_event_id)
         CommunicationCampaign.objects.filter(pk=locked.pk).update(status=CampaignStatus.RELEASED.value, updated_at=now)
         refresh_delivery_state([intent.pk])
         audit_communication_release(
@@ -405,6 +459,7 @@ def release_due_declaration(
         if actor.credential is not None
         else list(campaign.target_events.values_list("id", flat=True))
     )
+    organizers = prepare_organizer_recipients(campaign.audience_spec)
 
     with transaction.atomic():
         target_events = list(CTFEvent.objects.select_for_update().filter(id__in=target_event_ids).order_by("pk"))
@@ -422,7 +477,7 @@ def release_due_declaration(
             return disposition
 
         _assert_release_allowed(locked_campaign, target_events)
-        recipients = resolve_recipients(set(target_event_ids), locked_campaign.audience_spec)
+        recipients, organizer_event_id = _resolve_audience(locked_campaign, target_events, target_event_ids, organizers)
         channels = list(locked_intent.channels)
         scope_kind, scope_id = _campaign_scope(locked_campaign)
         enforce_admission(
@@ -439,7 +494,7 @@ def release_due_declaration(
                 channel_count=len(channels),
             )
         )
-        _materialize(locked_intent, recipients, channels, now)
+        _materialize(locked_intent, recipients, channels, now, organizer_event_id=organizer_event_id)
         CommunicationIntent.objects.filter(pk=locked_intent.pk).update(
             status=IntentStatus.RELEASED.value, released_at=now, updated_at=now
         )

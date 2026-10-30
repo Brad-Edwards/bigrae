@@ -196,12 +196,19 @@ def human_principal_user_id(principal_ref: PrincipalRef) -> int:
     return identifier
 
 
-def active_human_user_ids(principal_uuids: tuple[UUID, ...]) -> tuple[int, ...]:
-    """Project active browser recipients in one query, never service contacts."""
+def active_human_user_ids_by_principal(principal_uuids: tuple[UUID, ...]) -> dict[UUID, int]:
+    """Map active human principals to their accounts in one query, in input order; never service contacts."""
     identities = dict(
         _active_principals().filter(kind=Principal.Kind.HUMAN, uuid__in=principal_uuids).values_list("uuid", "user_id")
     )
-    return tuple(user_id for value in dict.fromkeys(principal_uuids) if (user_id := identities.get(value)) is not None)
+    return {
+        value: user_id for value in dict.fromkeys(principal_uuids) if (user_id := identities.get(value)) is not None
+    }
+
+
+def active_human_user_ids(principal_uuids: tuple[UUID, ...]) -> tuple[int, ...]:
+    """Project active browser recipients in one query, never service contacts."""
+    return tuple(active_human_user_ids_by_principal(principal_uuids).values())
 
 
 def resolve_service_credential(*, issuer: str, subject: str, audience: str) -> CredentialContext:

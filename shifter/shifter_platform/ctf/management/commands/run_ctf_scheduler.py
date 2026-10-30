@@ -42,7 +42,7 @@ import tempfile
 import time
 from argparse import ArgumentParser
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import FrameType
 from typing import Any
@@ -272,6 +272,30 @@ class Command(BaseCommand):
 # ---------------------------------------------------------------------------
 
 
+def spin_up_window_seconds(event_start: datetime, lead_minutes: int, now: datetime) -> int:
+    """Return the seconds left before the start, bounded by the configured lead time."""
+    remaining = int((event_start - now).total_seconds())
+    return max(0, min(lead_minutes * 60, remaining))
+
+
+def _other_work_due(task: CTFScheduledTask) -> bool:
+    """Return True when a different, non-spin-up task is due now.
+
+    The scheduler executes one task at a time. A long spin-up yields to due work
+    such as an event start, an event end or an organizer alert release, then
+    resumes (#528). Other spin-ups do not preempt each other.
+    """
+    return (
+        CTFScheduledTask.objects.filter(
+            status=ScheduledTaskStatus.PENDING.value,
+            scheduled_for__lte=timezone.now(),
+        )
+        .exclude(pk=task.pk)
+        .exclude(task_type=ScheduledTaskType.SPIN_UP_RANGES.value)
+        .exists()
+    )
+
+
 def _handle_spin_up_ranges(
     task: CTFScheduledTask,
     shutdown_check: ShutdownCheck | None = None,
@@ -280,13 +304,16 @@ def _handle_spin_up_ranges(
     """Provision all event ranges via the throttled loop.
 
     Returns the throttled result so the executor can requeue the task when the
-    run was interrupted by shutdown instead of marking it completed.
+    run was interrupted by shutdown, or yielded to other due work, instead of
+    marking it completed. A requeued run resumes as a continuation: it spreads the
+    remaining participants over the time left before the event start and does
+    not repeat the capacity admission of the first run.
     """
     from ctf.services.range import provision_event_ranges_throttled
 
     event = task.event
-    # convert to seconds
-    spinup_window = event.range_spinup_minutes * 60
+    continuation = bool((task.metadata or {}).get("continuation"))
+    spinup_window = spin_up_window_seconds(event.event_start, event.range_spinup_minutes, timezone.now())
 
     def task_heartbeat() -> None:
         """Keep both the claimed task and the scheduler liveness file fresh.
@@ -301,6 +328,10 @@ def _handle_spin_up_ranges(
         if heartbeat is not None:
             heartbeat()
 
+    def stop_requested() -> bool:
+        """Stop for shutdown, or yield when other work is due."""
+        return bool(shutdown_check and shutdown_check()) or _other_work_due(task)
+
     from shared.credentials import resolve_current_credential
     from shared.operation_authority import credential_reference_from_record
 
@@ -308,10 +339,16 @@ def _handle_spin_up_ranges(
     result = provision_event_ranges_throttled(
         event_id=event.pk,
         spinup_window_seconds=spinup_window,
-        shutdown_check=shutdown_check,
+        shutdown_check=stop_requested,
         heartbeat=task_heartbeat,
         actor=credential,
+        continuation=continuation,
     )
+    if isinstance(result, dict) and result.get("interrupted"):
+        # Targeted update: the resumed run is a continuation of this admission.
+        CTFScheduledTask.objects.filter(pk=task.pk).update(
+            metadata={**(task.metadata or {}), "continuation": True}, updated_at=timezone.now()
+        )
     # Counts only: per-participant failures (and their exception text) are
     # already logged by the provisioning service.
     logger.info(
@@ -339,18 +376,48 @@ def _handle_cleanup_ranges(
     logger.info("Legacy CLEANUP_RANGES lease result for event %s: %s", task.event_id, result)
 
 
+class AutomaticStartRefused(RuntimeError):
+    """The automatic start was refused; the executor retries within the task budget."""
+
+
+class AlertDeclarationPending(RuntimeError):
+    """A lifecycle alert is retained on the task; the executor retries within the task budget."""
+
+
+def _settle_alerts(task: CTFScheduledTask, *, ranges_alert: dict[str, str] | None = None) -> None:
+    """Retry retained lifecycle alerts and raise while any alert is still undeclared."""
+    from ctf.services.notification import redeclare_pending_alerts
+
+    remaining = redeclare_pending_alerts(task.pk)
+    if remaining or (ranges_alert is not None and ranges_alert["outcome"] != "declared"):
+        raise AlertDeclarationPending(f"Organizer alert pending for event {task.event_id}")
+
+
 def _handle_event_start(
     task: CTFScheduledTask,
     shutdown_check: ShutdownCheck | None = None,
     heartbeat: Heartbeat | None = None,
-) -> None:
-    """Activate the event and notify the organizer on success."""
-    from ctf.services.event import activate_event
+) -> dict[str, Any] | None:
+    """Start the event at its scheduled start and check range readiness (CTF-1002/1004).
 
-    if activate_event(task.event):
-        from ctf.services.notification import notify_organizer_event_start
+    The start and its organizer alert commit together in the lifecycle service.
+    Range readiness is checked at the scheduled start even when the start is
+    refused. A refusal raises so the executor retries with backoff; an early
+    tick reschedules to the current start time.
+    """
+    from ctf.models import CTFEvent
+    from ctf.services.event import START_NOT_DUE, START_REFUSED, start_event_automatically
+    from ctf.services.notification import alert_if_ranges_not_ready
 
-        notify_organizer_event_start(task.event_id)
+    outcome = start_event_automatically(task.event_id, task_id=task.pk)
+    if outcome == START_NOT_DUE:
+        event_start = CTFEvent.objects.filter(pk=task.event_id).values_list("event_start", flat=True).first()
+        return {"reschedule_for": event_start}
+    ranges_alert = alert_if_ranges_not_ready(task.event_id)
+    if outcome == START_REFUSED:
+        raise AutomaticStartRefused(f"Automatic start of event {task.event_id} refused")
+    _settle_alerts(task, ranges_alert=ranges_alert)
+    return None
 
 
 def _handle_event_end(
@@ -358,9 +425,10 @@ def _handle_event_end(
     shutdown_check: ShutdownCheck | None = None,
     heartbeat: Heartbeat | None = None,
 ) -> None:
-    """Complete the event and notify the organizer."""
+    """End the event at its scheduled end; the organizer alert commits with the end."""
+    from ctf.enums import EventStatus
     from ctf.models import CTFEvent
-    from ctf.services.event import complete_event
+    from ctf.services.event import complete_event, finish_ended_event
 
     event = CTFEvent.objects.get(pk=task.event_id)
     now = timezone.now()
@@ -375,10 +443,13 @@ def _handle_event_end(
         task.cancel_if_active()
         return
 
-    if complete_event(event):
-        from ctf.services.notification import notify_organizer_event_end
-
-        notify_organizer_event_end(event.pk)
+    if not complete_event(event, automatic=True, task_id=task.pk):
+        event.refresh_from_db()
+        if event.status == EventStatus.ENDED.value:
+            # A replay after a crash between the end commit and its effects:
+            # the end effects are idempotent, so apply them again.
+            finish_ended_event(event)
+    _settle_alerts(task)
 
     # End-of-event cleanup (including the CTF-703 delayed-task window) is
     # owned by ``complete_event`` so manual and automated ends behave alike.

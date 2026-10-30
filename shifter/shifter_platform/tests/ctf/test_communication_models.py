@@ -21,7 +21,7 @@ from ctf.models import (
     CommunicationIntent,
     DeliveryAttempt,
     MessageRevision,
-    ParticipantReceipt,
+    RecipientReceipt,
     RecipientSnapshot,
 )
 
@@ -94,6 +94,19 @@ def test_campaign_rejects_an_unknown_trigger_kind(ctf_event, organizer_user):
 def test_campaign_rejects_empty_channels(ctf_event, organizer_user):
     with pytest.raises(ValidationError):
         _campaign(ctf_event, organizer_user, channels=[])
+
+
+def _organizer_audience(ctf_event):
+    return {"kind": "event_organizers", "event_ids": [str(ctf_event.id)], "action": "event.read"}
+
+
+def test_organizer_audience_requires_the_system_origin(ctf_event, organizer_user):
+    with pytest.raises(ValidationError):
+        _campaign(ctf_event, organizer_user, audience_spec=_organizer_audience(ctf_event))
+    campaign = _campaign(
+        ctf_event, organizer_user, origin="system_milestone", audience_spec=_organizer_audience(ctf_event)
+    )
+    assert campaign.audience_spec["kind"] == "event_organizers"
 
 
 # ---------------------------------------------------------------------------
@@ -199,6 +212,61 @@ def test_recipient_snapshot_dedup_is_enforced_in_the_database(ctf_event, organiz
         RecipientSnapshot.objects.bulk_create([duplicate])
 
 
+def test_organizer_snapshot_has_principal_identity_and_no_participant(ctf_event, organizer_user):
+    campaign = _campaign(ctf_event, organizer_user)
+    intent = _intent(campaign, _revision(campaign), key="occ-organizer")
+    principal = uuid4()
+    snapshot = RecipientSnapshot.objects.create(
+        intent=intent, event=ctf_event, recipient_kind="organizer", principal_uuid=principal
+    )
+    assert snapshot.participant_public_id is None
+
+    with pytest.raises(ValidationError):
+        RecipientSnapshot.objects.create(
+            intent=intent, event=ctf_event, recipient_kind="organizer", principal_uuid=principal
+        )
+    with pytest.raises(ValidationError):
+        RecipientSnapshot.objects.create(
+            intent=intent,
+            event=ctf_event,
+            recipient_kind="organizer",
+            principal_uuid=uuid4(),
+            participant_public_id=uuid4(),
+        )
+    with pytest.raises(ValidationError):
+        RecipientSnapshot.objects.create(intent=intent, event=ctf_event, recipient_kind="participant")
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"recipient_kind": "organizer"},
+        {"recipient_kind": "organizer", "participant_public_id": uuid4()},
+        {"recipient_kind": "participant", "principal_uuid": uuid4(), "participant_public_id": uuid4()},
+        {"recipient_kind": "participant"},
+    ],
+)
+def test_recipient_kind_shape_is_enforced_in_the_database(ctf_event, organizer_user, fields):
+    campaign = _campaign(ctf_event, organizer_user)
+    intent = _intent(campaign, _revision(campaign), key=f"occ-shape-{uuid4()}")
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        RecipientSnapshot.objects.bulk_create([RecipientSnapshot(intent=intent, event=ctf_event, **fields)])
+
+
+def test_organizer_dedup_is_enforced_in_the_database(ctf_event, organizer_user):
+    campaign = _campaign(ctf_event, organizer_user)
+    intent = _intent(campaign, _revision(campaign), key="occ-organizer-db")
+    principal = uuid4()
+    RecipientSnapshot.objects.create(
+        intent=intent, event=ctf_event, recipient_kind="organizer", principal_uuid=principal
+    )
+    duplicate = RecipientSnapshot(intent=intent, event=ctf_event, recipient_kind="organizer", principal_uuid=principal)
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        RecipientSnapshot.objects.bulk_create([duplicate])
+
+
 # ---------------------------------------------------------------------------
 # Delivery + receipt
 # ---------------------------------------------------------------------------
@@ -214,11 +282,11 @@ def test_delivery_attempt_is_unique_per_snapshot_and_channel(ctf_event, organize
         DeliveryAttempt.objects.create(intent=intent, snapshot=snapshot, channel="email", idempotency_key="d2")
 
 
-def test_participant_receipt_is_one_per_snapshot(ctf_event, organizer_user):
+def test_recipient_receipt_is_one_per_snapshot(ctf_event, organizer_user):
     campaign = _campaign(ctf_event, organizer_user)
     intent = _intent(campaign, _revision(campaign), key="occ-receipt")
     snapshot = RecipientSnapshot.objects.create(intent=intent, event=ctf_event, participant_public_id=uuid4())
-    ParticipantReceipt.objects.create(snapshot=snapshot)
+    RecipientReceipt.objects.create(snapshot=snapshot)
 
     with pytest.raises(ValidationError):
-        ParticipantReceipt.objects.create(snapshot=snapshot)
+        RecipientReceipt.objects.create(snapshot=snapshot)

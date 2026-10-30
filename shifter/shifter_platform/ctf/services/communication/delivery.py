@@ -35,7 +35,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from ctf.enums import EventStatus
-from ctf.enums_communication import CampaignStatus, DeliveryStatus, IntentStatus
+from ctf.enums_communication import CampaignStatus, DeliveryStatus, IntentStatus, RecipientKind
 from ctf.models import DeliveryAttempt, RecipientSnapshot
 from ctf.services.communication import disposition
 from ctf.services.communication.adapters import (
@@ -186,6 +186,8 @@ def _fence_reason(row: DeliveryAttempt) -> str:
         reason = "campaign_cancelled"
     elif row.snapshot.event.status == EventStatus.CANCELLED.value:
         reason = "event_cancelled"
+    elif row.snapshot.recipient_kind == RecipientKind.ORGANIZER.value:
+        reason = "" if _organizer_still_candidate(row.snapshot) else "organizer_ineligible"
     elif not _recipient_still_eligible(row.snapshot):
         reason = "participant_ineligible"
     else:
@@ -204,11 +206,26 @@ def _recipient_still_eligible(snapshot: RecipientSnapshot) -> bool:
     from ctf.models import CTFParticipant
     from ctf.services.participant import viewing_participant_q
 
+    if snapshot.participant_public_id is None:
+        return False
     return CTFParticipant.objects.filter(
         viewing_participant_q(),
         id=snapshot.participant_public_id,
         event_id=snapshot.event_id,
     ).exists()
+
+
+def _organizer_still_candidate(snapshot: RecipientSnapshot) -> bool:
+    """Return True only while the snapshot's principal is still a current owner or co-organizer.
+
+    Staff revocation, an ownership change without retention, or an inactive account
+    removes the candidate, so reclaimed and retried work never reaches a former
+    organizer (ADR-065-R4). Native policy was checked at release; the inbox read
+    checks it again live.
+    """
+    from ctf.services.event.staff import event_notification_organizers
+
+    return snapshot.principal_uuid in event_notification_organizers(snapshot.event)
 
 
 def _command(row: DeliveryAttempt) -> DeliveryCommand:
@@ -253,7 +270,41 @@ def _backoff_seconds(attempt_number: int, cfg: WorkerConfig) -> float:
     return base + _JITTER.uniform(0, base * cfg.backoff_jitter_fraction)
 
 
-def _preflight(pk: UUID, token: str, cfg: WorkerConfig, now_func: NowFunc) -> DeliveryCommand | str:
+def _organizer_policy_stop(attempt: DeliveryAttempt) -> str | None:
+    """Recheck an organizer snapshot's pinned action against live native policy.
+
+    Returns ``None`` for a participant row or an allowed organizer,
+    ``"organizer_policy_denied"`` for an explicit denial, and
+    ``"authority_unavailable"`` when the evaluator cannot decide; that work stays
+    retriable and never reaches the transport.
+    """
+    from ctf.exceptions import CTFError
+    from ctf.services.unified_authorization import principals_holding_event_action
+
+    # Identity fields only: the encrypted coordinate is decrypted solely by the email adapter.
+    snapshot = (
+        RecipientSnapshot.objects.filter(pk=attempt.snapshot_id)
+        .values("recipient_kind", "principal_uuid", "event_id", "intent__campaign__audience_spec")
+        .first()
+    )
+    if snapshot is None or snapshot["recipient_kind"] != RecipientKind.ORGANIZER.value:
+        return None
+    principal_uuid = snapshot["principal_uuid"]
+    action = (snapshot["intent__campaign__audience_spec"] or {}).get("action", "")
+    try:
+        allowed = (
+            principals_holding_event_action(snapshot["event_id"], [principal_uuid], action)
+            if principal_uuid is not None
+            else frozenset()
+        )
+    except CTFError:
+        return "authority_unavailable"
+    return None if principal_uuid in allowed else "organizer_policy_denied"
+
+
+def _preflight(
+    pk: UUID, token: str, cfg: WorkerConfig, now_func: NowFunc, *, policy_denied: bool = False
+) -> DeliveryCommand | str:
     """Locked pre-I/O step: confirm the lease, recheck the fence, stamp the attempt.
 
     Renews the lease under the row lock right before the transport call, so the
@@ -275,6 +326,8 @@ def _preflight(pk: UUID, token: str, cfg: WorkerConfig, now_func: NowFunc) -> De
             return "not_ours"
         now = now_func()
         stopped = _pre_io_stop(row, cfg, now)
+        if stopped is None and policy_denied:
+            stopped = (DeliveryStatus.SUPPRESSED.value, "organizer_policy_denied")
         if stopped is not None:
             row.status, row.result_reason = stopped
             row.observed_at = now
@@ -364,7 +417,13 @@ def process_attempt(attempt: DeliveryAttempt, cfg: WorkerConfig, now_func: NowFu
     its own transaction and writes one bounded log line.
     """
     token = attempt.lease_token
-    decision = _preflight(attempt.pk, token, cfg, now_func)
+    # Remote organizer policy runs before any SQL lock (ADR-065-R4).
+    policy_stop = _organizer_policy_stop(attempt)
+    if policy_stop == "authority_unavailable":
+        outcome = DeliveryOutcome(OutcomeClass.RETRIABLE, reason=policy_stop)
+        result = _settle(attempt.pk, token, outcome, cfg, now_func)
+        return result if result == "stale" else _after_settle(attempt, result, outcome.reason)
+    decision = _preflight(attempt.pk, token, cfg, now_func, policy_denied=policy_stop is not None)
     if isinstance(decision, str):
         return _stopped_before_io(attempt, decision)
     outcome = _deliver(attempt.pk, decision, cfg)

@@ -100,6 +100,27 @@ class AudienceKind(StrEnum):
         return [(k.value, k.name.replace("_", " ").title()) for k in cls]
 
 
+class RecipientKind(StrEnum):
+    """Closed recipient-snapshot kinds (ADR-051, ADR-065-R4).
+
+    A participant row carries an immutable event-scoped participant identity. An
+    organizer row carries the principal identity of a current owner or
+    co-organizer and never a participant identity.
+    """
+
+    PARTICIPANT = "participant"
+    ORGANIZER = "organizer"
+
+    def __str__(self) -> str:
+        """Return the string value for database storage."""
+        return self.value
+
+    @classmethod
+    def choices(cls) -> list[tuple[str, str]]:
+        """Return choices for Django model field."""
+        return [(k.value, k.name.title()) for k in cls]
+
+
 class TriggerKind(StrEnum):
     """Closed trigger-declaration kinds (ADR-051, #2048).
 
@@ -256,7 +277,7 @@ class ReceiptAction(StrEnum):
 
     @property
     def receipt_field(self) -> str:
-        """Return the ``ParticipantReceipt`` timestamp this action sets."""
+        """Return the ``RecipientReceipt`` timestamp this action sets."""
         return {"read": "read_at", "dismiss": "dismissed_at", "acknowledge": "acknowledged_at"}[self.value]
 
 

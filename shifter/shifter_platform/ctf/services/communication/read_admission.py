@@ -8,6 +8,7 @@ from uuid import UUID
 
 from django.db import transaction
 
+from ctf.communication_contracts import is_organizer_audience
 from ctf.exceptions import CTFCommunicationError, CTFError, CTFPermissionError
 from ctf.models import CommunicationCampaign, CTFEvent
 from ctf.services.actors import EventActionAdmission
@@ -42,7 +43,8 @@ def authorized_campaign(
     if actor.credential is None or actor.system:
         raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
     campaign = CommunicationCampaign.objects.filter(pk=campaign_id).first()
-    if campaign is None:
+    # Organizer alerts belong to the organizer inbox, never the console (ADR-065-R4).
+    if campaign is None or is_organizer_audience(campaign.audience_spec):
         raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_NOT_FOUND")
     events = list(campaign.target_events.order_by("pk"))
     actor = prepare_admission(campaign, events, actor, required_scope=required_scope)

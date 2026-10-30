@@ -246,6 +246,36 @@ def test_audience_rejects_unknown_kind():
         validate_audience_spec({"kind": "everyone"})
 
 
+def _organizer_spec(**overrides):
+    spec = {"kind": "event_organizers", "event_ids": [str(uuid4())], "action": "event.read"}
+    spec.update(overrides)
+    return spec
+
+
+def test_organizer_audience_is_internal_only():
+    # The public validator (API, interactive authoring) never accepts organizers.
+    with pytest.raises(CTFCommunicationError):
+        validate_audience_spec(_organizer_spec())
+    result = validate_audience_spec(_organizer_spec(action="event.manage_ranges"), allow_organizer=True)
+    assert result["kind"] == "event_organizers"
+    assert result["action"] == "event.manage_ranges"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"action": "event.manage_staff"},
+        {"action": None},
+        {"event_ids": [str(uuid4()), str(uuid4())]},
+        {"participant_ids": [str(uuid4())]},
+    ],
+)
+def test_organizer_audience_rejects_wider_shapes(overrides):
+    spec = {key: value for key, value in _organizer_spec(**overrides).items() if value is not None}
+    with pytest.raises(CTFCommunicationError):
+        validate_audience_spec(spec, allow_organizer=True)
+
+
 # ---------------------------------------------------------------------------
 # Trigger spec (closed declaration)
 # ---------------------------------------------------------------------------

@@ -30,13 +30,11 @@ def test_legacy_export_cannot_send(name, args):
 @pytest.mark.parametrize(
     "name",
     [
-        "notify_organizer_event_start",
-        "notify_organizer_event_end",
         "notify_organizer_provision_failure",
         "notify_organizer_capacity_outcome",
     ],
 )
-def test_organizer_alert_never_broadcasts_to_participants(name):
+def test_unsupported_organizer_alerts_stay_unavailable(name):
     assert getattr(notification, name)(uuid4(), {}) == {"outcome": "channel_unavailable"}
 
 

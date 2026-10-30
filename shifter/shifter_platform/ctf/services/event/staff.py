@@ -39,6 +39,7 @@ from ._staff_policy import (
     capability_action_pairs,
     eligible_co_organizer_ids,
     event_notification_organizer_ids,
+    event_notification_organizers,
     staff_row_grants_capability,
 )
 from ._staff_projection import _assignment_target, _commit_assignment, _commit_ownership_transfer, _transfer_target
@@ -75,6 +76,7 @@ __all__ = [
     "capability_action_pairs",
     "eligible_co_organizer_ids",
     "event_notification_organizer_ids",
+    "event_notification_organizers",
     "list_event_staff",
     "pending_event_authority",
     "revoke_event_staff",
@@ -225,6 +227,9 @@ def revoke_event_staff(event_id: UUID, actor: EventActor, principal_uuid: UUID) 
         if staff is None:
             raise CTFValidationError(_EVENT_STAFF_CHANGED_CONCURRENTLY, code="CTF_STAFF_CONFLICT")
         staff.delete(soft=True)
+        from ctf.services.communication import on_organizer_removed
+
+        on_organizer_removed(event, principal_uuid)
         audit_event_staff_change(
             actor_id=actor,
             event_id=event.pk,

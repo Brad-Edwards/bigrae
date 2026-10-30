@@ -84,11 +84,12 @@ class DeliveryAttempt(CTFBaseModel):
         return f"{self.snapshot_id}:{self.channel}:{self.status}"
 
 
-class ParticipantReceipt(CTFBaseModel):
+class RecipientReceipt(CTFBaseModel):
     """Per-recipient in-app read, dismiss, and acknowledgement state.
 
-    Each timestamp is an independent first-write fact set only by its explicit
-    participant action (ADR-051-R13).
+    Each timestamp is an independent first-write fact set only by the
+    recipient's explicit action (ADR-051-R13). Participant and organizer
+    in-app snapshots share this one receipt contract (ADR-065-R4).
     """
 
     snapshot = models.OneToOneField(RecipientSnapshot, on_delete=models.CASCADE, related_name="receipt")
@@ -102,8 +103,8 @@ class ParticipantReceipt(CTFBaseModel):
         """Django model metadata for one receipt per recipient snapshot."""
 
         db_table = "ctf_communication_participant_receipt"
-        verbose_name = "CTF Participant Receipt"
-        verbose_name_plural = "CTF Participant Receipts"
+        verbose_name = "CTF Recipient Receipt"
+        verbose_name_plural = "CTF Recipient Receipts"
 
     def __str__(self) -> str:
         """Return the receipt's snapshot identity."""

@@ -47,7 +47,8 @@ def _assert_event_active_and_in_window(event: CTFEvent) -> None:
         )
 
     now = timezone.now()
-    if now < event.event_start or now > event.event_end:
+    # The window is half-open: submissions close at the end instant (CTF-1004).
+    if now < event.event_start or now >= event.event_end:
         raise CTFStateError(
             "Event is not within its competition window",
             details={
