@@ -70,9 +70,13 @@ content cannot direct the master credential at another duty.
 
 Secrets Manager runs `testSecret` when it creates a schedule, so the schedules
 exist only when `openfga_rotation_schedule` is true. The deploy sets it after the
-provisioning Job has created the logins, and keeps it on later. Teardown builds
-the same package as deploy, because Terraform validates the function's code
-source while it refreshes before a destroy.
+provisioning Job has created the logins, and keeps it on later.
+
+The deploy builds the package. Terraform uploads it to the root's artifact
+bucket, AWS Signer signs it, and the functions deploy the signed copy from S3.
+The code signing configuration refuses any other code, so teardown needs no
+package. The shared `lambda-code-signing` and `lambda-signed-package` modules
+also sign the portal's Cognito and Redis functions.
 
 `shared.cloud.policy_credential_refresh` runs weekly. Its IAM role reads only
 the three secrets. Its Kubernetes Role allows only `patch` on the three

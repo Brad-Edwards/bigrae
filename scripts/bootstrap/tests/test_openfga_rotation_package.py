@@ -74,18 +74,3 @@ def test_rotation_package_is_hash_pinned_and_deterministic(tmp_path, monkeypatch
         assert names == sorted(names)
         assert {"openfga_rotation.py", "rds-ca-bundle.pem", "psycopg/__init__.py"} <= set(names)
         assert archive.read("rds-ca-bundle.pem") == CA
-
-
-def test_teardown_preparation_downloads_the_bundle_then_builds(tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        openfga_rotation_package, "fetch_rds_ca_bundle", lambda region: CA if region == "us-east-2" else b""
-    )
-    built = []
-    monkeypatch.setattr(
-        openfga_rotation_package,
-        "build_rotation_package",
-        lambda workdir, bundle: built.append(bundle) or openfga_rotation_package.package_path(workdir),
-    )
-    package = openfga_rotation_package.prepare_rotation_package(tmp_path, "us-east-2")
-    assert package == tmp_path / "openfga-rotation.zip"
-    assert built == [CA]

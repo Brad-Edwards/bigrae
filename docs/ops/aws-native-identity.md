@@ -38,7 +38,8 @@ inputs. The command does these steps in this order:
 
 1. It downloads the region's public RDS CA bundle from the AWS trust store.
 2. It builds the datastore rotation function from its hash-pinned lock.
-3. It applies the EKS Terraform root.
+3. It applies the EKS Terraform root. Terraform uploads the package, AWS Signer
+   signs it, and Lambda accepts only the signed package.
 4. It publishes the policy bundles and the datastore logins as named
    Kubernetes Secrets, through standard input only.
 5. It creates the Guacamole and OpenFGA databases and the runtime SQL logins.
@@ -93,19 +94,71 @@ assume the deploy role:
   identity.
 - An IAM role, for example a federated workforce role, needs only its exact ARN.
 
-Then open a tunnel through the operator access node:
+The tunnel and `kubectl` must both use the deploy role's credentials. Get them
+into your shell first.
+
+An IAM role operator adds a role profile and selects it:
+
+```ini
+[profile shifter-deploy]
+role_arn = <deploy-role-arn>
+source_profile = <your-profile>
+```
 
 ```console
-aws sts assume-role --role-arn <deploy-role-arn> --role-session-name <name> \
-  --source-identity <your-user-name> --serial-number <mfa-device-arn> --token-code <code>
+export AWS_PROFILE=shifter-deploy
+```
+
+An IAM user operator must set a source identity. AWS CLI role profiles have no
+source identity setting, so export the assumed-role credentials instead:
+
+```console
+unset AWS_PROFILE
+eval "$(aws sts assume-role --role-arn <deploy-role-arn> --role-session-name <your-user-name> \
+  --source-identity <your-user-name> --serial-number <mfa-device-arn> --token-code <code> \
+  --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' --output text \
+  | awk '{print "export AWS_ACCESS_KEY_ID="$1" AWS_SECRET_ACCESS_KEY="$2" AWS_SESSION_TOKEN="$3}')"
+```
+
+Confirm that `aws sts get-caller-identity` shows the deploy role. Then, in the
+same shell, open a tunnel through the operator access node:
+
+```console
 aws ssm start-session --target <operator_access_instance_id> \
   --document-name AWS-StartPortForwardingSessionToRemoteHost \
   --parameters host=<private-api-host>,portNumber=443,localPortNumber=8443
 ```
 
-Point `kubectl` at `https://127.0.0.1:8443` with `tls-server-name` set to the
-private API host. The EKS root outputs the node ID. Session Manager does not log
-the content of port-forward sessions. CloudTrail records each session start.
+In a second shell with the same credentials, write a kubeconfig and use it
+through the tunnel:
+
+```console
+aws eks update-kubeconfig --name <cluster-name> --region <region> --kubeconfig <file>
+kubectl --kubeconfig <file> --server https://127.0.0.1:8443 \
+  --tls-server-name <private-api-host> get nodes
+```
+
+The kubeconfig runs `aws eks get-token`, which uses the deploy role's
+credentials from the environment. The EKS root outputs the node ID. Session
+Manager does not log the content of port-forward sessions. CloudTrail records
+each session start.
+
+## Retire the legacy administrator users
+
+Releases before #2313 included `platform/terraform/global/se-admins`. That root
+created IAM users with console passwords and `AdministratorAccess`. Removing
+the root from the source does not delete users that an account applied. In
+each account that applied it, destroy those users once:
+
+1. Check out a revision that still contains the root, for example the `dev`
+   commit before this change, in a separate worktree.
+2. In `platform/terraform/global/se-admins`, run `terraform init` with that
+   account's backend configuration. The state key is
+   `global/se-admins/terraform.tfstate`.
+3. Run `terraform destroy` with the same `admins` variables that were applied.
+4. Confirm that `terraform state list` prints nothing.
+5. Confirm that `aws iam get-user --user-name <name>` returns `NoSuchEntity`
+   for each former administrator.
 
 ## Rotation
 

@@ -229,7 +229,8 @@ records them:
 - Named operator principals assume the deploy role. IAM users need MFA. A
   Session Manager tunnel reaches the private EKS API. The CI deploy trust names
   exact deploy Environments and protected refs. The legacy administrator-user
-  Terraform root is removed.
+  Terraform root is removed. Each account that applied it destroys its users
+  with the procedure in the operations guide.
 
 These choices add no token format, policy engine or credential broker. Source
 delivery does not claim live AWS qualification.

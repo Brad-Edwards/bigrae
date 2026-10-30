@@ -1951,6 +1951,9 @@ def deploy_eks(
         _run_database_migrations(values, database_secret_arn=_workload_secret_arns(outputs)["database"])
         if policy_enabled and cutover.required:
             migrate_policy_datastore(runner, documents)
+            # A required cutover entered maintenance by applying the quiesced
+            # release, which keeps both policy Deployments running, so they
+            # exist here even on a first installation.
             _restart_policy_servers(runner)
         activate_identity_cutover(runner, cutover)
         # The cutover applies chart objects before Helm; Helm must own them.
@@ -2251,14 +2254,6 @@ def teardown_eks(
         config,
         allowed_roots=allowed_roots,
     )
-    # Terraform validates the rotation function's code source while it refreshes
-    # before the destroy, so teardown builds the same package as deploy. It does
-    # so before it removes the release, so a build failure changes nothing.
-    workdir = Path(tempfile.mkdtemp(prefix="shifter-eks-teardown-"))
-    if dry_run:
-        rotation_package = openfga_rotation_package.package_path(workdir)
-    else:
-        rotation_package = openfga_rotation_package.prepare_rotation_package(workdir, str(config.settings["region"]))
     run_cmd(["helm", "uninstall", _HELM_RELEASE, "--namespace", _EKS_NAMESPACE, "--wait"], dry_run=dry_run)
     run_cmd(
         [
@@ -2279,7 +2274,6 @@ def teardown_eks(
             "destroy",
             "-auto-approve",
             f"-var-file={terraform_inputs}",
-            f"-var=openfga_rotation_package={rotation_package.resolve()}",
         ],
         dry_run=dry_run,
         profile=aws_profile,

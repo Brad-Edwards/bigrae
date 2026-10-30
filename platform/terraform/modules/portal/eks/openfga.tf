@@ -70,6 +70,48 @@ resource "aws_secretsmanager_secret_version" "openfga_datastore" {
   }
 }
 
+# The rotation functions' environment and dead-letter queue use their own
+# customer managed key; account IAM policies grant its use.
+resource "aws_kms_key" "openfga_rotation" {
+  description             = "OpenFGA rotation function environment and dead-letter queue for ${var.cluster_name}"
+  enable_key_rotation     = true
+  deletion_window_in_days = 30
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EnableAccountAdministration"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+    ]
+  })
+
+  tags = merge(var.tags, {
+    Name = "${var.cluster_name}-openfga-rotation"
+  })
+}
+
+resource "aws_kms_alias" "openfga_rotation" {
+  name          = "alias/${var.cluster_name}-openfga-rotation"
+  target_key_id = aws_kms_key.openfga_rotation.key_id
+}
+
+# Failed asynchronous invocations are kept for 14 days for diagnosis.
+resource "aws_sqs_queue" "openfga_rotation_dlq" {
+  name                              = "${var.cluster_name}-openfga-rotation-dlq"
+  kms_master_key_id                 = aws_kms_key.openfga_rotation.arn
+  kms_data_key_reuse_period_seconds = 300
+  message_retention_seconds         = 1209600
+
+  tags = merge(var.tags, {
+    Name = "${var.cluster_name}-openfga-rotation-dlq"
+  })
+}
+
 resource "aws_security_group" "openfga_rotation" {
   name        = "${var.cluster_name}-openfga-rotation"
   description = "OpenFGA datastore rotation function"
@@ -171,6 +213,28 @@ resource "aws_iam_role_policy" "openfga_rotation" {
         Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
         Resource = [for group in aws_cloudwatch_log_group.openfga_rotation : "${group.arn}:*"]
       },
+      {
+        Sid      = "SendFailedInvocationsToDeadLetterQueue"
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.openfga_rotation_dlq.arn
+      },
+      {
+        Sid      = "EncryptDeadLetterMessages"
+        Effect   = "Allow"
+        Action   = ["kms:Decrypt", "kms:GenerateDataKey"]
+        Resource = aws_kms_key.openfga_rotation.arn
+        Condition = {
+          StringEquals = { "kms:ViaService" = "sqs.${var.aws_region}.amazonaws.com" }
+        }
+      },
+      {
+        # X-Ray trace writes do not support resource scoping.
+        Sid      = "WriteTraces"
+        Effect   = "Allow"
+        Action   = ["xray:PutTraceSegments", "xray:PutTelemetryRecords"]
+        Resource = "*"
+      },
     ]
   })
 }
@@ -186,17 +250,45 @@ resource "aws_cloudwatch_log_group" "openfga_rotation" {
   tags = var.tags
 }
 
+# Lambda refuses any rotation package that this root's Signer profile did not sign.
+module "lambda_code_signing" {
+  source = "../../lambda-code-signing"
+
+  name_prefix = var.cluster_name
+  tags        = var.tags
+}
+
+module "openfga_rotation_package" {
+  source = "../../lambda-signed-package"
+
+  signing      = module.lambda_code_signing.signing
+  name         = "openfga-rotation"
+  package_path = var.openfga_rotation_package
+}
+
 resource "aws_lambda_function" "openfga_rotation" {
   for_each = local.openfga_strategies
 
-  function_name    = "${var.cluster_name}-openfga-rotation-${each.key}"
-  filename         = var.openfga_rotation_package
-  source_code_hash = var.openfga_rotation_package == null ? null : filebase64sha256(var.openfga_rotation_package)
-  handler          = "openfga_rotation.handler"
-  runtime          = "python3.12"
-  timeout          = 60
-  memory_size      = 256
-  role             = aws_iam_role.openfga_rotation.arn
+  function_name           = "${var.cluster_name}-openfga-rotation-${each.key}"
+  s3_bucket               = module.openfga_rotation_package.s3_bucket
+  s3_key                  = module.openfga_rotation_package.s3_key
+  code_signing_config_arn = module.openfga_rotation_package.code_signing_config_arn
+  handler                 = "openfga_rotation.handler"
+  runtime                 = "python3.12"
+  timeout                 = 60
+  memory_size             = 256
+  role                    = aws_iam_role.openfga_rotation.arn
+  kms_key_arn             = aws_kms_key.openfga_rotation.arn
+  # AWS recommends at least 10 for rotation functions to avoid throttling.
+  reserved_concurrent_executions = 10
+
+  tracing_config {
+    mode = "Active"
+  }
+
+  dead_letter_config {
+    target_arn = aws_sqs_queue.openfga_rotation_dlq.arn
+  }
 
   vpc_config {
     subnet_ids         = [for subnet in aws_subnet.private : subnet.id]
@@ -206,14 +298,6 @@ resource "aws_lambda_function" "openfga_rotation" {
   logging_config {
     log_format = "JSON"
     log_group  = aws_cloudwatch_log_group.openfga_rotation[each.key].name
-  }
-
-  lifecycle {
-    # Teardown destroys without the package; every create or update needs it.
-    precondition {
-      condition     = var.openfga_rotation_package != null
-      error_message = "openfga_rotation_package is required to create or update the rotation functions."
-    }
   }
 
   environment {
@@ -231,6 +315,9 @@ resource "aws_lambda_function" "openfga_rotation" {
   }
 
   tags = var.tags
+
+  # CreateFunction checks the role's queue and network permissions.
+  depends_on = [aws_iam_role_policy.openfga_rotation]
 }
 
 resource "aws_lambda_permission" "openfga_rotation" {

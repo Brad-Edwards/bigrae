@@ -479,6 +479,10 @@ resource "aws_iam_policy" "compute" {
           "lambda:GetFunction",
           "lambda:GetFunctionConfiguration",
           "lambda:GetFunctionCodeSigningConfig",
+          "lambda:PutFunctionCodeSigningConfig",
+          "lambda:DeleteFunctionCodeSigningConfig",
+          "lambda:PutFunctionConcurrency",
+          "lambda:DeleteFunctionConcurrency",
           "lambda:UpdateFunctionCode",
           "lambda:UpdateFunctionConfiguration",
           "lambda:ListVersionsByFunction",
@@ -772,6 +776,44 @@ resource "aws_iam_policy" "data" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      {
+        # Each root's Lambda functions accept only code its Signer profile signed (#2313).
+        Sid    = "LambdaCodeSigningConfigs"
+        Effect = "Allow"
+        Action = [
+          "lambda:GetCodeSigningConfig",
+          "lambda:UpdateCodeSigningConfig",
+          "lambda:DeleteCodeSigningConfig",
+          "lambda:TagResource",
+          "lambda:UntagResource",
+          "lambda:ListTags"
+        ]
+        Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:code-signing-config:*"
+      },
+      {
+        # A new configuration has no ARN until it exists.
+        Sid      = "CreateLambdaCodeSigningConfigs"
+        Effect   = "Allow"
+        Action   = ["lambda:CreateCodeSigningConfig"]
+        Resource = "*"
+      },
+      {
+        Sid    = "SignLambdaPackages"
+        Effect = "Allow"
+        Action = [
+          "signer:PutSigningProfile",
+          "signer:GetSigningProfile",
+          "signer:CancelSigningProfile",
+          "signer:StartSigningJob",
+          "signer:DescribeSigningJob",
+          "signer:TagResource",
+          "signer:ListTagsForResource"
+        ]
+        Resource = [
+          "arn:aws:signer:${var.aws_region}:${data.aws_caller_identity.current.account_id}:/signing-profiles/*",
+          "arn:aws:signer:${var.aws_region}:${data.aws_caller_identity.current.account_id}:/signing-jobs/*"
+        ]
+      },
       {
         Sid      = "ECR"
         Effect   = "Allow"
@@ -1316,6 +1358,31 @@ resource "aws_iam_policy" "eks" {
           "secretsmanager:CancelRotateSecret"
         ]
         Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:shifter/*"
+      },
+      {
+        # The EKS root's signed Lambda package bucket (#2313).
+        Sid    = "ManageEksLambdaArtifacts"
+        Effect = "Allow"
+        Action = local.terraform_s3_bucket_actions
+        Resource = [
+          "arn:aws:s3:::shifter-${var.environment}-eks-*",
+          "arn:aws:s3:::shifter-${var.environment}-eks-*/*"
+        ]
+      },
+      {
+        # The EKS root's OpenFGA rotation dead-letter queue (#2313).
+        Sid    = "ManageEksQueues"
+        Effect = "Allow"
+        Action = [
+          "sqs:CreateQueue",
+          "sqs:DeleteQueue",
+          "sqs:GetQueueAttributes",
+          "sqs:SetQueueAttributes",
+          "sqs:ListQueueTags",
+          "sqs:TagQueue",
+          "sqs:UntagQueue"
+        ]
+        Resource = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:shifter-${var.environment}-eks-*"
       },
       {
         # The EKS root reads the account's STS token issuer (#2313). The API

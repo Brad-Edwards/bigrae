@@ -75,6 +75,57 @@ override_resource {
   }
 }
 
+override_data {
+  target = module.lambda_code_signing.data.aws_caller_identity.current
+  values = {
+    account_id = "123456789012"
+  }
+}
+
+override_resource {
+  target = module.lambda_code_signing.aws_kms_key.artifacts
+  values = {
+    arn = "arn:aws:kms:us-east-2:123456789012:key/mock-lambda-artifacts"
+  }
+}
+
+override_resource {
+  target = module.lambda_code_signing.aws_signer_signing_profile.lambda
+  values = {
+    name        = "shifter_test_lambda_mock"
+    arn         = "arn:aws:signer:us-east-2:123456789012:/signing-profiles/shifter_test_lambda_mock"
+    version_arn = "arn:aws:signer:us-east-2:123456789012:/signing-profiles/shifter_test_lambda_mock/abcdefghij"
+  }
+}
+
+override_resource {
+  target = module.lambda_code_signing.aws_lambda_code_signing_config.this
+  values = {
+    arn = "arn:aws:lambda:us-east-2:123456789012:code-signing-config:csc-0123456789abcdef0"
+  }
+}
+
+override_resource {
+  target = module.openfga_rotation_package.aws_signer_signing_job.this
+  values = {
+    signed_object = [{ s3 = [{ bucket = "test-lambda-artifacts", key = "signed/openfga-rotation/mock-job.zip" }] }]
+  }
+}
+
+override_resource {
+  target = aws_kms_key.openfga_rotation
+  values = {
+    arn = "arn:aws:kms:us-east-2:123456789012:key/mock-openfga-rotation"
+  }
+}
+
+override_resource {
+  target = aws_sqs_queue.openfga_rotation_dlq
+  values = {
+    arn = "arn:aws:sqs:us-east-2:123456789012:shifter-test-openfga-rotation-dlq"
+  }
+}
+
 override_resource {
   target = aws_lambda_function.openfga_rotation
   values = {
@@ -864,6 +915,19 @@ run "native_identity_contract" {
   }
 
   assert {
+    condition = alltrue([
+      for strategy in ["alternating", "single"] :
+      aws_lambda_function.openfga_rotation[strategy].kms_key_arn == aws_kms_key.openfga_rotation.arn &&
+      aws_lambda_function.openfga_rotation[strategy].reserved_concurrent_executions == 10 &&
+      one(aws_lambda_function.openfga_rotation[strategy].tracing_config).mode == "Active" &&
+      one(aws_lambda_function.openfga_rotation[strategy].dead_letter_config).target_arn == aws_sqs_queue.openfga_rotation_dlq.arn &&
+      aws_lambda_function.openfga_rotation[strategy].s3_key == "signed/openfga-rotation/mock-job.zip" &&
+      aws_lambda_function.openfga_rotation[strategy].code_signing_config_arn == "arn:aws:lambda:us-east-2:123456789012:code-signing-config:csc-0123456789abcdef0"
+    ]) && aws_sqs_queue.openfga_rotation_dlq.kms_master_key_id == aws_kms_key.openfga_rotation.arn && aws_kms_key.openfga_rotation.enable_key_rotation
+    error_message = "Rotation functions deploy only signed code, encrypt their environment with a rotating CMK, trace, cap concurrency and keep failed invocations in an encrypted queue."
+  }
+
+  assert {
     condition = (
       aws_instance.operator_access.associate_public_ip_address == false &&
       aws_instance.operator_access.metadata_options[0].http_tokens == "required" &&
@@ -882,13 +946,4 @@ run "rotation_schedules_wait_for_the_logins" {
     condition     = length(aws_secretsmanager_secret_rotation.openfga_datastore) == 0 && output.openfga_rotation_scheduled == false
     error_message = "Without the deploy's go-ahead no rotation schedule exists, because creating one tests the login at once."
   }
-}
-
-run "rotation_package_required_to_create" {
-  command = plan
-  variables {
-    openfga_rotation_package = null
-  }
-  # Teardown may omit the package, but no plan may create the functions without it.
-  expect_failures = [aws_lambda_function.openfga_rotation]
 }

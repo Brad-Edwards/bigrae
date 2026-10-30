@@ -897,16 +897,6 @@ def test_teardown_is_scoped_to_the_eks_root_and_fails_without_valid_aws_config(t
     calls: list[list[str]] = []
     monkeypatch.setattr(aws_eks, "load_root_config", lambda _path: _config())
     monkeypatch.setattr(aws_eks, "run_cmd", lambda cmd, **kwargs: calls.append(cmd))
-    # Teardown builds the same rotation package as deploy before it removes anything.
-    package = tmp_path / "openfga-rotation.zip"
-
-    def prepare(workdir, region):
-        assert region == "us-east-2" and calls == []
-        calls.append(["build-rotation-package"])
-        return package
-
-    monkeypatch.setattr(aws_eks.openfga_rotation_package, "prepare_rotation_package", prepare)
-
     backend_config_path = tmp_path / "dev.s3.tfbackend"
     backend_config_path.write_text('bucket = "state"\n')
     terraform_inputs_path = tmp_path / "eks.tfvars.json"
@@ -921,8 +911,7 @@ def test_teardown_is_scoped_to_the_eks_root_and_fails_without_valid_aws_config(t
     )
 
     root = str(aws_eks.eks_root("dev"))
-    assert calls[0] == ["build-rotation-package"]
-    assert calls[1][:4] == ["helm", "uninstall", "shifter", "--namespace"]
+    assert calls[0][:4] == ["helm", "uninstall", "shifter", "--namespace"]
     assert [
         "terraform",
         f"-chdir={root}",
@@ -937,8 +926,9 @@ def test_teardown_is_scoped_to_the_eks_root_and_fails_without_valid_aws_config(t
         "destroy",
         "-auto-approve",
         f"-var-file={terraform_inputs_path}",
-        f"-var=openfga_rotation_package={package.resolve()}",
     ] in calls
+    # Signed packages live in S3, so teardown needs no local rotation package.
+    assert not any(token.startswith("-var=openfga_rotation_package=") for call in calls for token in call)
     assert not any("/portal" in token or "/range" in token for call in calls for token in call)
 
 
@@ -1211,3 +1201,59 @@ def test_applied_rotation_schedules_stay_on_in_one_plan(tmp_path, monkeypatch):
     assert scheduled is True
     plan = next(cmd for cmd in calls if "plan" in cmd)
     assert "-var=openfga_rotation_schedule=true" in plan
+
+
+def test_first_publication_status_probe_gets_the_portal_rds_iam_login(tmp_path):
+    """The unbound cutover probe clones portal-web, so it must carry its own RDS IAM login."""
+    from installation.gcp_identity_cutover import render
+
+    chart = aws_eks.get_repo_root() / "platform" / "charts" / "shifter"
+    secret_prefix = "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/dev/eks"
+    values = {
+        "rdsIam": {
+            "enabled": True,
+            "databaseUsers": {
+                "portal": "portal_web",
+                "workers": "portal_workers",
+                "ctf-scheduler": "ctf_scheduler",
+                "provisioner-launcher": "provisioner_launcher",
+            },
+        },
+        "runtimeEnv": {"AWS_REGION": "us-east-2"},
+        "identity": {"serviceAccountRoleArns": {"policyCredentialRefresh": "arn:aws:iam::123456789012:role/refresh"}},
+        "network": {"kubernetesApiCidrs": ["10.42.0.0/24"]},
+        # Documented first publication: OpenFGA runs, store and model are not yet published.
+        "openfga": {
+            "enabled": True,
+            "storeId": "",
+            "modelId": "",
+            "databaseCidrs": ["10.0.0.0/16"],
+            "runtimeDatabaseUser": "openfga_runtime",
+            "adminDatabaseUser": "openfga_admin",
+            "migrationDatabaseUser": "openfga_migrator",
+            "passwordDatastore": {
+                "enabled": True,
+                "host": "db.example.test",
+                "caBundleB64": base64.b64encode(b"synthetic-ca").decode(),
+                "secretArns": {
+                    duty: f"{secret_prefix}/openfga-{duty}-datastore" for duty in ("runtime", "admin", "migrator")
+                },
+            },
+        },
+    }
+    generated = tmp_path / "values.json"
+    generated.write_text(json.dumps(values))
+    rendered = subprocess.run(
+        ["helm", "template", "shifter", str(chart), "-f", str(chart / "values-aws-dev.yaml"), "-f", str(generated)],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    job = render(rendered, job_name="identity-cutover-status", status_only=True)
+    container = job["spec"]["template"]["spec"]["containers"][0]
+    env = {item["name"]: item.get("value") for item in container.get("env", [])}
+    assert env["DB_AUTH_MODE"] == "rds-iam"
+    assert env["DB_USER"] == "portal_web"
+    assert env["DB_SECRET_ID"] == ""
+    assert env["SHIFTER_IDENTITY_MAINTENANCE"] == "true"
+    assert "OPENFGA_STORE_ID" not in env

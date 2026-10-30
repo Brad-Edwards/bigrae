@@ -6,7 +6,7 @@ architecture; subsystem guides provide detail.
 
 **Owner:** [Brad Edwards](https://github.com/Brad-Edwards), assigned through
 [CODEOWNERS](https://github.com/Brad-Edwards/bigrae/blob/dev/.github/CODEOWNERS).
-**Reviewed:** 2026-10-29 for the AWS native identity bindings (#2313).
+**Reviewed:** 2026-10-30 for the AWS native identity bindings (#2313).
 This describes source behavior, not a certificate of a live deployment.
 
 BigRAE is the current product name. Public BigRAE config, SDK, client and plugin

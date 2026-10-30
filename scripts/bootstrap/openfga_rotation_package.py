@@ -1,10 +1,8 @@
 """OpenFGA datastore rotation package for the EKS Terraform root (#2313).
 
-Deploy and both teardown paths build the same package: the hash-pinned lock,
-the rotation function and the region's public RDS CA bundle. Terraform needs a
-valid Lambda code source even to refresh before a destroy, so teardown builds
-the package from the same inputs as deploy. This module uses only the standard
-library and ``bootstrap_core``, so the environment teardown can import it.
+The deploy builds the package from the hash-pinned lock, the rotation function
+and the region's public RDS CA bundle. Terraform uploads it, Signer signs it,
+and the functions deploy the signed copy from S3, so teardown needs no package.
 """
 
 from __future__ import annotations
@@ -89,8 +87,3 @@ def build_rotation_package(workdir: Path, ca_bundle: bytes) -> Path:
             archive.writestr(info, path.read_bytes())
     shutil.rmtree(staging, ignore_errors=True)
     return package
-
-
-def prepare_rotation_package(workdir: Path, region: str) -> Path:
-    """Download the region's RDS CA bundle and build the package in ``workdir``."""
-    return build_rotation_package(workdir, fetch_rds_ca_bundle(region))

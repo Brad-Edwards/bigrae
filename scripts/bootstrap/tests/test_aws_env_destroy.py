@@ -291,31 +291,6 @@ def test_happy_path_orders_layers_and_runs_pre_destroy_handling(tmp_path, monkey
     assert "-var=environment=dev" in iam
 
 
-def test_live_eks_root_is_destroyed_with_the_rebuilt_rotation_package(tmp_path, monkeypatch, sweep_ok):
-    state = _full_state()
-    state["environments/dev/eks"] = ['module.eks.aws_lambda_function.openfga_rotation["single"]']
-    fake = _fake(state=state)
-    _wire(monkeypatch, fake)
-    package = tmp_path / "openfga-rotation.zip"
-    regions: list[str] = []
-    monkeypatch.setattr(
-        aed.openfga_rotation_package,
-        "prepare_rotation_package",
-        lambda workdir, region: regions.append(region) or package,
-    )
-
-    aed.teardown(_ctx(tmp_path))
-
-    eks = fake.find(lambda c: c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "environments/dev/eks")[0]
-    assert f"-var=openfga_rotation_package={package.resolve()}" in eks
-    assert regions == ["us-east-2"]
-    # Only the EKS root receives the package.
-    portal = fake.find(
-        lambda c: c[0] == "terraform" and c[2] == "destroy" and _stack_of(c) == "environments/dev/portal"
-    )[0]
-    assert not any(token.startswith("-var=openfga_rotation_package=") for token in portal)
-
-
 def test_runner_uses_managed_vpc_var_when_network_module_in_state(tmp_path, monkeypatch, sweep_ok):
     state = _full_state()
     state["global/github-runner"] = ["module.runner_network[0].aws_vpc.this", "aws_instance.runner"]

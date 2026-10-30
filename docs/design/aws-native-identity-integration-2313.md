@@ -23,7 +23,7 @@ Owner decisions on 2026-10-29:
 | OpenFGA restart after rotation | A weekly Job copies the current credentials into named Secrets and restarts only the two OpenFGA Deployments. |
 | Operator access | Named principals assume the deploy role. Access goes through a Session Manager tunnel to the private EKS API. |
 | CI deploy trust | Exact deploy Environments and protected refs. The `aws-dev` Environment allows only the `aws-dev` branch. |
-| Legacy admin users | Remove `platform/terraform/global/se-admins`. |
+| Legacy admin users | Remove `platform/terraform/global/se-admins`. Each account that applied it destroys its users and confirms their absence with the ops guide procedure. |
 
 The AWS-provided rotation templates create a Lambda role without the CI
 permissions boundary that this repository requires. The owner approved the
@@ -109,9 +109,9 @@ GCP native login. Each OpenFGA duty has a password login:
 
 | Login | Duty | Rotation |
 | --- | --- | --- |
-| `openfga_migrator` | Owns the `openfga` database schema. | Single-user template. Only deploy Jobs use it. |
-| `openfga_runtime` | Member of `shifter_openfga_runtime`. | Alternating-users template. |
-| `openfga_admin` | Member of `shifter_openfga_admin`. | Alternating-users template. |
+| `openfga_migrator` | Owns the `openfga` database schema. | Single-user rotation. Only deploy Jobs use it. |
+| `openfga_runtime` | Member of `shifter_openfga_runtime`. | Alternating-users rotation. |
+| `openfga_admin` | Member of `shifter_openfga_admin`. | Alternating-users rotation. |
 
 The alternating-users strategy creates `<login>_clone` as a member of the
 original login. The previous credential stays valid until the next rotation.
@@ -187,6 +187,7 @@ Environment.
 | One workload uses another workload's SQL login | One `rds-db:connect` user per role. | Terraform tests. |
 | OpenFGA admin powers in the runtime | Separate logins, listeners, keys and duty roles. | Released-server tests (existing). |
 | Policy secrets leak to unrelated pods | Only the refresh and provisioning roles read datastore secrets. Named Kubernetes Secrets. | Terraform tests. Chart tests. |
+| A modified rotation package is deployed | AWS Signer signs each package; the code signing configuration refuses unsigned code. | Terraform tests. |
 | A secret writer redirects master-backed rotation to another login | Function configuration binds each secret ARN to its base login and names the master secret. | Rotation function tests. Terraform test. |
 | Refresh Job gains broad access | Role limited to `patch` on three named Secrets and two Deployments. Admission allows only the restart annotation on those Deployments. | Chart render. Refresh admission tests. |
 | Statement logs capture passwords | SCRAM-SHA-256 verifiers only. | Provisioning and rotation tests. |
@@ -200,8 +201,8 @@ Environment.
 - Role ARN reuse, as stated in the deviation above.
 - A Cognito-only global sign-out lasts until the absolute session limit.
 - OpenFGA uses passwords. Rotation and exact readers limit exposure.
-- The rotation template uses the Lambda image CA bundle for TLS. Live
-  qualification must confirm that the bundle trusts the RDS CA.
+- The rotation function trusts the RDS CA bundle in its package. Live
+  qualification must confirm one rotation after each bundle change.
 - Port-forward session content is not logged. CloudTrail records the session
   start. AWS documents this limit for
   [Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html).

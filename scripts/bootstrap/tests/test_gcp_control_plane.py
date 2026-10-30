@@ -1154,8 +1154,8 @@ class TestGcpPlatformCoreContracts:
         assert '"roles/pubsub.publisher"' in workers_section
         assert '"roles/pubsub.subscriber"' in workers_section
 
-    def test_portal_has_only_directory_lifecycle_read_permission(self):
-        """Lifecycle rechecks use the exact native permission and only the portal GSA."""
+    def test_only_session_recheck_identities_have_directory_lifecycle_read_permission(self):
+        """Lifecycle rechecks use the exact native permission and only the recheck GSAs (#2313)."""
         module_path = (
             Path(__file__).resolve().parents[3]
             / "platform"
@@ -1172,7 +1172,8 @@ class TestGcpPlatformCoreContracts:
         assert '"roles/firebaseauth.viewer"' not in portal_section
         native = (module_path.parent / "native_identity.tf").read_text()
         assert 'permissions = ["firebaseauth.users.get"]' in native
-        assert 'member  = "serviceAccount:${google_service_account.workload["portal"].email}"' in native
+        assert 'for_each = toset(["portal", "workers", "ctf-scheduler", "provisioner-launcher"])' in native
+        assert 'member  = "serviceAccount:${google_service_account.workload[each.key].email}"' in native
 
     def test_identity_platform_self_signup_is_allowed_and_guarded_by_before_create_trigger(self):
         """GCP corporate registration must stay open to eligible users and be gated by a blocking function."""

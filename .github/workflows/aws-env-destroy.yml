@@ -111,11 +111,6 @@ jobs:
         with:
           terraform_version: "1.13.3"
 
-      # A live EKS root is destroyed with the OpenFGA rotation package, which
-      # the orchestrator builds from the hash-pinned lock with uv (#2313).
-      - name: Setup uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-
       - name: Configure env-credential profile for the leftover sweep
         # account_recovery.py addresses the AWS CLI by profile; this profile
         # resolves the OIDC-assumed credentials from the environment, so the
