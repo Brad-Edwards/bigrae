@@ -1,0 +1,9 @@
+{# SPDX-FileCopyrightText: 2026 Palo Alto Networks, Inc. #}
+{# SPDX-License-Identifier: MIT #}
+{% extends "ctf/email/notice/_base.html" %}
+{% load i18n %}
+{% block intro %}
+    {% blocktrans trimmed %}
+        The final results for {{ event_name }} are available.
+    {% endblocktrans %}
+{% endblock %}

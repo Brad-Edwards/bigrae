@@ -1,7 +1,0 @@
-{{ subject }}
-
-Hi {{ participant.name }},
-
-{{ body }}
-
--- {{ event.name }} Organizers

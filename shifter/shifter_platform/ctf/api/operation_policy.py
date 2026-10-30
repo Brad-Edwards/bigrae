@@ -75,9 +75,6 @@ API_OPERATION_POLICY: dict[str, OperationPolicy] = {
     "ctf_events_challenges_import_pack_create": OperationPolicy((_MANAGE_CHALLENGES,), "event", "event"),
     "ctf_events_cleanup_create": OperationPolicy((_MANAGE_LIFECYCLE,), "event", "event"),
     "ctf_events_content_refresh_create": OperationPolicy((_MANAGE_CONTENT,), "event", "event"),
-    "ctf_events_email_templates_retrieve": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "event"),
-    "ctf_events_email_templates_update": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "event"),
-    "ctf_events_email_templates_destroy": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "event"),
     "ctf_events_force_delete_create": OperationPolicy((_DELETE_EVENT,), "event", "event"),
     "ctf_events_lifecycle_create": OperationPolicy((_MANAGE_LIFECYCLE,), "event", "event"),
     "ctf_events_model_access_assessment_retrieve": OperationPolicy((_MANAGE_CONFIG,), "event", "event"),
@@ -224,7 +221,6 @@ NON_API_ROUTE_POLICY: dict[str, str] = {
             "admin_range_list",
             "admin_notification_list",
             "admin_notification_create",
-            "admin_event_email_templates",
             "admin_analytics",
             "admin_communications",
             "admin_communication_detail",
@@ -308,5 +304,4 @@ CTF_DJANGO_ADMIN_POLICY: dict[str, OperationPolicy] = {
     "CTFScheduledTask": OperationPolicy((_MANAGE_LIFECYCLE,), "event", "task"),
     "CTFChallengeFile": OperationPolicy((_MANAGE_CHALLENGES,), "event", "file"),
     "CTFChallengePrerequisite": OperationPolicy((_MANAGE_CHALLENGES,), "event", "prerequisite"),
-    "CTFEmailTemplate": OperationPolicy((_MANAGE_COMMUNICATIONS,), "event", "email_template"),
 }

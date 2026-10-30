@@ -370,37 +370,6 @@ class NotificationSendResultSerializer(serializers.Serializer):
     status = serializers.CharField(read_only=True)
 
 
-class EmailTemplateWriteSerializer(serializers.Serializer):
-    """Request body for creating/updating a per-event email-template override.
-
-    Fields are blank-tolerant so the view keeps the legacy validation: a missing
-    or empty ``html_body`` / ``text_body`` and any disallowed template syntax
-    both surface as a controlled 400. Organizer templates are restricted to the
-    flat ``{{ name }}`` placeholder grammar over the per-notification-type
-    allowlist enforced by ``ctf.services.email_template`` (CWE-1336, issue #1095).
-    """
-
-    subject = serializers.CharField(required=False, allow_blank=True, default="")
-    html_body = serializers.CharField(required=False, allow_blank=True, default="")
-    text_body = serializers.CharField(required=False, allow_blank=True, default="")
-
-
-class EmailTemplateResponseSerializer(serializers.Serializer):
-    """Per-event email-template override projection."""
-
-    id = serializers.CharField(read_only=True)
-    notification_type = serializers.CharField(read_only=True)
-    subject = serializers.CharField(read_only=True, allow_blank=True)
-    html_body = serializers.CharField(read_only=True, allow_blank=True)
-    text_body = serializers.CharField(read_only=True, allow_blank=True)
-
-
-class EmailTemplateRevertResultSerializer(serializers.Serializer):
-    """Confirmation returned after reverting a template to the platform default."""
-
-    status = serializers.CharField(read_only=True)
-
-
 # ---------------------------------------------------------------------------
 # Scoreboard serializers (per-participant timeline + public scoreboard)
 # ---------------------------------------------------------------------------

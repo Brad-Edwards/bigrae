@@ -1,10 +1,11 @@
 """Email channel adapter (ADR-051-R14, ADR-071, #1525).
 
 The adapter is the only code that decrypts a recipient coordinate. It reads the
-one snapshot named by its command, renders the pinned revision through a trusted
-HTML wrapper that escapes the authored Markdown source (the plain-text part
-carries the source unchanged), and makes one bounded attempt
-through ``shared.email``. The command's stable idempotency key becomes the
+one snapshot named by its command and renders the pinned revision through the
+trusted template pair that the campaign's notice kind selects (#580). The pair
+receives escaped scalar values only: the authored Markdown source, and the
+participant name and event facts of the snapshot's own event. It then makes one
+bounded attempt through ``shared.email``. The command's stable idempotency key becomes the
 message's Message-ID, so every retry of one command shares it.
 
 It never retries, never decides authorization or audience, and never retargets:
@@ -17,19 +18,23 @@ fault within the worker's budget.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.core.exceptions import ImproperlyConfigured
-from django.template.loader import render_to_string
+from django.urls import reverse
+from django.utils import timezone
 
-from ctf.enums_communication import CommunicationChannel
+from ctf.enums_communication import CommunicationChannel, NoticeKind
 from ctf.models import CommunicationIntent, RecipientSnapshot
-from shared.email import EmailOutcome, attempt_email, delivery_available
+from shared.email import EmailOutcome, attempt_email, delivery_available, render_template
+from shared.site_url import SiteUrlUnavailable, validated_site_url
 
 from .contract import DeliveryCommand, DeliveryOutcome, OutcomeClass
 
 logger = logging.getLogger(__name__)
 
-_HTML_TEMPLATE = "ctf/email/communication.html"
+_TEMPLATE_DIR = "ctf/email/notice"
 _OUTCOMES = {
     EmailOutcome.ACCEPTED: OutcomeClass.ACCEPTED,
     EmailOutcome.RETRIABLE: OutcomeClass.RETRIABLE,
@@ -55,15 +60,54 @@ class EmailAdapter:
         coordinate, failure = _read_coordinate(command)
         if failure is not None:
             return failure
-        revision = CommunicationIntent.objects.select_related("revision").get(pk=command.intent_id).revision
+        try:
+            event_url = validated_site_url() + reverse("ctf:participant_event")
+        except SiteUrlUnavailable:
+            logger.warning("email portal origin unavailable for attempt %s", command.attempt_id)
+            return DeliveryOutcome(OutcomeClass.RETRIABLE, reason="site_url_unavailable")
+        intent = CommunicationIntent.objects.select_related("revision", "campaign").get(pk=command.intent_id)
+        revision = intent.revision
         subject = " ".join(revision.subject.splitlines())
-        html = render_to_string(
-            _HTML_TEMPLATE, {"subject": subject, "body": revision.body, "locale": revision.default_locale}
-        )
-        # Plain text carries the authored source unchanged; it has no markup context.
-        text = f"{subject}\n\n{revision.body}\n"
+        context = {
+            "subject": subject,
+            "body": revision.body,
+            "locale": revision.default_locale,
+            "event_url": event_url,
+            **_recipient_facts(command),
+        }
+        template = f"{_TEMPLATE_DIR}/{NoticeKind(intent.campaign.notice_kind).value}"
+        html, text = render_template(template, context)
         result = attempt_email(coordinate, subject, html, text, timeout=timeout, message_key=command.idempotency_key)
         return DeliveryOutcome(_OUTCOMES[result.outcome], reason=result.reason, provider_receipt=result.receipt)
+
+
+def _recipient_facts(command: DeliveryCommand) -> dict[str, str]:
+    """Return the scalar facts of the snapshot's own event and live participant.
+
+    A multi-event campaign renders each recipient with the event that qualifies
+    that recipient. A removed participant renders without a name.
+    """
+    facts = (
+        RecipientSnapshot.objects.filter(pk=command.snapshot_id, intent_id=command.intent_id)
+        .values("event__name", "event__event_start", "event__event_end", "event__event_timezone", "participant__name")
+        .get()
+    )
+    try:
+        zone = ZoneInfo(facts["event__event_timezone"] or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo("UTC")
+    return {
+        "participant_name": facts["participant__name"] or "",
+        "event_name": facts["event__name"],
+        "event_start": _local_time(facts["event__event_start"], zone),
+        "event_end": _local_time(facts["event__event_end"], zone),
+        "event_timezone": zone.key,
+    }
+
+
+def _local_time(value: datetime | None, zone: ZoneInfo) -> str:
+    """Format an instant in the event timezone, or return an empty string."""
+    return timezone.localtime(value, zone).strftime("%Y-%m-%d %H:%M") if value else ""
 
 
 def _read_coordinate(command: DeliveryCommand) -> tuple[str, DeliveryOutcome | None]:

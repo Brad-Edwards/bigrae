@@ -59,7 +59,6 @@ urlpatterns = [
     path("admin/events/<uuid:event_id>/ranges/", platform_spa_host, name="admin_range_list"),
     path("admin/events/<uuid:event_id>/notifications/", platform_spa_host, name="admin_notification_list"),
     path("admin/events/<uuid:event_id>/notifications/create/", platform_spa_host, name="admin_notification_create"),
-    path("admin/events/<uuid:event_id>/email-templates/", platform_spa_host, name="admin_event_email_templates"),
     path("admin/events/<uuid:event_id>/analytics/", platform_spa_host, name="admin_analytics"),
     path("admin/communications/", platform_spa_host, name="admin_communications"),
     path("admin/communications/<uuid:campaign_id>/", platform_spa_host, name="admin_communication_detail"),
