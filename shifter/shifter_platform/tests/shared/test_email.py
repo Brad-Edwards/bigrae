@@ -71,11 +71,11 @@ class TestRenderTemplate:
         """Renders both .html and .txt templates."""
         mock_render.side_effect = ["<html>Hello</html>", "Hello"]
 
-        html, text = email.render_template("ctf/email/invitation", {"key": "val"})
+        html, text = email.render_template("ctf/email/notice/reminder", {"key": "val"})
 
         assert (html, text) == ("<html>Hello</html>", "Hello")
-        mock_render.assert_any_call("ctf/email/invitation.html", {"key": "val"})
-        mock_render.assert_any_call("ctf/email/invitation.txt", {"key": "val"})
+        mock_render.assert_any_call("ctf/email/notice/reminder.html", {"key": "val"})
+        mock_render.assert_any_call("ctf/email/notice/reminder.txt", {"key": "val"})
 
 
 class TestAttemptEmail:

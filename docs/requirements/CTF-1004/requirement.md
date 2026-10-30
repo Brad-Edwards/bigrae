@@ -27,7 +27,5 @@ Manual event start/end requires an organizer to be online at the exact scheduled
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/event/` (Schedules EVENT_START task at event_start time and EVENT_END task at event_end time when event is scheduled)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (Sends organizer email notification when event automatically starts)
 - IMPLEMENTS → CODE_FILE `shifter/shifter_platform/ctf/services/notification/` (Sends organizer email notification when event automatically ends)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/event_start.html` (HTML email template for event start organizer notification)
-- IMPLEMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/event_end.html` (HTML email template for event end organizer notification)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_notification.py::TestNotifyOrganizerEventStart,TestNotifyOrganizerEventEnd` (Tests for organizer event start/end notification functions)
 - TESTS → TEST `shifter/shifter_platform/tests/ctf/test_services/test_scheduler_handlers.py::TestHandleEventStart,TestHandleEventEnd` (Tests for scheduler event start/end handlers with notification integration)

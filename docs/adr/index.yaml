@@ -3305,7 +3305,7 @@
       },
       {
         "id": "ADR-051-R9",
-        "description": "Legacy CTFNotification rows remain historical aggregate evidence and must not be expanded into invented recipient success. Draft/scheduled rows and pending SEND_NOTIFICATION tasks cut over atomically or fail migration; old and new writers do not dual-write. Legacy API projection may temporarily adapt the new service under ADR-040, while CTFEmailTemplate remains its existing placeholder-only email-wrapper contract and WebSocketNotification remains transport replay state.",
+        "description": "Legacy CTFNotification rows remain historical aggregate evidence and must not be expanded into invented recipient success. Draft/scheduled rows and pending SEND_NOTIFICATION tasks cut over atomically or fail migration; old and new writers do not dual-write. Legacy API projection may temporarily adapt the new service under ADR-040, and WebSocketNotification remains transport replay state. Issue #580 retires CTFEmailTemplate and its per-event override API: ledger email renders one trusted default template pair selected by the campaign's closed, immutable notice_kind, with escaped scalar values only and the recipient snapshot's event facts. Organizer-authored HTML never becomes email markup.",
         "checks": []
       },
       {
@@ -3358,6 +3358,7 @@
       "docs/architecture/email-templating-delivery-preflight-581.md",
       "docs/architecture/notifications-websocket-fanout-preflight-941.md",
       "docs/design/ctf-email-template-rendering-preflight-1095.md",
+      "docs/design/ctf-ledger-email-template-boundaries-580.md",
       "docs/architecture/audit-system-architecture.md",
       "docs/architecture/raes-migration-adr.md",
       "docs/architecture/organization-workspace-preflight-1325.md",

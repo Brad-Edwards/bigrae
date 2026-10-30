@@ -153,6 +153,13 @@
       ]
     },
     {
+      "adr": "ADR-051",
+      "issue": 580,
+      "paths": [
+        "/api/v1/ctf/events/{event_id}/email-templates/{notification_type}/"
+      ]
+    },
+    {
       "adr": "ADR-066",
       "issue": 2321,
       "parameters": [
