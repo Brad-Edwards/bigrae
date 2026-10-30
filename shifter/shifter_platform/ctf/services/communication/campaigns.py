@@ -26,7 +26,7 @@ from ctf.communication_contracts import (
     validate_message_content,
     validate_trigger_spec,
 )
-from ctf.enums_communication import CampaignStatus
+from ctf.enums_communication import CampaignStatus, NoticeKind
 from ctf.exceptions import CTFCommunicationError
 from ctf.models import CommunicationCampaign, CommunicationTargetEvent, CTFEvent, MessageRevision
 from ctf.services.actors import EventActor, event_actor_credential, event_actor_user, event_actor_user_id
@@ -66,6 +66,7 @@ class CampaignDraft:
     body: str
     acknowledgement_policy: str = "none"
     actor_token_id: int | None = None
+    notice_kind: str = NoticeKind.ANNOUNCEMENT.value
 
 
 _TARGET_DENIED = CTFCommunicationError(
@@ -159,6 +160,9 @@ def create_campaign(
     )
     if actor.credential != credential or actor.system:
         raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_ACTOR_DENIED")
+    if draft.notice_kind != NoticeKind.ANNOUNCEMENT.value:
+        # Only trusted lifecycle notices select another email presentation (#580).
+        raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_NOTICE_KIND_DENIED")
     scope, binding = _resolve_parent(parent_type, parent_uuid)
     workspace_id = binding.workspace_id
 
@@ -221,10 +225,22 @@ def create_campaign(
     return campaign
 
 
-def create_system_event_campaign(event: CTFEvent, draft: CampaignDraft, *, campaign_id: UUID) -> CommunicationCampaign:
-    """Create one trusted lifecycle notice bound to an already-locked event."""
+def create_system_event_campaign(
+    event: CTFEvent, draft: CampaignDraft, *, campaign_id: UUID, authoring_rate_limited: bool = True
+) -> CommunicationCampaign:
+    """Create one trusted lifecycle notice bound to an already-locked event.
+
+    ``authoring_rate_limited=False`` is reserved for organizer alerts: they are
+    server-authored, bounded by the event schedule, and declared inside the state
+    change that causes them, so a shared authoring budget must not drop them after
+    that change commits. Release-time admission backpressure still applies.
+    """
     if list(dict.fromkeys(validate_campaign_targets(draft.target_event_ids))) != [event.pk]:
         raise _TARGET_DENIED
+    try:
+        notice_kind = NoticeKind(draft.notice_kind).value
+    except ValueError:
+        raise CTFCommunicationError("Unavailable", code="CTF_COMMUNICATION_NOTICE_KIND_DENIED") from None
     try:
         scope = workspace_services.resource_scope_from_ids(
             kind=event.scope_kind,
@@ -235,7 +251,8 @@ def create_system_event_campaign(event: CTFEvent, draft: CampaignDraft, *, campa
         binding = workspace_services.resolve_resource_scope(scope)
     except workspace_services.AccountScopeError:
         raise CTFCommunicationError(_CAMPAIGN_SCOPE_IS_UNAVAILABLE, code="CTF_COMMUNICATION_WORKSPACE_DENIED") from None
-    audience = validate_audience_spec(draft.audience_spec)
+    # Trusted system notices are the only path that may address organizers.
+    audience = validate_audience_spec(draft.audience_spec, allow_organizer=True)
     trigger = validate_trigger_spec(draft.trigger_spec)
     selected_channels = validate_channels(draft.channels)
     ack_policy = validate_acknowledgement_policy(draft.acknowledgement_policy)
@@ -247,7 +264,8 @@ def create_system_event_campaign(event: CTFEvent, draft: CampaignDraft, *, campa
     scope_id = binding.workspace_id or binding.account_id
     if scope_id is None:
         raise CTFCommunicationError(_CAMPAIGN_SCOPE_IS_UNAVAILABLE, code="CTF_COMMUNICATION_WORKSPACE_DENIED")
-    enforce_operation_rate("system", scope_kind, scope_id)
+    if authoring_rate_limited:
+        enforce_operation_rate("system", scope_kind, scope_id)
     campaign = CommunicationCampaign.objects.create(
         id=campaign_id,
         scope_kind=scope.kind,
@@ -256,6 +274,7 @@ def create_system_event_campaign(event: CTFEvent, draft: CampaignDraft, *, campa
         workspace_id=binding.workspace_id,
         title=draft.title,
         origin=draft.origin,
+        notice_kind=notice_kind,
         created_by=event.created_by,
         creator_principal_uuid=event.owner_principal_uuid,
         status=CampaignStatus.DRAFT.value,

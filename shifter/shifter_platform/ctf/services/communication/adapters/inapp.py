@@ -1,6 +1,6 @@
 """In-app channel adapter (#2098).
 
-The in-app channel's durable record is the ``RecipientSnapshot`` / ``ParticipantReceipt``
+The in-app channel's durable record is the ``RecipientSnapshot`` / ``RecipientReceipt``
 committed at admission -- inbox availability never depends on this adapter. The
 adapter only publishes a reference-only WebSocket wake-up (an accelerator) keyed on
 the stable per-recipient snapshot identity, so a socket outage, reconnect, or worker

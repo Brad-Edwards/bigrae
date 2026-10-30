@@ -62,7 +62,6 @@ from ctf.api.organizer.moderation import (
     ParticipantUsernameView,
 )
 from ctf.api.organizer.notifications import (
-    EventEmailTemplateView,
     NotificationCancelScheduleView,
     NotificationListView,
     NotificationSendView,
@@ -130,7 +129,6 @@ __all__ = [
     "EventContentImagesView",
     "EventContentRefreshView",
     "EventDetailView",
-    "EventEmailTemplateView",
     "EventLifecycleView",
     "EventListView",
     "EventModelAccessAssessmentView",

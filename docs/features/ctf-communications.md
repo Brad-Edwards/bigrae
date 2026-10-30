@@ -209,5 +209,31 @@ aggregate evidence, never delivery or read receipts.
 
 Deployment uses the [maintenance cutover procedure](../technical/shifter_platform/ctf-communications.md#maintenance-cutover).
 Migrated email work stays visibly unavailable while email is unavailable. It is
-not silently changed to in-app. Organizer-only legacy email alerts are also
-unavailable, because the participant ledger has no organizer recipients.
+not silently changed to in-app. The legacy provisioning-failure and capacity
+email alerts stay unavailable. The organizer alerts below replace the automatic
+start and end alerts.
+
+## Organizer alerts
+
+The platform alerts the event owner and each co-organizer about automatic
+event changes. Moderators and judges do not get these alerts.
+
+| Alert | When |
+| --- | --- |
+| Event started automatically | The event starts at its scheduled start time. |
+| Event could not start automatically | The start time passes, but the event content is not ready. The platform tries again with backoff. |
+| Participant ranges are not ready | At the start time, fewer participant ranges are ready than registered participants. The alert gives the counts. Provisioning continues. |
+| Event ended automatically | The event ends at its scheduled end time. This includes a paused event. |
+
+Open **Monitoring > Alerts** for the event. The tab shows the unread count.
+
+1. Read the alert text.
+2. Select **Mark as read** to record a read.
+3. Select **Dismiss** to hide the alert. Select **Show dismissed** to see it again.
+
+The platform also sends each alert by email when the deployment has a mail
+provider. The email links to the event's **Alerts** tab. Range alerts need permission to manage ranges on the event. A person
+who stops being the owner or a co-organizer loses the alerts at once. Pending
+email to that person stops.
+
+Submissions close at the exact event end time.

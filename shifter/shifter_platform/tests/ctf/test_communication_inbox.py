@@ -4,7 +4,7 @@ import pytest
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from ctf.models import CTFParticipant, ParticipantReceipt
+from ctf.models import CTFParticipant, RecipientReceipt
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign
 from shared.api_tokens.models import ApiToken
 from tests.ctf._account_scope import individual_account_uuid
@@ -53,7 +53,7 @@ def test_get_is_read_only_and_explicit_receipts_are_idempotent(inbox):
     assert response.status_code == 200, response.content
     assert response.json()["results"][0]["message_id"] == str(snapshot.pk)
     assert client.get(f"{url}{snapshot.pk}/").status_code == 200
-    receipt = ParticipantReceipt.objects.get(snapshot=snapshot)
+    receipt = RecipientReceipt.objects.get(snapshot=snapshot)
     assert receipt.read_at is None and receipt.acknowledged_at is None
     for action, field in [("read", "read_at"), ("acknowledge", "acknowledged_at")]:
         response = client.post(f"{url}{snapshot.pk}/{action}/", {}, format="json")
@@ -140,7 +140,7 @@ def _second_event(organizer):
 def test_dismiss_read_and_acknowledge_are_independent_first_write_facts(inbox):
     client, _, _, snapshot, url = inbox
     item_url = f"{url}{snapshot.pk}/"
-    receipt = ParticipantReceipt.objects.get(snapshot=snapshot)
+    receipt = RecipientReceipt.objects.get(snapshot=snapshot)
 
     dismissed = client.post(f"{item_url}dismiss/", {}, format="json")
     assert dismissed.status_code == 200, dismissed.content
@@ -251,7 +251,7 @@ def test_retention_cut_off_hides_messages_before_purge(inbox, settings):
     assert _ids(client.get(url)) == []
     assert client.get(f"{url}{snapshot.pk}/").status_code == 404
     assert client.post(f"{url}{snapshot.pk}/read/", {}, format="json").status_code == 404
-    assert ParticipantReceipt.objects.filter(snapshot=snapshot).exists()
+    assert RecipientReceipt.objects.filter(snapshot=snapshot).exists()
 
 
 def test_inbox_responses_are_private_and_never_repeat_input(inbox, settings):

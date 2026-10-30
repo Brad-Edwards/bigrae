@@ -1,5 +1,5 @@
 {
-  "current_operation_count": 317,
+  "current_operation_count": 318,
   "historical_baseline": {
     "commit": "8aee758331286293cdc837d94eb95fafa5674ae0",
     "operation_count": 220
@@ -1855,33 +1855,33 @@
     },
     {
       "authority": {
-        "decision": "event.manage_communications",
-        "scope": "sql:event",
-        "target": "event"
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
       },
-      "disposition": "retained",
+      "disposition": "retired",
       "method": "DELETE",
       "operation_id": "ctf_events_email_templates_destroy",
       "path": "/api/v1/ctf/events/{event_id}/email-templates/{notification_type}/"
     },
     {
       "authority": {
-        "decision": "event.manage_communications",
-        "scope": "sql:event",
-        "target": "event"
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
       },
-      "disposition": "retained",
+      "disposition": "retired",
       "method": "GET",
       "operation_id": "ctf_events_email_templates_retrieve",
       "path": "/api/v1/ctf/events/{event_id}/email-templates/{notification_type}/"
     },
     {
       "authority": {
-        "decision": "event.manage_communications",
-        "scope": "sql:event",
-        "target": "event"
+        "decision": "not-mounted",
+        "scope": "none",
+        "target": "none"
       },
-      "disposition": "retained",
+      "disposition": "retired",
       "method": "PUT",
       "operation_id": "ctf_events_email_templates_update",
       "path": "/api/v1/ctf/events/{event_id}/email-templates/{notification_type}/"
@@ -1929,6 +1929,50 @@
       "method": "GET",
       "operation_id": "ctf_events_notifications_retrieve",
       "path": "/api/v1/ctf/events/{event_id}/notifications/"
+    },
+    {
+      "authority": {
+        "decision": "event.read|event.manage_ranges",
+        "scope": "sql:event;selector=organizer_alert_action",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_organizer_alert_inbox_list",
+      "path": "/api/v1/ctf/events/{event_id}/organizer-alerts/"
+    },
+    {
+      "authority": {
+        "decision": "event.read|event.manage_ranges",
+        "scope": "sql:event;selector=organizer_alert_action",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "GET",
+      "operation_id": "ctf_organizer_alert_inbox_detail",
+      "path": "/api/v1/ctf/events/{event_id}/organizer-alerts/{snapshot_id}/"
+    },
+    {
+      "authority": {
+        "decision": "event.read|event.manage_ranges",
+        "scope": "sql:event;selector=organizer_alert_action",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "ctf_events_organizer_alerts_dismiss_create",
+      "path": "/api/v1/ctf/events/{event_id}/organizer-alerts/{snapshot_id}/dismiss/"
+    },
+    {
+      "authority": {
+        "decision": "event.read|event.manage_ranges",
+        "scope": "sql:event;selector=organizer_alert_action",
+        "target": "event"
+      },
+      "disposition": "added",
+      "method": "POST",
+      "operation_id": "ctf_events_organizer_alerts_read_create",
+      "path": "/api/v1/ctf/events/{event_id}/organizer-alerts/{snapshot_id}/read/"
     },
     {
       "authority": {

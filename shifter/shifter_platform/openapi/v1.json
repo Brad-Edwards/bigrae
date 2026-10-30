@@ -12382,218 +12382,6 @@
         }
       }
     },
-    "/api/v1/ctf/events/{event_id}/email-templates/{notification_type}/": {
-      "get": {
-        "operationId": "ctf_events_email_templates_retrieve",
-        "description": "Return the per-event custom template, or 404 when using the default.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "event_id",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "notification_type",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "tags": [
-          "ctf"
-        ],
-        "security": [
-          {
-            "ApiTokenAuth": []
-          },
-          {
-            "cookieAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EmailTemplateResponse"
-                }
-              }
-            },
-            "description": ""
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Authentication failed."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Permission denied."
-          }
-        }
-      },
-      "put": {
-        "operationId": "ctf_events_email_templates_update",
-        "description": "Create or update the per-event custom template from the request body.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "event_id",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "notification_type",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "tags": [
-          "ctf"
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EmailTemplateWrite"
-              }
-            },
-            "application/x-www-form-urlencoded": {
-              "schema": {
-                "$ref": "#/components/schemas/EmailTemplateWrite"
-              }
-            },
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/EmailTemplateWrite"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ApiTokenAuth": []
-          },
-          {
-            "cookieAuth": []
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EmailTemplateResponse"
-                }
-              }
-            },
-            "description": ""
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Authentication failed."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Permission denied."
-          }
-        }
-      },
-      "delete": {
-        "operationId": "ctf_events_email_templates_destroy",
-        "description": "Soft-delete the per-event template, reverting to the platform default.",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "event_id",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true
-          },
-          {
-            "in": "path",
-            "name": "notification_type",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "tags": [
-          "ctf"
-        ],
-        "security": [
-          {
-            "ApiTokenAuth": []
-          },
-          {
-            "cookieAuth": []
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No response body"
-          },
-          "401": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Authentication failed."
-          },
-          "403": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            },
-            "description": "Permission denied."
-          }
-        }
-      }
-    },
     "/api/v1/ctf/events/{event_id}/force-delete/": {
       "post": {
         "operationId": "ctf_events_force_delete_create",
@@ -12873,6 +12661,514 @@
               }
             },
             "description": "Permission denied."
+          }
+        }
+      }
+    },
+    "/api/v1/ctf/events/{event_id}/organizer-alerts/": {
+      "get": {
+        "operationId": "ctf_organizer_alert_inbox_list",
+        "description": "Return one page of the current organizer's alerts and inbox-wide counts.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "schema": {
+              "type": "integer",
+              "maximum": 100000,
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "in": "query",
+            "name": "view",
+            "schema": {
+              "enum": [
+                "inbox",
+                "action_required",
+                "dismissed"
+              ],
+              "type": "string",
+              "default": "inbox",
+              "minLength": 1
+            },
+            "description": "* `inbox` - inbox\n* `action_required` - action_required\n* `dismissed` - dismissed"
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxPage"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ctf/events/{event_id}/organizer-alerts/{snapshot_id}/": {
+      "get": {
+        "operationId": "ctf_organizer_alert_inbox_detail",
+        "description": "Return one alert from the authorized organizer inbox.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationInboxItem"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ctf/events/{event_id}/organizer-alerts/{snapshot_id}/dismiss/": {
+      "post": {
+        "operationId": "ctf_events_organizer_alerts_dismiss_create",
+        "description": "Hide an organizer alert from the default view without reading it.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommunicationEmpty"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationInboxItem"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ctf/events/{event_id}/organizer-alerts/{snapshot_id}/read/": {
+      "post": {
+        "operationId": "ctf_events_organizer_alerts_read_create",
+        "description": "Record an explicit, idempotent organizer read.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "event_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "ctf"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommunicationEmpty"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommunicationInboxItem"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Authentication failed."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            },
+            "description": "Permission denied."
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Request conflicts with current state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Request was throttled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
           }
         }
       }
@@ -27071,57 +27367,6 @@
         ],
         "type": "string",
         "description": "* `status-quo` - Inherit deployment baseline\n* `none` - Zero egress (no outbound NAT path)"
-      },
-      "EmailTemplateResponse": {
-        "type": "object",
-        "description": "Per-event email-template override projection.",
-        "properties": {
-          "id": {
-            "type": "string",
-            "readOnly": true
-          },
-          "notification_type": {
-            "type": "string",
-            "readOnly": true
-          },
-          "subject": {
-            "type": "string",
-            "readOnly": true
-          },
-          "html_body": {
-            "type": "string",
-            "readOnly": true
-          },
-          "text_body": {
-            "type": "string",
-            "readOnly": true
-          }
-        },
-        "required": [
-          "html_body",
-          "id",
-          "notification_type",
-          "subject",
-          "text_body"
-        ]
-      },
-      "EmailTemplateWrite": {
-        "type": "object",
-        "description": "Request body for creating/updating a per-event email-template override.\n\nFields are blank-tolerant so the view keeps the legacy validation: a missing\nor empty ``html_body`` / ``text_body`` and any disallowed template syntax\nboth surface as a controlled 400. Organizer templates are restricted to the\nflat ``{{ name }}`` placeholder grammar over the per-notification-type\nallowlist enforced by ``ctf.services.email_template`` (CWE-1336, issue #1095).",
-        "properties": {
-          "subject": {
-            "type": "string",
-            "default": ""
-          },
-          "html_body": {
-            "type": "string",
-            "default": ""
-          },
-          "text_body": {
-            "type": "string",
-            "default": ""
-          }
-        }
       },
       "EventAuthorityPending": {
         "type": "object",

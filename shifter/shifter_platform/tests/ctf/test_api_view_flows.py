@@ -20,8 +20,7 @@ from uuid import uuid4
 import pytest
 from django.urls import reverse
 
-from ctf.enums import NotificationType
-from ctf.models import CTFEmailTemplate, CTFHint
+from ctf.models import CTFHint
 from tests.ctf._api_flow_helpers import JSON
 from tests.ctf._api_flow_helpers import call_json as _json
 from tests.ctf.factories import create_event_data
@@ -403,97 +402,13 @@ class TestNotificationApi:
         )
         assert resp.status_code == 410
 
-    def test_email_template_get_default(self, authenticated_organizer_client: Client, ctf_event: CTFEvent):
-        resp = _json(
-            authenticated_organizer_client,
-            "get",
-            "api_event_email_template",
-            kwargs={"event_id": ctf_event.id, "notification_type": NotificationType.INVITE.value},
-        )
-        assert resp.status_code == 404
-
-    def test_email_template_bad_type(self, authenticated_organizer_client: Client, ctf_event: CTFEvent):
-        resp = _json(
-            authenticated_organizer_client,
-            "get",
-            "api_event_email_template",
-            kwargs={"event_id": ctf_event.id, "notification_type": "bogus"},
-        )
-        assert resp.status_code == 400
-
-    def test_email_template_put_then_delete(self, authenticated_organizer_client: Client, ctf_event: CTFEvent):
-        ntype = NotificationType.INVITE.value
-        put = _json(
-            authenticated_organizer_client,
-            "put",
-            "api_event_email_template",
-            kwargs={"event_id": ctf_event.id, "notification_type": ntype},
-            body={"subject": "S", "html_body": "<p>hi</p>", "text_body": "hi"},
-        )
-        assert put.status_code == 200
-        assert CTFEmailTemplate.objects.filter(event=ctf_event, notification_type=ntype).exists()
-        delete = _json(
-            authenticated_organizer_client,
-            "delete",
-            "api_event_email_template",
-            kwargs={"event_id": ctf_event.id, "notification_type": ntype},
-        )
-        assert delete.status_code == 204
-        assert not CTFEmailTemplate.objects.filter(event=ctf_event, notification_type=ntype).exists()
-
-    def test_email_template_put_rejects_template_tags(
+    def test_retired_email_template_override_path_is_gone(
         self, authenticated_organizer_client: Client, ctf_event: CTFEvent
     ):
-        ntype = NotificationType.INVITE.value
-        resp = _json(
-            authenticated_organizer_client,
-            "put",
-            "api_event_email_template",
-            kwargs={"event_id": ctf_event.id, "notification_type": ntype},
-            body={
-                "subject": "S",
-                "html_body": "{% load i18n %}<p>{{ event_name }}</p>",
-                "text_body": "{{ event_name }}",
-            },
-        )
-        assert resp.status_code == 400
-        assert not CTFEmailTemplate.objects.filter(event=ctf_event, notification_type=ntype).exists()
-
-    def test_email_template_put_rejects_attribute_traversal(
-        self, authenticated_organizer_client: Client, ctf_event: CTFEvent
-    ):
-        ntype = NotificationType.INVITE.value
-        resp = _json(
-            authenticated_organizer_client,
-            "put",
-            "api_event_email_template",
-            kwargs={"event_id": ctf_event.id, "notification_type": ntype},
-            body={
-                "subject": "S",
-                "html_body": "<p>{{ event.created_by.password }}</p>",
-                "text_body": "hi",
-            },
-        )
-        assert resp.status_code == 400
-        assert not CTFEmailTemplate.objects.filter(event=ctf_event, notification_type=ntype).exists()
-
-    def test_email_template_put_accepts_allowlisted_placeholders(
-        self, authenticated_organizer_client: Client, ctf_event: CTFEvent
-    ):
-        ntype = NotificationType.INVITE.value
-        resp = _json(
-            authenticated_organizer_client,
-            "put",
-            "api_event_email_template",
-            kwargs={"event_id": ctf_event.id, "notification_type": ntype},
-            body={
-                "subject": "S",
-                "html_body": "<p>Hi {{ participant_name }}, join {{ event_name }}: {{ registration_url }}</p>",
-                "text_body": "Hi {{ participant_name }}",
-            },
-        )
-        assert resp.status_code == 200
-        assert CTFEmailTemplate.objects.filter(event=ctf_event, notification_type=ntype).exists()
+        # #580 retired the per-event override API; no method of the old path routes.
+        path = f"/api/v1/ctf/events/{ctf_event.id}/email-templates/invite/"
+        for method in ("get", "put", "delete"):
+            assert getattr(authenticated_organizer_client, method)(path).status_code == 404
 
 
 class TestRangeApi:

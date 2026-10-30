@@ -45,6 +45,26 @@ urlpatterns = [
         communication_inbox.CommunicationDismissView.as_view(),
         name="api_communication_dismiss",
     ),
+    path(
+        "events/<uuid:event_id>/organizer-alerts/",
+        communication_inbox.OrganizerAlertInboxView.as_view(),
+        name="api_organizer_alert_inbox",
+    ),
+    path(
+        "events/<uuid:event_id>/organizer-alerts/<uuid:snapshot_id>/",
+        communication_inbox.OrganizerAlertDetailView.as_view(),
+        name="api_organizer_alert_detail",
+    ),
+    path(
+        "events/<uuid:event_id>/organizer-alerts/<uuid:snapshot_id>/read/",
+        communication_inbox.OrganizerAlertReadView.as_view(),
+        name="api_organizer_alert_read",
+    ),
+    path(
+        "events/<uuid:event_id>/organizer-alerts/<uuid:snapshot_id>/dismiss/",
+        communication_inbox.OrganizerAlertDismissView.as_view(),
+        name="api_organizer_alert_dismiss",
+    ),
     path("communications/", communication.CommunicationListView.as_view(), name="api_communications"),
     path(
         "communications/target-options/",
@@ -405,11 +425,6 @@ urlpatterns = [
         "notifications/<uuid:notification_id>/cancel-schedule/",
         organizer.NotificationCancelScheduleView.as_view(),
         name="api_notification_cancel_schedule",
-    ),
-    path(
-        "events/<uuid:event_id>/email-templates/<str:notification_type>/",
-        organizer.EventEmailTemplateView.as_view(),
-        name="api_event_email_template",
     ),
     path(
         "events/<uuid:event_id>/invitations/send/",

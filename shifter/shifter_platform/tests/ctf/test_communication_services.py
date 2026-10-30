@@ -21,7 +21,7 @@ from ctf.models import (
     CTFEvent,
     CTFParticipant,
     DeliveryAttempt,
-    ParticipantReceipt,
+    RecipientReceipt,
     RecipientSnapshot,
 )
 from ctf.services.communication import CampaignDraft, create_campaign, release_campaign, resolve_recipients
@@ -194,7 +194,7 @@ def test_release_materializes_snapshots_receipts_and_delivery_commands(organizer
     snapshots = RecipientSnapshot.objects.filter(intent=intent)
     assert snapshots.count() == 2
     assert all(s.event_id == ctf_event.id for s in snapshots)  # event-qualified
-    assert ParticipantReceipt.objects.filter(snapshot__intent=intent).count() == 2
+    assert RecipientReceipt.objects.filter(snapshot__intent=intent).count() == 2
     # Two channels -> two delivery commands per recipient.
     assert DeliveryAttempt.objects.filter(intent=intent).count() == 4
     assert set(DeliveryAttempt.objects.filter(intent=intent).values_list("status", flat=True)) == {"queued"}

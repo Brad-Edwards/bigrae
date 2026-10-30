@@ -35,8 +35,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 from ctf.enums import EventStatus
-from ctf.enums_communication import CampaignStatus, DeliveryStatus, IntentStatus
-from ctf.models import DeliveryAttempt, RecipientSnapshot
+from ctf.enums_communication import CampaignStatus, DeliveryStatus, IntentStatus, RecipientKind
+from ctf.models import DeliveryAttempt
 from ctf.services.communication import disposition
 from ctf.services.communication.adapters import (
     DeliveryCommand,
@@ -44,6 +44,11 @@ from ctf.services.communication.adapters import (
     OutcomeClass,
     get_adapter,
     registered_channels,
+)
+from ctf.services.communication.recipient_fence import (
+    organizer_policy_stop,
+    organizer_still_candidate,
+    recipient_still_eligible,
 )
 from ctf.services.communication.worker_config import WorkerConfig
 
@@ -186,29 +191,13 @@ def _fence_reason(row: DeliveryAttempt) -> str:
         reason = "campaign_cancelled"
     elif row.snapshot.event.status == EventStatus.CANCELLED.value:
         reason = "event_cancelled"
-    elif not _recipient_still_eligible(row.snapshot):
+    elif row.snapshot.recipient_kind == RecipientKind.ORGANIZER.value:
+        reason = "" if organizer_still_candidate(row.snapshot) else "organizer_ineligible"
+    elif not recipient_still_eligible(row.snapshot):
         reason = "participant_ineligible"
     else:
         reason = ""
     return reason
-
-
-def _recipient_still_eligible(snapshot: RecipientSnapshot) -> bool:
-    """Return True only while the snapshot's participant is still viewing-eligible.
-
-    A participant removed, deactivated, or otherwise made ineligible after the
-    claim must not reach an adapter (ADR-051-R12). This rechecks the live
-    event-scoped participant with the same predicate the audience resolver uses,
-    so reclaimed and retried work re-validates lifecycle scope right before I/O.
-    """
-    from ctf.models import CTFParticipant
-    from ctf.services.participant import viewing_participant_q
-
-    return CTFParticipant.objects.filter(
-        viewing_participant_q(),
-        id=snapshot.participant_public_id,
-        event_id=snapshot.event_id,
-    ).exists()
 
 
 def _command(row: DeliveryAttempt) -> DeliveryCommand:
@@ -253,7 +242,9 @@ def _backoff_seconds(attempt_number: int, cfg: WorkerConfig) -> float:
     return base + _JITTER.uniform(0, base * cfg.backoff_jitter_fraction)
 
 
-def _preflight(pk: UUID, token: str, cfg: WorkerConfig, now_func: NowFunc) -> DeliveryCommand | str:
+def _preflight(
+    pk: UUID, token: str, cfg: WorkerConfig, now_func: NowFunc, *, policy_denied: bool = False
+) -> DeliveryCommand | str:
     """Locked pre-I/O step: confirm the lease, recheck the fence, stamp the attempt.
 
     Renews the lease under the row lock right before the transport call, so the
@@ -275,6 +266,8 @@ def _preflight(pk: UUID, token: str, cfg: WorkerConfig, now_func: NowFunc) -> De
             return "not_ours"
         now = now_func()
         stopped = _pre_io_stop(row, cfg, now)
+        if stopped is None and policy_denied:
+            stopped = (DeliveryStatus.SUPPRESSED.value, "organizer_policy_denied")
         if stopped is not None:
             row.status, row.result_reason = stopped
             row.observed_at = now
@@ -364,7 +357,13 @@ def process_attempt(attempt: DeliveryAttempt, cfg: WorkerConfig, now_func: NowFu
     its own transaction and writes one bounded log line.
     """
     token = attempt.lease_token
-    decision = _preflight(attempt.pk, token, cfg, now_func)
+    # Remote organizer policy runs before any SQL lock (ADR-065-R4).
+    policy_stop = organizer_policy_stop(attempt)
+    if policy_stop == "authority_unavailable":
+        outcome = DeliveryOutcome(OutcomeClass.RETRIABLE, reason=policy_stop)
+        result = _settle(attempt.pk, token, outcome, cfg, now_func)
+        return result if result == "stale" else _after_settle(attempt, result, outcome.reason)
+    decision = _preflight(attempt.pk, token, cfg, now_func, policy_denied=policy_stop is not None)
     if isinstance(decision, str):
         return _stopped_before_io(attempt, decision)
     outcome = _deliver(attempt.pk, decision, cfg)

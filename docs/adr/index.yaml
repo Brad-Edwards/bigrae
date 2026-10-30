@@ -3305,7 +3305,7 @@
       },
       {
         "id": "ADR-051-R9",
-        "description": "Legacy CTFNotification rows remain historical aggregate evidence and must not be expanded into invented recipient success. Draft/scheduled rows and pending SEND_NOTIFICATION tasks cut over atomically or fail migration; old and new writers do not dual-write. Legacy API projection may temporarily adapt the new service under ADR-040, while CTFEmailTemplate remains its existing placeholder-only email-wrapper contract and WebSocketNotification remains transport replay state.",
+        "description": "Legacy CTFNotification rows remain historical aggregate evidence and must not be expanded into invented recipient success. Draft/scheduled rows and pending SEND_NOTIFICATION tasks cut over atomically or fail migration; old and new writers do not dual-write. Legacy API projection may temporarily adapt the new service under ADR-040, and WebSocketNotification remains transport replay state. Issue #580 retires CTFEmailTemplate and its per-event override API: ledger email renders one trusted default template pair selected by the campaign's closed, immutable notice_kind, with escaped scalar values only and the recipient snapshot's event facts. Organizer-authored HTML never becomes email markup.",
         "checks": []
       },
       {
@@ -3358,6 +3358,7 @@
       "docs/architecture/email-templating-delivery-preflight-581.md",
       "docs/architecture/notifications-websocket-fanout-preflight-941.md",
       "docs/design/ctf-email-template-rendering-preflight-1095.md",
+      "docs/design/ctf-ledger-email-template-boundaries-580.md",
       "docs/architecture/audit-system-architecture.md",
       "docs/architecture/raes-migration-adr.md",
       "docs/architecture/organization-workspace-preflight-1325.md",
@@ -4250,7 +4251,12 @@
       },
       {
         "id": "ADR-065-R3",
-        "description": "Email remains dependency-gated on #1525. Migrated declarations preserve the email channel, scope, author and due time without runnable delivery work while unavailable. Credential passwords/tokens and volatile issuance objects never enter retained content. Lifecycle notifications use scoped ledger declarations; retired organizer-only email alerts remain explicitly unavailable until a supported recipient/delivery contract exists.",
+        "description": "Email availability follows ADR-071 and the #1525 transport contract. Migrated declarations preserve the email channel, scope, author and due time without runnable delivery work while unavailable. Credential passwords/tokens and volatile issuance objects never enter retained content. Lifecycle notifications use scoped ledger declarations. Organizer-only alerts follow ADR-065-R4.",
+        "checks": []
+      },
+      {
+        "id": "ADR-065-R4",
+        "description": "Organizer alerts use an explicit organizer recipient kind in the existing ledger: principal identity, recipient-kind constraints, the event owner and live co-organizers as candidates only, and current native policy at release, delivery and inbox read. Channels are the organizer in-app inbox and email when available. Organizer rows never reach the participant inbox, the communications console or campaign reports. Only the system origin can select organizer recipients.",
         "checks": []
       }
     ],
@@ -4262,6 +4268,8 @@
     "evidence": [
       "https://github.com/Brad-Edwards/bigrae/issues/2100",
       "docs/adr/065-retire-legacy-ctf-notification-writes.md",
+      "docs/architecture/ctf-organizer-alerts-preflight-528.md",
+      "docs/architecture/ctf-organizer-alerts-design-528.md",
       "docs/architecture/ctf-communication-migration-decision-2100.md",
       "shifter/shifter_platform/tests/ctf/test_communication_cutover.py",
       "shifter/shifter_platform/tests/shared/test_api_operation_retirement.py"

@@ -57,6 +57,7 @@ from ._lifecycle import (
     cancel_event,
     complete_event,
     end_event,
+    finish_ended_event,
     open_registration,
     pause_event,
     resume_event,
@@ -65,11 +66,30 @@ from ._lifecycle import (
 )
 from ._queries import get_event_stats, get_organizer_events
 from ._update import update_event
+from .automation import (
+    START_EXPIRED,
+    START_NOT_APPLICABLE,
+    START_NOT_DUE,
+    START_REFUSED,
+    START_STARTED,
+    AlertDeclarationPending,
+    AutomaticStartRefused,
+    run_automatic_end,
+    run_automatic_start,
+    start_event_automatically,
+)
 from .relationships import publish_event_relationships
 from .scheduling import _cancel_event_tasks, _schedule_event_tasks
 
 __all__ = (
+    "START_EXPIRED",
+    "START_NOT_APPLICABLE",
+    "START_NOT_DUE",
+    "START_REFUSED",
+    "START_STARTED",
     "_EVENT_MUTABLE_FIELDS",
+    "AlertDeclarationPending",
+    "AutomaticStartRefused",
     "CTFEvent",
     "_cancel_event_tasks",
     "_schedule_event_tasks",
@@ -85,6 +105,7 @@ __all__ = (
     "delete_event",
     "end_event",
     "event_pk_if_exists",
+    "finish_ended_event",
     "force_delete_event",
     "get_event",
     "get_event_stats",
@@ -96,8 +117,11 @@ __all__ = (
     "publish_event_relationships",
     "resume_event",
     "revoke_event_staff",
+    "run_automatic_end",
+    "run_automatic_start",
     "schedule_event",
     "start_event",
+    "start_event_automatically",
     "transaction",
     "transfer_event_ownership",
     "update_event",

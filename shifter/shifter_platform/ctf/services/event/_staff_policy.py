@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from django.contrib.auth.models import User
 
@@ -11,8 +12,6 @@ from ctf.exceptions import CTFNotFoundError, CTFPermissionError
 from ctf.models import CTFEvent, CTFEventStaff
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from django.contrib.auth.models import AnonymousUser
 
     from ctf.services.actors import EventActor
@@ -123,9 +122,12 @@ def eligible_co_organizer_ids(event: CTFEvent) -> list[int]:
     return list(active_human_user_ids(principal_uuids))
 
 
-def event_notification_organizer_ids(event: CTFEvent) -> list[int]:
-    """Map current owner and co-organizer principals without remote policy I/O."""
-    from management.services import active_human_user_ids
+def event_notification_organizers(event: CTFEvent) -> dict[UUID, int]:
+    """Map current owner and co-organizer principals to accounts without remote policy I/O.
+
+    These are delivery candidates only; every delivery and read checks native policy.
+    """
+    from management.services import active_human_user_ids_by_principal
 
     principal_uuids = (
         event.owner_principal_uuid,
@@ -133,7 +135,12 @@ def event_notification_organizer_ids(event: CTFEvent) -> list[int]:
         .order_by("principal_uuid")
         .values_list("principal_uuid", flat=True),
     )
-    return list(active_human_user_ids(principal_uuids))
+    return active_human_user_ids_by_principal(principal_uuids)
+
+
+def event_notification_organizer_ids(event: CTFEvent) -> list[int]:
+    """Map current owner and co-organizer principals without remote policy I/O."""
+    return list(event_notification_organizers(event).values())
 
 
 def actor_has_event_capability(actor: User | AnonymousUser, event: CTFEvent, capability: str) -> bool:

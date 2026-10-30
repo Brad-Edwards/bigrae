@@ -218,6 +218,7 @@ def ctf_error_response(request: Request, exc: Exception) -> Response:
             "CTF_COMMUNICATION_AUDIENCE_OUT_OF_SCOPE",
             "CTF_COMMUNICATION_EARLY_RELEASE_DENIED",
             "CTF_COMMUNICATION_PARTICIPANT_DENIED",
+            "CTF_COMMUNICATION_RECIPIENT_DENIED",
         }:
             code, message, status_code = "not_found", "Resource not found", 404
         elif domain_code in {"CTF_COMMUNICATION_RATE_LIMITED", "CTF_COMMUNICATION_BACKLOG_FULL"}:

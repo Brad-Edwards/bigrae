@@ -31,10 +31,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, rankingKey, rankingNumber, rankingString, titleCase } from "../format";
 import { EventAnalyticsCard } from "./EventAnalyticsCard";
 import { EventTasksCard } from "./EventTasksCard";
+import { OrganizerAlertsCard } from "./OrganizerAlertsCard";
 import { ResultsExportButton } from "./ResultsExportButton";
 import { ctfAdminCommunicationsPath, ctfAdminEventPath, ctfAdminEventsPath } from "../routes";
 
-export type MonitoringTab = "scoreboard" | "ranges" | "notifications" | "analytics";
+export type MonitoringTab = "scoreboard" | "ranges" | "alerts" | "notifications" | "analytics";
 
 function ScoreboardTab({ eventId }: Readonly<{ eventId: string }>) {
   const query = useCtfOrganizerScoreboard(eventId, undefined, Boolean(eventId));
@@ -447,12 +448,13 @@ export function MonitoringPage({ defaultTab = "scoreboard" }: Readonly<{ default
         <span className="text-foreground">Monitoring</span>
       </nav>
 
-      <PageHeader title="Monitoring" description="Live scoreboard, ranges, notifications, and analytics" />
+      <PageHeader title="Monitoring" description="Live scoreboard, ranges, alerts, notifications, and analytics" />
 
       <Tabs defaultValue={defaultTab}>
         <TabsList>
           <TabsTrigger value="scoreboard">Scoreboard</TabsTrigger>
           <TabsTrigger value="ranges">Ranges</TabsTrigger>
+          <TabsTrigger value="alerts">Alerts</TabsTrigger>
           <TabsTrigger value="notifications">Notifications</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
           <TabsTrigger value="tasks">Tasks</TabsTrigger>
@@ -462,6 +464,9 @@ export function MonitoringPage({ defaultTab = "scoreboard" }: Readonly<{ default
         </TabsContent>
         <TabsContent value="ranges" className="mt-4">
           <RangesTab eventId={eventId} />
+        </TabsContent>
+        <TabsContent value="alerts" className="mt-4">
+          <OrganizerAlertsCard eventId={eventId} />
         </TabsContent>
         <TabsContent value="notifications" className="mt-4">
           <NotificationsTab eventId={eventId} />

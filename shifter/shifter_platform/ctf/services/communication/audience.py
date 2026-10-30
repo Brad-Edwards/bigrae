@@ -10,17 +10,20 @@ is the event-scoped ``CTFParticipant`` reached through the shared
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from ctf.communication_contracts import validate_audience_spec
+from ctf.communication_contracts import is_organizer_audience, validate_audience_spec
 from ctf.enums_communication import AudienceKind
-from ctf.exceptions import CTFCommunicationError
+from ctf.exceptions import CTFCommunicationError, CTFError
 from ctf.models import CTFParticipant
 from ctf.services.participant.queries import viewing_participant_q
 
 if TYPE_CHECKING:
     from django.db.models import QuerySet
+
+    from ctf.models import CTFEvent
 
 
 def _as_uuids(values: list[str]) -> list[UUID]:
@@ -63,3 +66,52 @@ def resolve_recipients(target_event_ids: set[UUID], audience_spec: dict[str, Any
     """
     qs = recipient_queryset(target_event_ids, audience_spec)
     return list(qs.select_related("event", "team", "user").order_by("id"))
+
+
+@dataclass(frozen=True, slots=True)
+class OrganizerRecipient:
+    """One current owner or co-organizer captured for an organizer snapshot (ADR-065-R4)."""
+
+    principal_uuid: UUID
+    user_id: int
+    email: str
+
+
+def prepare_organizer_recipients(campaign_audience: dict[str, Any]) -> frozenset[UUID] | None:
+    """Check live policy for current organizer candidates BEFORE any SQL lock.
+
+    Returns ``None`` for a participant audience. For the organizer selector,
+    returns the candidate principals that currently hold the selector's action.
+    Evaluator failure is a retriable unavailable admission, never an empty or a
+    wider audience.
+    """
+    if not is_organizer_audience(campaign_audience):
+        return None
+    from ctf.models import CTFEvent
+    from ctf.services.event.staff import event_notification_organizers
+    from ctf.services.unified_authorization import principals_holding_event_action
+
+    spec = validate_audience_spec(campaign_audience, allow_organizer=True)
+    event = CTFEvent.objects.filter(pk=spec["event_ids"][0]).first()
+    if event is None:
+        return frozenset()
+    try:
+        return principals_holding_event_action(event.pk, event_notification_organizers(event), spec["action"])
+    except CTFError:
+        raise CTFCommunicationError(
+            "Communication authority unavailable", code="CTF_COMMUNICATION_AUTHORITY_UNAVAILABLE"
+        ) from None
+
+
+def resolve_organizer_recipients(event: CTFEvent, allowed: frozenset[UUID]) -> list[OrganizerRecipient]:
+    """Under the event lock, keep only prechecked principals that are still current candidates."""
+    from django.contrib.auth import get_user_model
+
+    from ctf.services.event.staff import event_notification_organizers
+
+    current = {key: value for key, value in event_notification_organizers(event).items() if key in allowed}
+    emails = dict(get_user_model().objects.filter(pk__in=current.values()).values_list("pk", "email"))
+    return [
+        OrganizerRecipient(principal_uuid=principal, user_id=user_id, email=emails.get(user_id, "") or "")
+        for principal, user_id in sorted(current.items(), key=lambda item: str(item[0]))
+    ]

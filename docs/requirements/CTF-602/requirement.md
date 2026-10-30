@@ -28,7 +28,5 @@ Invitation-based registration is essential for private or enterprise CTF events 
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/models/` (Historical: invite token fields, removed by the isolated-account migration)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/views/` (Historical: invitation registration views)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/enums.py` (Historical: invitation participant states)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/invitation.html` (Historical: invitation email HTML template)
-- DOCUMENTS → CODE_FILE `shifter/shifter_platform/templates/ctf/email/invitation.txt` (Historical: invitation email text template)
 - DOCUMENTS → CODE_FILE `shifter/shifter_platform/ctf/urls.py` (Historical: invitation routes)
 - DOCUMENTS → GITHUB_ISSUE `Brad-Edwards/bigrae#651` (Closed: conflicts with ADR-049)

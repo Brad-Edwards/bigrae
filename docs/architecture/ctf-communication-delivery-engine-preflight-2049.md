@@ -208,7 +208,7 @@ retain indeterminate evidence and recover through the same fenced command.
 | In-app available | Selected inbox entry exists durably at commit. Its success is derived from the selected channel plus persisted snapshot/receipt availability, not from a queued accelerator command. WebSocket outage cannot hold it pending, undo it, or fail it. |
 | Email backend accepted | The platform adapter observed backend acceptance. It is not delivery to a mailbox, read, acknowledgement, or a successful thread dispatch. |
 | Socket written | Shared transport replay bookkeeping only; not a participant receipt. |
-| Read / acknowledged | `ParticipantReceipt` state, changed only by the authorized participant interaction. Explicit acknowledgement requires the deliberate mutation; preview/list/replay never implies it. |
+| Read / acknowledged | `RecipientReceipt` state, changed only by the authorized participant interaction. Explicit acknowledgement requires the deliberate mutation; preview/list/replay never implies it. |
 | Suppressed / expired / cancelled / terminal failure | Distinct bounded dispositions and reasons where applicable; never silently mapped to acceptance. Extend the existing closed enums and constraints coherently rather than adding another universal status enum. |
 
 Campaign lifecycle is not a transport success counter. Aggregate from unique

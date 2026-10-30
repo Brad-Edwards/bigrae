@@ -803,11 +803,6 @@
     {
       "count": 1,
       "path": "shifter/shifter_platform/tests/ctf/test_organizer_access.py",
-      "target": "ctf.models.CTFEmailTemplate.objects"
-    },
-    {
-      "count": 1,
-      "path": "shifter/shifter_platform/tests/ctf/test_organizer_access.py",
       "target": "ctf.models.CTFNotification.objects"
     },
     {
@@ -909,11 +904,6 @@
       "count": 1,
       "path": "shifter/shifter_platform/tests/ctf/test_scoring_timeline.py",
       "target": "ctf.services.scoring.CTFTeam.objects"
-    },
-    {
-      "count": 2,
-      "path": "shifter/shifter_platform/tests/ctf/test_services/test_notification.py",
-      "target": "ctf.models.CTFEmailTemplate.objects"
     },
     {
       "count": 2,

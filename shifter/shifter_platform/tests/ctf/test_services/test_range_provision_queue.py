@@ -79,13 +79,15 @@ class TestRequestEventProvisioning:
 class TestGetProvisionProgress:
     """get_provision_progress projects participant counts plus the active task."""
 
-    def _participant(self, event, name, range_status, range_instance_id=None):
+    def _participant(self, event, name, range_status, range_instance_id=None, *, registered=True):
         return CTFParticipant.objects.create(
             event=event,
             email=f"{name}@test.com",
             name=name,
             range_status=range_status,
             range_instance_id=range_instance_id,
+            status="active",
+            registered_at=timezone.now() if registered else None,
         )
 
     def test_counts_and_active_task(self, ctf_event):
@@ -93,6 +95,8 @@ class TestGetProvisionProgress:
         self._participant(ctf_event, "b", "provisioning", 2)
         self._participant(ctf_event, "c", "error")
         self._participant(ctf_event, "d", "")  # not assigned
+        # Outside the registered cohort (#528): an unregistered seat is not counted.
+        self._participant(ctf_event, "e", "ready", 5, registered=False)
         task = CTFScheduledTask.objects.create(
             event=ctf_event,
             task_type=ScheduledTaskType.SPIN_UP_RANGES.value,

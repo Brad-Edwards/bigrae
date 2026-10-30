@@ -1,0 +1,10 @@
+{# SPDX-FileCopyrightText: 2026 Palo Alto Networks, Inc. #}
+{# SPDX-License-Identifier: MIT #}
+{# Organizer alert presentation (ADR-065-R4). The link opens the organizer Alerts tab. #}
+{% extends "ctf/email/notice/_base.html" %}
+{% load i18n %}
+{% block intro %}
+    {% blocktrans trimmed %}
+        {{ event_name }} has a new organizer alert.
+    {% endblocktrans %}
+{% endblock %}

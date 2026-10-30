@@ -32,6 +32,33 @@ class CommunicationOrigin(StrEnum):
         return [(o.value, o.name.replace("_", " ").title()) for o in cls]
 
 
+class NoticeKind(StrEnum):
+    """Which trusted email presentation a campaign uses (#580).
+
+    Organizer-authored campaigns are always ``ANNOUNCEMENT``. Only trusted
+    lifecycle notices select another kind; ``ORGANIZER_ALERT`` is reserved for
+    organizer alerts (ADR-065-R4). Each kind selects one server-owned
+    template pair under ``ctf/email/notice/``; the kind never grants authority.
+    """
+
+    ANNOUNCEMENT = "announcement"
+    REMINDER = "reminder"
+    CLEANUP = "cleanup"
+    RESULTS = "results"
+    RANGE_READY = "range_ready"
+    RANGE_FAILURE = "range_failure"
+    ORGANIZER_ALERT = "organizer_alert"
+
+    def __str__(self) -> str:
+        """Return the string value for database storage."""
+        return self.value
+
+    @classmethod
+    def choices(cls) -> list[tuple[str, str]]:
+        """Return choices for Django model field."""
+        return [(k.value, k.name.replace("_", " ").title()) for k in cls]
+
+
 class CommunicationChannel(StrEnum):
     """Selectable delivery channels for a communication (ADR-051, #2048).
 
@@ -98,6 +125,27 @@ class AudienceKind(StrEnum):
     def choices(cls) -> list[tuple[str, str]]:
         """Return choices for Django model field."""
         return [(k.value, k.name.replace("_", " ").title()) for k in cls]
+
+
+class RecipientKind(StrEnum):
+    """Closed recipient-snapshot kinds (ADR-051, ADR-065-R4).
+
+    A participant row carries an immutable event-scoped participant identity. An
+    organizer row carries the principal identity of a current owner or
+    co-organizer and never a participant identity.
+    """
+
+    PARTICIPANT = "participant"
+    ORGANIZER = "organizer"
+
+    def __str__(self) -> str:
+        """Return the string value for database storage."""
+        return self.value
+
+    @classmethod
+    def choices(cls) -> list[tuple[str, str]]:
+        """Return choices for Django model field."""
+        return [(k.value, k.name.title()) for k in cls]
 
 
 class TriggerKind(StrEnum):
@@ -256,7 +304,7 @@ class ReceiptAction(StrEnum):
 
     @property
     def receipt_field(self) -> str:
-        """Return the ``ParticipantReceipt`` timestamp this action sets."""
+        """Return the ``RecipientReceipt`` timestamp this action sets."""
         return {"read": "read_at", "dismiss": "dismissed_at", "acknowledge": "acknowledged_at"}[self.value]
 
 
