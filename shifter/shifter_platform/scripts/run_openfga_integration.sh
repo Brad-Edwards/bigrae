@@ -174,5 +174,6 @@ else
   uv run --no-build --no-sync pytest -n0 -q \
     tests/integration/authorization/test_openfga_released_server.py \
     tests/integration/authorization/test_openfga_prepared_administration.py \
-    tests/integration/authorization/test_gcp_native_database_duties.py "$@"
+    tests/integration/authorization/test_gcp_native_database_duties.py \
+    tests/integration/authorization/test_aws_database_duties.py "$@"
 fi

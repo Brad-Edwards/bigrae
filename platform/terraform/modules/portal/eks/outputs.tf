@@ -105,3 +105,23 @@ output "runtime_plugin_node_group_asg" {
   description = "Auto Scaling group of the runtime-plugin pool; the trusted labeler labels only its nodes. Empty when the pool is disabled."
   value       = var.enable_runtime_plugins ? aws_eks_node_group.runtime_plugins[0].resources[0].autoscaling_groups[0].name : ""
 }
+
+output "openfga_datastore_secret_arns" {
+  description = "OpenFGA datastore login secrets by duty (runtime, admin, migrator)."
+  value       = local.openfga_secret_arns
+}
+
+output "openfga_rotation_scheduled" {
+  description = "Whether the OpenFGA datastore rotation schedules exist."
+  value       = length(aws_secretsmanager_secret_rotation.openfga_datastore) == length(local.openfga_duties)
+}
+
+output "operator_access_instance_id" {
+  description = "Session Manager target that relays operator traffic to the private EKS API."
+  value       = aws_instance.operator_access.id
+}
+
+output "service_token_issuer" {
+  description = "Account issuer URL for STS outbound web identity tokens (AWS_SERVICE_TOKEN_ISSUER)."
+  value       = data.aws_iam_outbound_web_identity_federation.account.issuer_identifier
+}

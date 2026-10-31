@@ -69,6 +69,106 @@ override_data {
 mock_provider "aws" {}
 
 override_resource {
+  target = aws_iam_role.openfga_rotation
+  values = {
+    arn = "arn:aws:iam::123456789012:role/shifter-test-openfga-rotation"
+  }
+}
+
+override_data {
+  target = module.lambda_code_signing.data.aws_caller_identity.current
+  values = {
+    account_id = "123456789012"
+  }
+}
+
+override_resource {
+  target = module.lambda_code_signing.aws_kms_key.artifacts
+  values = {
+    arn = "arn:aws:kms:us-east-2:123456789012:key/mock-lambda-artifacts"
+  }
+}
+
+override_resource {
+  target = module.lambda_code_signing.aws_signer_signing_profile.lambda
+  values = {
+    name        = "shifter_test_lambda_mock"
+    arn         = "arn:aws:signer:us-east-2:123456789012:/signing-profiles/shifter_test_lambda_mock"
+    version_arn = "arn:aws:signer:us-east-2:123456789012:/signing-profiles/shifter_test_lambda_mock/abcdefghij"
+  }
+}
+
+override_resource {
+  target = module.lambda_code_signing.aws_lambda_code_signing_config.this
+  values = {
+    arn = "arn:aws:lambda:us-east-2:123456789012:code-signing-config:csc-0123456789abcdef0"
+  }
+}
+
+override_resource {
+  target = module.openfga_rotation_package.aws_signer_signing_job.this
+  values = {
+    signed_object = [{ s3 = [{ bucket = "test-lambda-artifacts", key = "signed/openfga-rotation/mock-job.zip" }] }]
+  }
+}
+
+override_resource {
+  target = aws_kms_key.openfga_rotation
+  values = {
+    arn = "arn:aws:kms:us-east-2:123456789012:key/mock-openfga-rotation"
+  }
+}
+
+override_resource {
+  target = aws_sqs_queue.openfga_rotation_dlq
+  values = {
+    arn = "arn:aws:sqs:us-east-2:123456789012:shifter-test-openfga-rotation-dlq"
+  }
+}
+
+override_resource {
+  target = aws_lambda_function.openfga_rotation
+  values = {
+    arn = "arn:aws:lambda:us-east-2:123456789012:function:shifter-test-openfga-rotation"
+  }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.openfga_datastore["runtime"]
+  values = {
+    arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/test/eks/openfga-runtime-datastore"
+  }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.openfga_datastore["admin"]
+  values = {
+    arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/test/eks/openfga-admin-datastore"
+  }
+}
+
+override_resource {
+  target = aws_secretsmanager_secret.openfga_datastore["migrator"]
+  values = {
+    arn = "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/test/eks/openfga-migrator-datastore"
+  }
+}
+
+override_data {
+  target = data.aws_ssm_parameter.operator_access_ami
+  values = {
+    value = "ami-0123456789abcdef0"
+  }
+}
+
+override_data {
+  target = data.aws_iam_outbound_web_identity_federation.account
+  values = {
+    issuer_identifier = "https://11111111-2222-3333-4444-555555555555.tokens.sts.global.api.aws"
+  }
+}
+
+override_resource {
   target = aws_iam_role.cluster
   values = {
     arn = "arn:aws:iam::123456789012:role/shifter-test-cluster"
@@ -255,11 +355,31 @@ variables {
       policy_arns                   = ["arn:aws:iam::123456789012:policy/shifter-test-portal"]
       range_participant_secret_read = true
       platform_application_access   = true
+      secret_names                  = ["django", "guacamole-json-auth"]
+      rds_iam_db_user               = "portal_web"
+      cognito_admin_get_user        = true
+    }
+    guacamoleClient = {
+      namespace             = "shifter-platform"
+      service_account       = "guacamole-client"
+      web_identity_audience = "https://shifter.test.example.com/guacamole-control"
+    }
+    policyCredentialRefresh = {
+      namespace                      = "shifter-platform"
+      service_account                = "openfga-credential-refresh"
+      openfga_datastore_secrets_read = true
+    }
+    guacamoleProvisioner = {
+      namespace                      = "shifter-platform"
+      service_account                = "guacamole-db-provisioner"
+      secret_names                   = ["database", "guacamole-db"]
+      openfga_datastore_secrets_read = true
     }
     workers = {
       namespace                   = "shifter-platform"
       service_account             = "shifter-workers"
       platform_application_access = true
+      cognito_admin_get_user      = true
     }
     artifactAcquirer = {
       namespace                    = "shifter-acquisition"
@@ -297,7 +417,9 @@ variables {
       policy_arns     = ["arn:aws:iam::aws:policy/service-role/AmazonEFSCSIDriverPolicy"]
     }
   }
-  storage_bucket_name = "test-storage-bucket"
+  storage_bucket_name      = "test-storage-bucket"
+  openfga_rotation_package = "tests/fixtures/openfga-rotation.zip"
+  cognito_user_pool_arn    = "arn:aws:cognito-idp:us-east-2:123456789012:userpool/us-east-2_Synthetic1"
   secret_names = [
     "database",
     "django",
@@ -714,5 +836,114 @@ run "range_management_independent_of_optional_broker" {
   assert {
     condition     = !var.model_broker.enabled && length(aws_route.range_to_management) == 2 && aws_vpc_peering_connection.range.peer_vpc_id == "vpc-mock-range"
     error_message = "Native guest management must exist without a model broker."
+  }
+}
+
+run "native_identity_contract" {
+  command = apply
+  variables {
+    openfga_rotation_schedule = true
+  }
+
+  assert {
+    condition = (
+      !contains(jsondecode(aws_iam_role_policy.workload_secrets["portal"].policy).Statement[0].Resource, aws_secretsmanager_secret.platform["database"].arn) &&
+      !contains(jsondecode(aws_iam_role_policy.workload_secrets["portal"].policy).Statement[0].Resource, aws_secretsmanager_secret.platform["guacamole-db"].arn) &&
+      endswith(jsondecode(aws_iam_role_policy.workload_rds_iam["portal"].policy).Statement[0].Resource, "/portal_web")
+    )
+    error_message = "The portal must connect as its own RDS IAM login and must not read master or Guacamole database credentials."
+  }
+
+  assert {
+    condition = (
+      toset(keys(aws_iam_role_policy.workload_openfga_secret)) == toset(["guacamoleProvisioner", "policyCredentialRefresh"]) &&
+      toset(jsondecode(aws_iam_role_policy.workload_openfga_secret["policyCredentialRefresh"].policy).Statement[0].Resource) == toset([
+        "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/test/eks/openfga-runtime-datastore",
+        "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/test/eks/openfga-admin-datastore",
+        "arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/test/eks/openfga-migrator-datastore",
+      ]) &&
+      jsondecode(aws_iam_role_policy.workload_openfga_secret["policyCredentialRefresh"].policy).Statement[0].Action == ["secretsmanager:DescribeSecret", "secretsmanager:GetSecretValue"]
+    )
+    error_message = "Only the provisioning Job and the credential refresh may read the OpenFGA datastore secrets, read-only."
+  }
+
+  assert {
+    condition = (
+      keys(aws_iam_role_policy.workload_web_identity) == ["guacamoleClient"] &&
+      jsondecode(aws_iam_role_policy.workload_web_identity["guacamoleClient"].policy).Statement[0].Action == "sts:GetWebIdentityToken" &&
+      jsondecode(aws_iam_role_policy.workload_web_identity["guacamoleClient"].policy).Statement[0].Condition.StringEquals["sts:IdentityTokenAudience"] == "https://shifter.test.example.com/guacamole-control" &&
+      jsondecode(aws_iam_role_policy.workload_web_identity["guacamoleClient"].policy).Statement[0].Condition.StringEquals["sts:SigningAlgorithm"] == "ES384" &&
+      jsondecode(aws_iam_role_policy.workload_web_identity["guacamoleClient"].policy).Statement[0].Condition.NumericLessThanEquals["sts:DurationSeconds"] == 900
+    )
+    error_message = "Only the gateway may mint STS web identity tokens, for one audience, ES384 and at most 900 seconds."
+  }
+
+  assert {
+    condition = (
+      keys(aws_iam_role_policy.workload_cognito_admin_get_user) == ["portal", "workers"] &&
+      alltrue([
+        for identity in ["portal", "workers"] :
+        jsondecode(aws_iam_role_policy.workload_cognito_admin_get_user[identity].policy).Statement[0].Action == "cognito-idp:AdminGetUser" &&
+        jsondecode(aws_iam_role_policy.workload_cognito_admin_get_user[identity].policy).Statement[0].Resource == "arn:aws:cognito-idp:us-east-2:123456789012:userpool/us-east-2_Synthetic1"
+      ])
+    )
+    error_message = "Only identities that recheck sessions may read Cognito user state, with AdminGetUser on one user pool."
+  }
+
+  assert {
+    condition = alltrue([
+      for duty in ["runtime", "admin", "migrator"] :
+      aws_secretsmanager_secret_rotation.openfga_datastore[duty].rotate_immediately == false &&
+      one(aws_secretsmanager_secret_rotation.openfga_datastore[duty].rotation_rules).automatically_after_days == 30
+    ]) && output.openfga_rotation_scheduled && aws_lambda_function.openfga_rotation["alternating"].environment[0].variables.ROTATION_STRATEGY == "alternating" && aws_iam_role.openfga_rotation.permissions_boundary == var.permissions_boundary_arn
+    error_message = "OpenFGA logins rotate every 30 days, after provisioning, through the bounded in-repo function."
+  }
+
+  assert {
+    condition = (
+      jsondecode(aws_lambda_function.openfga_rotation["alternating"].environment[0].variables.ROTATION_LOGINS) == {
+        (aws_secretsmanager_secret.openfga_datastore["runtime"].arn) = "openfga_runtime"
+        (aws_secretsmanager_secret.openfga_datastore["admin"].arn)   = "openfga_admin"
+      } &&
+      jsondecode(aws_lambda_function.openfga_rotation["single"].environment[0].variables.ROTATION_LOGINS) == {
+        (aws_secretsmanager_secret.openfga_datastore["migrator"].arn) = "openfga_migrator"
+      } &&
+      aws_lambda_function.openfga_rotation["alternating"].environment[0].variables.MASTER_SECRET_ARN == aws_secretsmanager_secret.platform["database"].arn &&
+      !contains(keys(aws_lambda_function.openfga_rotation["single"].environment[0].variables), "MASTER_SECRET_ARN")
+    )
+    error_message = "Configuration binds each rotated secret to its own login; only the alternating function names the master secret."
+  }
+
+  assert {
+    condition = alltrue([
+      for strategy in ["alternating", "single"] :
+      aws_lambda_function.openfga_rotation[strategy].kms_key_arn == aws_kms_key.openfga_rotation.arn &&
+      aws_lambda_function.openfga_rotation[strategy].reserved_concurrent_executions == 10 &&
+      one(aws_lambda_function.openfga_rotation[strategy].tracing_config).mode == "Active" &&
+      one(aws_lambda_function.openfga_rotation[strategy].dead_letter_config).target_arn == aws_sqs_queue.openfga_rotation_dlq.arn &&
+      aws_lambda_function.openfga_rotation[strategy].s3_key == "signed/openfga-rotation/mock-job.zip" &&
+      aws_lambda_function.openfga_rotation[strategy].code_signing_config_arn == "arn:aws:lambda:us-east-2:123456789012:code-signing-config:csc-0123456789abcdef0"
+    ]) && aws_sqs_queue.openfga_rotation_dlq.kms_master_key_id == aws_kms_key.openfga_rotation.arn && aws_kms_key.openfga_rotation.enable_key_rotation
+    error_message = "Rotation functions deploy only signed code, encrypt their environment with a rotating CMK, trace, cap concurrency and keep failed invocations in an encrypted queue."
+  }
+
+  assert {
+    condition = (
+      aws_instance.operator_access.associate_public_ip_address == false &&
+      aws_instance.operator_access.metadata_options[0].http_tokens == "required" &&
+      aws_instance.operator_access.root_block_device[0].encrypted == true &&
+      aws_instance.operator_access.tags["shifter:operator-access"] == "test" &&
+      length(aws_security_group.operator_access.ingress) == 0 &&
+      aws_iam_role_policy_attachment.operator_access_ssm.policy_arn == "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+    )
+    error_message = "The operator access node must have no public address or inbound rule, IMDSv2 and only the Session Manager core policy."
+  }
+}
+
+run "rotation_schedules_wait_for_the_logins" {
+  command = plan
+  assert {
+    condition     = length(aws_secretsmanager_secret_rotation.openfga_datastore) == 0 && output.openfga_rotation_scheduled == false
+    error_message = "Without the deploy's go-ahead no rotation schedule exists, because creating one tests the login at once."
   }
 }

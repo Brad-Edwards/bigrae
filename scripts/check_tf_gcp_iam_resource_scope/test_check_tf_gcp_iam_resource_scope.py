@@ -81,7 +81,8 @@ class CheckTfGcpIamResourceScopeTest(unittest.TestCase):
         mutations = (
             ("resource.name == 'projects/${var.project_id}/instances/${var.cloud_sql_instance_name}'", "true"),
             ('permissions = ["firebaseauth.users.get"]', 'permissions = ["firebaseauth.users.get", "firebaseauth.configs.getHashConfig"]'),
-            ('workload["portal"].email', 'workload["workers"].email'),
+            ('"provisioner-launcher"])', '"provisioner-launcher", "migrator"])'),
+            ('"serviceAccount:${google_service_account.workload[each.key].email}"', '"serviceAccount:${google_service_account.workload["migrator"].email}"'),
             ('"roles/cloudsql.client", "roles/cloudsql.instanceUser"', '"roles/cloudsql.client", "roles/owner"'),
             ('type            = "CLOUD_IAM_SERVICE_ACCOUNT"', 'type            = "BUILT_IN"'),
         )

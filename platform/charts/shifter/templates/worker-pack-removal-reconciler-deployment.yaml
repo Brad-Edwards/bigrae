@@ -32,7 +32,7 @@ spec:
           {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
           {{- include "shifter.tmpVolumeMount" . | nindent 10 }}
           args: ["python", "manage.py", "reconcile_tenant_pack_removals", "--loop", "--interval", "60"]
-          {{- if or .Values.cloudSqlProxy.enabled .Values.openfga.enabled }}
+          {{- if or .Values.cloudSqlProxy.enabled .Values.openfga.enabled .Values.rdsIam.enabled }}
           env:
             {{- include "shifter.databaseUserEnv" (dict "root" . "role" "portal") | nindent 12 }}
           {{- end }}

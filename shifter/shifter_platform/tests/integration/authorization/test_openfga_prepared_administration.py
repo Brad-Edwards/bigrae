@@ -22,7 +22,7 @@ pytestmark = [pytest.mark.openfga, pytest.mark.postgres, pytest.mark.django_db(t
 
 @pytest.mark.parametrize("kind", ["human", "service"])
 def test_prepared_administrator_discovers_hierarchy_and_edits_without_membership(
-    provider, kind, live_session_credential, monkeypatch
+    provider, kind, live_session_credential, monkeypatch, settings
 ):
     from management import services as identities
     from shared.authorization import port
@@ -45,14 +45,14 @@ def test_prepared_administrator_discovers_hierarchy_and_edits_without_membership
     if kind == "service":
         from management.service_credentials import create_service_credential
 
+        # The synthetic subject is a Google numeric service-account ID.
+        settings.CLOUD_PROVIDER = "gcp"
         admission = create_service_credential(
             actor,
             name="Synthetic administrator",
             subject="123456789012345678901",
             scopes=[f"authorization:{action}" for action in sorted(APPLICATION_ADMINISTRATOR_ACTIONS)],
         )
-        from django.conf import settings
-
         actor = identities.resolve_service_credential_reference(
             admission["credential_uuid"], audience=settings.GCP_SERVICE_TOKEN_AUDIENCE
         )

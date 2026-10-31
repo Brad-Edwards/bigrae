@@ -172,6 +172,42 @@ def _native_service_credential_audience(settings):
     """Use one explicit synthetic audience for native credential reference tests."""
     if not settings.GCP_SERVICE_TOKEN_AUDIENCE:
         settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+    if not settings.AWS_SERVICE_TOKEN_AUDIENCE:
+        settings.AWS_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+
+
+@pytest.fixture(autouse=True)
+def _local_backend_for_generic_logins(settings, monkeypatch):
+    """Give ``force_login(user)`` without a backend the session a real login makes.
+
+    Provider sessions (Cognito and Identity Platform) are valid only with the
+    assurance that a real provider login records. A generic test login must not
+    create a provider session that lacks it. Tests that exercise a provider
+    session name its backend and record assurance explicitly.
+
+    A temporary CTF participant signs in only through the CTF participant
+    backend; the platform backend excludes temporary identities by design.
+    """
+    from django.test import Client
+
+    from management.services import is_temporary_ctf_account
+
+    backends = list(settings.AUTHENTICATION_BACKENDS)
+    local = "config.auth.PlatformModelBackend"
+    if local in backends:
+        settings.AUTHENTICATION_BACKENDS = [local, *[item for item in backends if item != local]]
+    original = Client.force_login
+
+    def force_login(self, user, backend=None):
+        # Requests reload the user from the database, so decide from stored state;
+        # a test may have changed the profile after it loaded ``user``.
+        if backend is None and user.pk is not None:
+            stored = type(user)._default_manager.select_related("profile").filter(pk=user.pk).first()
+            if stored is not None and is_temporary_ctf_account(stored):
+                backend = "config.auth.CTFParticipantBackend"
+        return original(self, user, backend)
+
+    monkeypatch.setattr(Client, "force_login", force_login)
 
 
 @pytest.fixture

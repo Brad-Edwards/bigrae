@@ -2,12 +2,11 @@
 
 from uuid import UUID
 
-from django.conf import settings
-
 from config.session_credentials import resolve_session_credential
 from management.services import resolve_service_credential_reference
 from shared.api_tokens.policy import resolve_personal_credential_reference
 from shared.credentials import CredentialContext
+from shared.service_proof import service_proof_profile
 
 
 def resolve_credential_reference(kind: str, credential_uuid: UUID) -> CredentialContext:
@@ -17,7 +16,7 @@ def resolve_credential_reference(kind: str, credential_uuid: UUID) -> Credential
     if kind == "personal":
         return resolve_personal_credential_reference(credential_uuid)
     if kind == "service":
-        return resolve_service_credential_reference(credential_uuid, audience=settings.GCP_SERVICE_TOKEN_AUDIENCE)
+        return resolve_service_credential_reference(credential_uuid, audience=service_proof_profile().audience)
     raise ValueError("Credential unavailable")
 
 

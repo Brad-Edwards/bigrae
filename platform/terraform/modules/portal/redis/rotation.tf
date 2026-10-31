@@ -81,6 +81,16 @@ resource "aws_cloudwatch_log_group" "rotation" {
   })
 }
 
+module "rotation_package" {
+  source = "../../lambda-signed-package"
+  count  = local.rotation_enabled ? 1 : 0
+
+  signing      = var.lambda_code_signing
+  name         = "redis-rotation"
+  package_path = data.archive_file.rotation[0].output_path
+}
+
+# Deploys only code that the portal root's Signer profile signed (#2313).
 resource "aws_lambda_function" "rotation" {
   count = local.rotation_enabled ? 1 : 0
 
@@ -88,14 +98,14 @@ resource "aws_lambda_function" "rotation" {
   # checkov:skip=CKV_AWS_115:Reserved concurrency is unnecessary; Secrets Manager invokes the rotation function serially on a schedule.
   # checkov:skip=CKV_AWS_116:DLQ does not apply; Secrets Manager owns the rotation retry/alarm lifecycle.
   # checkov:skip=CKV_AWS_173:Env vars are non-sensitive (replication-group id, Redis host/port, ASG name); the AUTH token is read from Secrets Manager, never an env var.
-  # checkov:skip=CKV_AWS_272:Lambda code signing requires CodeArtifact + Signer; out of scope (ADR-004-R11 #757).
-  function_name    = "${var.name_prefix}-redis-rotation"
-  filename         = data.archive_file.rotation[0].output_path
-  source_code_hash = data.archive_file.rotation[0].output_base64sha256
-  handler          = "redis_rotation.handler"
-  runtime          = "python3.12"
-  timeout          = 900
-  memory_size      = 128
+  function_name           = "${var.name_prefix}-redis-rotation"
+  s3_bucket               = module.rotation_package[0].s3_bucket
+  s3_key                  = module.rotation_package[0].s3_key
+  code_signing_config_arn = module.rotation_package[0].code_signing_config_arn
+  handler                 = "redis_rotation.handler"
+  runtime                 = "python3.12"
+  timeout                 = 900
+  memory_size             = 128
 
   role = aws_iam_role.rotation[0].arn
 

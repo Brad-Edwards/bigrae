@@ -96,15 +96,6 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
-    "reason": "CKV_AWS_273 / CKV_AWS_274 / CKV_AWS_40 / CKV2_AWS_22 (IAM users without SSO / with AdministratorAccess / direct policy attachment / console access): apply to the se-admins IAM users, PANW SEs who need admin access to the dev AWS account where AWS SSO is not configured. Console access with a first-login password reset is required; AdministratorAccess is attached by design.",
-    "expires_on": "2027-05-26",
-    "paths": [
-      "platform/terraform/global/se-admins/"
-    ]
-  },
-  {
-    "rule_id": "ADR-004-R11",
-    "owner": "@Brad-Edwards",
     "reason": "aws-dev-bootstrap-inline-admin: CKV_AWS_274 / CKV_AWS_288 / CKV_AWS_286 / CKV_AWS_62 / CKV_AWS_63 / CKV_AWS_287 / CKV2_AWS_40 on the dev GitHub OIDC deploy role. The fresh aws-dev account is subject to an Organizations SCP that denies iam:AttachRolePolicy, so the role cannot use the managed AdministratorAccess policy attachment the module previously declared. During dev account bootstrap this role remains AdministratorAccess-equivalent by design; the SCP-compatible inline policy preserves the existing privilege model without broadening the trust policy.",
     "expires_on": "2026-12-07",
     "paths": [
@@ -279,7 +270,7 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
-    "reason": "Cognito pre-signup Lambda (main.tf) and the operator-triggered client-secret rotation Lambda (rotation.tf, #159) (CKV_AWS_50 / CKV_AWS_115 / CKV_AWS_116 / CKV_AWS_117 / CKV_AWS_173 / CKV_AWS_272): pre-signup is invoked synchronously by Cognito from AWS-owned infrastructure; the rotation Lambda is invoked on demand by an operator and calls only public AWS APIs (Cognito, Secrets Manager, Auto Scaling). DLQ does not apply to these invocations; reserved concurrency is unnecessary; a VPC config buys no security for AWS-API-only calls; env vars are non-sensitive (allowlists / a secret ARN reference); code signing needs CodeArtifact + Signer. CKV_AWS_297 (rotation.tf): the EventBridge Scheduler reminder's input is a non-sensitive reminder message (no secret data), and the portal Secrets CMK is kms:ViaService-scoped to Secrets Manager so the scheduler cannot use it; a CMK adds no protection. Inline skips carry the per-rule justification.",
+    "reason": "Cognito pre-signup Lambda (main.tf) and the operator-triggered client-secret rotation Lambda (rotation.tf, #159) (CKV_AWS_50 / CKV_AWS_115 / CKV_AWS_116 / CKV_AWS_117 / CKV_AWS_173): pre-signup is invoked synchronously by Cognito from AWS-owned infrastructure; the rotation Lambda is invoked on demand by an operator and calls only public AWS APIs (Cognito, Secrets Manager, Auto Scaling). DLQ does not apply to these invocations; reserved concurrency is unnecessary; a VPC config buys no security for AWS-API-only calls; env vars are non-sensitive (allowlists / a secret ARN reference). Both functions deploy only Signer-signed code (#2313). CKV_AWS_297 (rotation.tf): the EventBridge Scheduler reminder's input is a non-sensitive reminder message (no secret data), and the portal Secrets CMK is kms:ViaService-scoped to Secrets Manager so the scheduler cannot use it; a CMK adds no protection. Inline skips carry the per-rule justification.",
     "expires_on": "2027-05-26",
     "paths": [
       "platform/terraform/modules/portal/cognito/main.tf",
@@ -289,7 +280,7 @@
   {
     "rule_id": "ADR-004-R11",
     "owner": "@Brad-Edwards",
-    "reason": "Redis AUTH rotation Lambda + rotation resource (CKV_AWS_50 / CKV_AWS_115 / CKV_AWS_116 / CKV_AWS_173 / CKV_AWS_272 / CKV_AWS_304, #159): a scheduled Secrets Manager rotation function. DLQ and reserved concurrency do not apply (Secrets Manager invokes it serially and owns the retry/alarm lifecycle); env vars are non-sensitive (replication-group id, Redis host/port, ASG name) and the AUTH token is read from Secrets Manager, never an env var; X-Ray adds no observability over CloudWatch logs; code signing needs CodeArtifact + Signer. CKV_AWS_304: rotation IS configured and redis_auth_rotation_days is bounded to <=90 by variable validation, so the cadence is always within the 90-day window; Checkov cannot resolve the variable default. Inline skips carry the per-rule justification.",
+    "reason": "Redis AUTH rotation Lambda + rotation resource (CKV_AWS_50 / CKV_AWS_115 / CKV_AWS_116 / CKV_AWS_173 / CKV_AWS_304, #159): a scheduled Secrets Manager rotation function. DLQ and reserved concurrency do not apply (Secrets Manager invokes it serially and owns the retry/alarm lifecycle); env vars are non-sensitive (replication-group id, Redis host/port, ASG name) and the AUTH token is read from Secrets Manager, never an env var; X-Ray adds no observability over CloudWatch logs. The function deploys only Signer-signed code (#2313). CKV_AWS_304: rotation IS configured and redis_auth_rotation_days is bounded to <=90 by variable validation, so the cadence is always within the 90-day window; Checkov cannot resolve the variable default. Inline skips carry the per-rule justification.",
     "expires_on": "2027-05-26",
     "paths": [
       "platform/terraform/modules/portal/redis/rotation.tf"

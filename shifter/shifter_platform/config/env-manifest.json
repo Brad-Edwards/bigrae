@@ -29,6 +29,11 @@
     },
     {
       "default": "''",
+      "name": "AWS_ACCOUNT_ID",
+      "source_file": "config/_credential_settings.py"
+    },
+    {
+      "default": "''",
       "name": "AWS_ENDPOINT_URL",
       "source_file": "config/_cloud.py"
     },
@@ -46,6 +51,16 @@
       "default": "'us-east-2'",
       "name": "AWS_S3_REGION",
       "source_file": "config/_cloud.py"
+    },
+    {
+      "default": "''",
+      "name": "AWS_SERVICE_TOKEN_AUDIENCE",
+      "source_file": "config/_credential_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "AWS_SERVICE_TOKEN_ISSUER",
+      "source_file": "config/_credential_settings.py"
     },
     {
       "default": "'email.us-east-2.amazonaws.com'",
@@ -550,6 +565,11 @@
     {
       "default": "'4'",
       "name": "GUACAMOLE_BOOTSTRAP_WORKERS",
+      "source_file": "config/_guacamole_settings.py"
+    },
+    {
+      "default": "''",
+      "name": "GUACAMOLE_CONTROLLER_ROLE_ARN",
       "source_file": "config/_guacamole_settings.py"
     },
     {

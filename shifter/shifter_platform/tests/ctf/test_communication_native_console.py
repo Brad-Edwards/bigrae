@@ -185,6 +185,8 @@ def test_service_http_activity_retains_principal_without_human_contact(
     from management import services
     from management.models import ProviderBinding, ServiceCredentialAdmission
 
+    settings.CLOUD_PROVIDER = "gcp"
+
     settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
     principal = services.create_service_principal("Synthetic communications service", responsible_user=organizer_user)
     services.bind_principal_provider_identity(principal, "https://accounts.google.com", "123456789012345678901")

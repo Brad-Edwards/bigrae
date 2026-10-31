@@ -121,14 +121,15 @@ def make_user(email: str) -> User:
     return User.objects.create_user(username=email, email=email, password="ws-pass-123")
 
 
-def login_cookie(user) -> str:
+def login_cookie(user, backend: str | None = None) -> str:
     """Return the ``sessionid`` value for a real logged-in session (sync only).
 
     Must run outside the event loop (fixture setup or ``sync_to_async``); it
-    writes the session row via the sync ORM.
+    writes the session row via the sync ORM. ``backend`` names the backend that
+    a real login for this user would record.
     """
     client = Client()
-    client.force_login(user)
+    client.force_login(user, backend=backend)
     return client.cookies["sessionid"].value
 
 

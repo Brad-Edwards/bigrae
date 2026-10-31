@@ -114,14 +114,19 @@ def _postgres_database(*, iam_auth: bool, cloud_sql_proxy: bool = False) -> dict
     ``"verify-full"`` with ``DB_SSL_ROOT_CERT`` pointing at the RDS CA bundle.
     """
     options: dict[str, object] = {"connect_timeout": 10}
+    ssl_root_cert = os.environ.get("DB_SSL_ROOT_CERT", "").strip()
     if iam_auth:
         engine = "config.db_backends.rds_iam"
         options["sslmode"] = os.environ.get("DB_SSLMODE", "require")
-        ssl_root_cert = os.environ.get("DB_SSL_ROOT_CERT", "").strip()
         if ssl_root_cert:
             options["sslrootcert"] = ssl_root_cert
     else:
         engine = "django.db.backends.postgresql"
+        # The AWS migration owner verifies the RDS server identity too (#2313).
+        if os.environ.get("DB_SSLMODE", "").strip():
+            options["sslmode"] = os.environ["DB_SSLMODE"].strip()
+            if ssl_root_cert:
+                options["sslrootcert"] = ssl_root_cert
     name = required_runtime_env("DB_NAME", dev_default="shifter")
     user = required_runtime_env("DB_USER", dev_default="postgres")
     host = required_runtime_env("DB_HOST", dev_default="localhost")
@@ -184,13 +189,34 @@ def _build_databases() -> dict[str, dict[str, object]]:
 
     iam_auth = os.environ.get("DB_IAM_AUTH", "false").lower() == "true"
     mode = os.environ.get("DB_AUTH_MODE", "password").strip().lower()
-    if mode not in {"password", "cloud-sql-proxy"} or (
-        iam_auth and os.environ.get("CLOUD_PROVIDER", "").strip().lower() == "gcp"
-    ):
+    provider = os.environ.get("CLOUD_PROVIDER", "").strip().lower()
+    if mode not in {"password", "cloud-sql-proxy", "rds-iam"} or (iam_auth and provider == "gcp"):
         from django.core.exceptions import ImproperlyConfigured
 
         raise ImproperlyConfigured("DB_AUTH_MODE must select the provider's supported database authentication")
+    if mode == "rds-iam":
+        _validate_rds_iam_runtime(provider)
+        iam_auth = True
     return _postgres_database(iam_auth=iam_auth, cloud_sql_proxy=mode == "cloud-sql-proxy")
+
+
+def _validate_rds_iam_runtime(provider: str) -> None:
+    """Require AWS, no stored password and a verified TLS server identity.
+
+    A runtime workload connects with its own RDS IAM login from container
+    start, so it holds no database password (#2313).
+    """
+    from django.core.exceptions import ImproperlyConfigured
+
+    if (
+        provider != "aws"
+        or os.environ.get("DB_PASSWORD", "")
+        or os.environ.get("DB_SSLMODE", "").strip() != "verify-full"
+        or not os.environ.get("DB_SSL_ROOT_CERT", "").strip()
+    ):
+        raise ImproperlyConfigured(
+            "DB_AUTH_MODE rds-iam requires AWS, no database password and verify-full TLS with the RDS CA bundle"
+        )
 
 
 DATABASES = _build_databases()
