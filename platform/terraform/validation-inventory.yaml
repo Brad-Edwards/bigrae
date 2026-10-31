@@ -289,6 +289,11 @@ modules:
     contract: deferred
     reason: "Contract-test rollout tracked in #1597."
     tracking: "#1597"
+  - path: platform/terraform/gcp/modules/image-export-storage
+    owner: "@Brad-Edwards"
+    contract: deferred
+    reason: "Contract-test rollout tracked in #1597."
+    tracking: "#1597"
   - path: platform/terraform/gcp/modules/platform-core
     owner: "@Brad-Edwards"
     contract: deferred

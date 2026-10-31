@@ -581,7 +581,7 @@ class TestMainCLI:
 
     def test_gcp_images_prints_refs_without_a_store_and_skips_writes_in_dry_run(self, guest_release, capsys):
         runner = _BaseImageImportProcess()
-        trust = {"trusted_repository_id": "111", "trusted_owner_id": "222"}
+        trust = {"trust": ("111", "222")}
         with patch("subprocess.run", side_effect=runner):
             images = deploy.gcp_base_images_import(
                 "proj", "us-east1", release_manifest=str(guest_release.manifest), **trust
@@ -596,9 +596,7 @@ class TestMainCLI:
     def test_gcp_images_refuses_a_release_without_guests_or_trust(self, guest_release, tmp_path):
         empty = write_manifest(tmp_path / "empty.json")
         with pytest.raises(gbi.BaseImageError, match="names no guest images"):
-            deploy.gcp_base_images_import(
-                "proj", "us-east1", release_manifest=str(empty), trusted_repository_id="1", trusted_owner_id="2"
-            )
+            deploy.gcp_base_images_import("proj", "us-east1", release_manifest=str(empty), trust=("1", "2"))
         with pytest.raises(gbi.BaseImageError, match="release_trust"):
             deploy.gcp_base_images_import("proj", "us-east1", release_manifest=str(guest_release.manifest))
         with (
@@ -610,8 +608,7 @@ class TestMainCLI:
                 "us-east1",
                 store="gs://b",
                 release_manifest=str(guest_release.manifest),
-                trusted_repository_id="999",
-                trusted_owner_id="222",
+                trust=("999", "222"),
             )
         assert guest_release.checked == []
 

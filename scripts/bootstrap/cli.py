@@ -310,11 +310,13 @@ def gcp_base_images_import(
     store: str = "",
     release_manifest: str = "",
     release_source: str = "",
-    trusted_repository_id: str = "",
-    trusted_owner_id: str = "",
+    trust: tuple[str, str] = ("", ""),
     dry_run: bool = False,
 ) -> dict[str, str]:
     """Verify and import the guest images that a release names, and record their references.
+
+    ``trust`` holds the signing repository and owner IDs from the command flags; with
+    ``store`` they must match ``settings.release_trust`` of the bundle.
 
     Every role is verified before any change: the digest-verified OCI manifest, the artifact
     contract, and a Sigstore bundle that satisfies the trust anchor at the build revision,
@@ -338,8 +340,9 @@ def gcp_base_images_import(
         workdir = private_workdir(Path(scratch))
         store_trust = None
         if store:
-            store_trust = load_deployment_inputs(store, workdir, runner, {}).settings.release_trust  # type: ignore[attr-defined]
-        repository_id, owner_id = _guest_trust(store_trust, trusted_repository_id, trusted_owner_id)
+            inputs = load_deployment_inputs(store, workdir, runner, {})
+            store_trust = inputs.settings.release_trust  # type: ignore[attr-defined]
+        repository_id, owner_id = _guest_trust(store_trust, *trust)
         artifacts = resolve_selection(
             base_images,
             repository_id=repository_id,
@@ -877,8 +880,7 @@ _COMMAND_HANDLERS = {
             store=args.store,
             release_manifest=args.release_manifest,
             release_source=args.release_source,
-            trusted_repository_id=args.trusted_repository_id,
-            trusted_owner_id=args.trusted_owner_id,
+            trust=(args.trusted_repository_id, args.trusted_owner_id),
             dry_run=args.dry_run,
         )
     ),

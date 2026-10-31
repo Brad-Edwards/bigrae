@@ -51,10 +51,12 @@ _TENANT_INPUTS = ("environment", "publish_target")
 
 
 def _violation(rule_id: str, message: str, path: str = GUEST_WORKFLOW_PATH) -> Violation:
+    """Return one violation of this check, located in ``path``."""
     return Violation(CHECK, rule_id, path, message)
 
 
 def _pushes(step: object) -> bool:
+    """True when the step runs ``oras push``."""
     return isinstance(step, dict) and bool(_ORAS_PUSH.search(str(step.get("run", ""))))
 
 
@@ -64,6 +66,7 @@ def _publishes(step: object) -> bool:
 
 
 def _load(repo_root: Path, path: str) -> dict[str, object] | Violation:
+    """Parse one workflow, or return the violation that a missing or broken file is."""
     import yaml
 
     if not (repo_root / path).is_file():
@@ -75,11 +78,13 @@ def _load(repo_root: Path, path: str) -> dict[str, object] | Violation:
 
 
 def _jobs(workflow: dict[str, object]) -> dict[str, dict[str, object]]:
+    """Return the jobs of a workflow that are mappings, keyed by job ID."""
     jobs = workflow.get("jobs")
     return {str(k): v for k, v in jobs.items() if isinstance(v, dict)} if isinstance(jobs, dict) else {}
 
 
 def _publishing_job_violations(path: str, job_id: str, job: dict[str, object], environment: str) -> list[Violation]:
+    """Check the Environment, the runner, and the ref guard of a job that publishes."""
     steps = _dw_job_steps(job)
     first = next((index for index, step in enumerate(steps) if _publishes(step)), None)
     if first is None:
@@ -106,6 +111,7 @@ def _publishing_job_violations(path: str, job_id: str, job: dict[str, object], e
 
 
 def _needs(job: dict[str, object]) -> set[str]:
+    """Return the job IDs that a job needs."""
     needs = job.get("needs")
     if isinstance(needs, str):
         return {needs}
@@ -113,6 +119,7 @@ def _needs(job: dict[str, object]) -> set[str]:
 
 
 def _push_job_violations(job_id: str, job: dict[str, object], validate_jobs: set[str]) -> list[Violation]:
+    """Check that a job that pushes a guest needs validation and attests each pushed digest."""
     steps = _dw_job_steps(job)
     push_ids = [str(step.get("id", "")) for step in steps if _pushes(step)]
     violations: list[Violation] = []
@@ -139,29 +146,41 @@ def _push_job_violations(job_id: str, job: dict[str, object], validate_jobs: set
     return violations
 
 
-def _build_workflow_violations(workflow: dict[str, object]) -> list[Violation]:
+def _trigger_violations(workflow: dict[str, object]) -> list[Violation]:
+    """Check that the build starts only from workflow_dispatch and selects no tenant."""
     violations: list[Violation] = []
     on = workflow.get("on")
     if _trigger_events(on) != {"workflow_dispatch"}:
         violations.append(_violation("ADR-037-R9", "packer-gcp.yml must start only from workflow_dispatch"))
     dispatch = on.get("workflow_dispatch") if isinstance(on, dict) else None
     inputs = dispatch.get("inputs") if isinstance(dispatch, dict) else None
-    for name in _TENANT_INPUTS:
-        if isinstance(inputs, dict) and name in inputs:
-            violations.append(
-                _violation("ADR-037-R9", f"packer-gcp.yml must select no tenant; remove the '{name}' input")
-            )
+    names = [name for name in _TENANT_INPUTS if isinstance(inputs, dict) and name in inputs]
+    violations.extend(
+        _violation("ADR-037-R9", f"packer-gcp.yml must select no tenant; remove the '{name}' input") for name in names
+    )
+    return violations
+
+
+def _validate_call_violations(job_id: str, job: dict[str, object]) -> list[Violation]:
+    """Check that a job that calls validation uses this commit and passes no secrets."""
+    uses = str(job.get("uses", "")).strip()
+    if not (uses.startswith("./") or "packer-gcp-validate.yml" in uses):
+        return []
+    violations: list[Violation] = []
+    if uses != _VALIDATE_USES:
+        violations.append(_violation("ADR-004-R23", f"job '{job_id}' must call {_VALIDATE_USES} from this commit"))
+    if "secrets" in job:
+        violations.append(_violation("ADR-004-R23", f"job '{job_id}' must pass no secrets to validation"))
+    return violations
+
+
+def _build_workflow_violations(workflow: dict[str, object]) -> list[Violation]:
+    """Every violation of the build workflow: triggers, validation calls, publication, and pushes."""
+    violations = _trigger_violations(workflow)
     jobs = _jobs(workflow)
     validate_jobs = {job_id for job_id, job in jobs.items() if str(job.get("uses", "")).strip() == _VALIDATE_USES}
     for job_id, job in jobs.items():
-        uses = str(job.get("uses", "")).strip()
-        if uses.startswith("./") or "packer-gcp-validate.yml" in uses:
-            if uses != _VALIDATE_USES:
-                violations.append(
-                    _violation("ADR-004-R23", f"job '{job_id}' must call {_VALIDATE_USES} from this commit")
-                )
-            if "secrets" in job:
-                violations.append(_violation("ADR-004-R23", f"job '{job_id}' must pass no secrets to validation"))
+        violations.extend(_validate_call_violations(job_id, job))
         violations.extend(_publishing_job_violations(GUEST_WORKFLOW_PATH, job_id, job, GUEST_BUILD_ENVIRONMENT))
         if any(_pushes(step) for step in _dw_job_steps(job)):
             violations.extend(_push_job_violations(job_id, job, validate_jobs))
@@ -169,6 +188,7 @@ def _build_workflow_violations(workflow: dict[str, object]) -> list[Violation]:
 
 
 def _validate_workflow_violations(workflow: dict[str, object]) -> list[Violation]:
+    """Every violation of the validation workflow: its trigger and its publishing jobs."""
     violations: list[Violation] = []
     if _trigger_events(workflow.get("on")) != {"workflow_call"}:
         violations.append(

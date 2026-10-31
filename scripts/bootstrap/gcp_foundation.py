@@ -83,26 +83,27 @@ def _require_protected_destroy_refs(purpose_contexts: dict[str, list[dict[str, s
             )
 
 
+def _require_image_context(purpose: str, context: object, workflows: str) -> None:
+    """Require the fixed Environment, a protected branch, and the packer-gcp.yml workflow ref."""
+    if not isinstance(context, dict):
+        raise ValueError(f"{purpose} purpose contexts must be objects")
+    if context.get("environment") != IMAGE_ENVIRONMENTS[purpose]:
+        raise ValueError(f"{purpose} purpose context must name the {IMAGE_ENVIRONMENTS[purpose]!r} GitHub Environment")
+    ref = context.get("ref")
+    if ref not in IMAGE_PROTECTED_REFS:
+        raise ValueError(f"{purpose} purpose context must bind {' or '.join(IMAGE_PROTECTED_REFS)}; got ref={ref!r}")
+    if context.get("workflow_ref") != f"{workflows}@{ref}" or context.get("reusable_workflow_ref"):
+        raise ValueError(f"{purpose} purpose context must name the workflow {workflows}@{ref}")
+
+
 def _require_image_contexts(inputs: dict[str, object]) -> None:
     """Check the contexts and buckets that the image workflows need (#2668)."""
     contexts = inputs["purpose_contexts"]
     workflows = f"{inputs['github_org']}/{inputs['github_repo']}/.github/workflows/{IMAGE_WORKFLOW}"
     for purpose in IMAGE_PURPOSES:
         for context in contexts.get(purpose, []):  # type: ignore[union-attr]
-            if not isinstance(context, dict):
-                raise ValueError(f"{purpose} purpose contexts must be objects")
-            if context.get("environment") != IMAGE_ENVIRONMENTS[purpose]:
-                raise ValueError(
-                    f"{purpose} purpose context must name the {IMAGE_ENVIRONMENTS[purpose]!r} GitHub Environment"
-                )
-            ref = context.get("ref")
-            if ref not in IMAGE_PROTECTED_REFS:
-                raise ValueError(
-                    f"{purpose} purpose context must bind {' or '.join(IMAGE_PROTECTED_REFS)}; got ref={ref!r}"
-                )
-            if context.get("workflow_ref") != f"{workflows}@{ref}" or context.get("reusable_workflow_ref"):
-                raise ValueError(f"{purpose} purpose context must name the workflow {workflows}@{ref}")
-    if any(contexts.get(purpose) for purpose in IMAGE_PURPOSES):  # type: ignore[union-attr]
+            _require_image_context(purpose, context, workflows)
+    if _builds_images(inputs):
         # The image workflows store evidence in <project>-release-evidence.
         expected = f"{inputs['project_id']}-release-evidence"
         if inputs["release_evidence_bucket_name"] != expected:
@@ -110,6 +111,12 @@ def _require_image_contexts(inputs: dict[str, object]) -> None:
                 f"Foundation input release_evidence_bucket_name must be {expected!r}; "
                 "the image workflows use that bucket"
             )
+
+
+def _builds_images(inputs: dict[str, object]) -> bool:
+    """True when the inputs name a build or validate context."""
+    contexts = inputs.get("purpose_contexts") or {}
+    return any(contexts.get(purpose) for purpose in IMAGE_PURPOSES)  # type: ignore[union-attr]
 
 
 def _unique_fields(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -219,20 +226,10 @@ def _apply_foundation(
     inputs: dict[str, object], path: Path, staging: Path, *, project: str, bucket: str, region: str, dry_run: bool
 ) -> None:
     """Enable the APIs, create the state bucket, and apply the cicd-oidc root from a saved plan."""
-    github_mode = bool(inputs.get("purpose_contexts"))
     root = get_repo_root() / "platform/terraform/gcp/global/cicd-oidc"
     tf = ["terraform", f"-chdir={root}"]
     if not dry_run:
-        result = run_cmd(["gcloud", "projects", "describe", project, "--format=value(projectNumber)"], capture=True)
-        if result.stdout.strip() != str(inputs["project_number"]):
-            raise ValueError("Foundation project number does not match the selected project")
-        if github_mode:
-            _verify_github_repository(inputs)
-            trusted = f"for {inputs['github_org']}/{inputs['github_repo']}"
-        else:
-            trusted = "without GitHub federation"
-        if not confirm(f"Bootstrap foundation in {project} {trusted}? Evidence retention locks for 90 days."):
-            raise SystemExit("Foundation bootstrap cancelled")
+        _confirm_foundation(inputs, project)
     run_cmd(
         [
             "gcloud",
@@ -273,8 +270,34 @@ def _apply_foundation(
         [*tf, "init", "-reconfigure", f"-backend-config=bucket={bucket}", "-backend-config=prefix=cicd-oidc"],
         dry_run=dry_run,
     )
+    plan = str(staging / "foundation.tfplan")
+    run_cmd([*tf, "plan", "-input=false", *_var_files(inputs, path, staging), f"-out={plan}"], dry_run=dry_run)
+    if not dry_run:
+        _verify_saved_plan(tf, plan, inputs)
+    run_cmd([*tf, "apply", "-input=false", plan], dry_run=dry_run)
+    if _builds_images(inputs):
+        outputs = {} if dry_run else _terraform_outputs(tf)
+        publish_image_environments(inputs, outputs, dry_run=dry_run)
+
+
+def _confirm_foundation(inputs: dict[str, object], project: str) -> None:
+    """Check the project number and the repository IDs, then ask the operator to proceed."""
+    result = run_cmd(["gcloud", "projects", "describe", project, "--format=value(projectNumber)"], capture=True)
+    if result.stdout.strip() != str(inputs["project_number"]):
+        raise ValueError("Foundation project number does not match the selected project")
+    if inputs.get("purpose_contexts"):
+        _verify_github_repository(inputs)
+        trusted = f"for {inputs['github_org']}/{inputs['github_repo']}"
+    else:
+        trusted = "without GitHub federation"
+    if not confirm(f"Bootstrap foundation in {project} {trusted}? Evidence retention locks for 90 days."):
+        raise SystemExit("Foundation bootstrap cancelled")
+
+
+def _var_files(inputs: dict[str, object], path: Path, staging: Path) -> list[str]:
+    """Return the -var-file arguments of the foundation plan."""
     var_files = [f"-var-file={path}"]
-    if not github_mode:
+    if not inputs.get("purpose_contexts"):
         # The federation inputs have no Terraform default (ADR-069), so the
         # GitHub-less mode sets them to empty values explicitly.
         federation_off = staging / "github-less.tfvars.json"
@@ -283,14 +306,7 @@ def _apply_foundation(
             encoding="utf-8",
         )
         var_files.append(f"-var-file={federation_off}")
-    plan = str(staging / "foundation.tfplan")
-    run_cmd([*tf, "plan", "-input=false", *var_files, f"-out={plan}"], dry_run=dry_run)
-    if not dry_run:
-        _verify_saved_plan(tf, plan, inputs)
-    run_cmd([*tf, "apply", "-input=false", plan], dry_run=dry_run)
-    if github_mode and any(inputs["purpose_contexts"].get(purpose) for purpose in IMAGE_PURPOSES):  # type: ignore[union-attr]
-        outputs = {} if dry_run else _terraform_outputs(tf)
-        publish_image_environments(inputs, outputs, dry_run=dry_run)
+    return var_files
 
 
 def _service_account_name(inputs: dict[str, object], purpose: str) -> str:
@@ -442,6 +458,85 @@ def _environment_branches(inputs: dict[str, object], environment: str) -> list[s
     return sorted(branches)
 
 
+def _require_image_values(values: dict[str, tuple[dict[str, str], dict[str, str]]]) -> None:
+    """Stop before any write when a root output that the image workflows need is empty."""
+    missing = sorted(
+        {
+            name
+            for secrets, variables in values.values()
+            for name, value in {**secrets, **variables}.items()
+            if not value
+        }
+    )
+    if missing:
+        raise ValueError(
+            "The build project lacks image outputs (" + ", ".join(missing) + "); "
+            "set enable_image_build_network and enable_image_export_storage"
+        )
+
+
+def _write_environment(api: str, branches: list[str], *, dry_run: bool) -> None:
+    """Create or update one Environment that admits only ``branches``."""
+    run_cmd(
+        [
+            "gh",
+            "api",
+            "--method",
+            "PUT",
+            api,
+            "-F",
+            "deployment_branch_policy[protected_branches]=false",
+            "-F",
+            "deployment_branch_policy[custom_branch_policies]=true",
+        ],
+        dry_run=dry_run,
+        capture=True,
+    )
+    existing = run_cmd(
+        ["gh", "api", f"{api}/deployment-branch-policies", "--jq", ".branch_policies[].name"],
+        dry_run=dry_run,
+        capture=True,
+    )
+    present = set((existing.stdout if existing else "").split())
+    for branch in branches:
+        if branch not in present:
+            run_cmd(
+                [
+                    "gh",
+                    "api",
+                    "--method",
+                    "POST",
+                    f"{api}/deployment-branch-policies",
+                    "-f",
+                    f"name={branch}",
+                    "-f",
+                    "type=branch",
+                ],
+                dry_run=dry_run,
+                capture=True,
+            )
+
+
+def _write_environment_values(
+    repository: str, environment: str, secrets: dict[str, str], variables: dict[str, str], *, dry_run: bool
+) -> None:
+    """Set the secrets on standard input and the variables of one Environment."""
+    for name, value in secrets.items():
+        status = run_cmd_secret_stdin(
+            ["gh", "secret", "set", name, "--env", environment, "--repo", repository],
+            secret_stdin=value,
+            dry_run=dry_run,
+        )
+        if status != 0:
+            raise ValueError(f"Cannot set the {name} secret of the {environment} Environment")
+    for name, value in variables.items():
+        run_cmd(
+            ["gh", "variable", "set", name, "--env", environment, "--repo", repository, "--body", value],
+            dry_run=dry_run,
+            capture=True,
+        )
+
+
 def publish_image_environments(inputs: dict[str, object], outputs: dict[str, object], *, dry_run: bool) -> None:
     """Write the image Environments of the developer repository with ``gh`` (#2668).
 
@@ -451,68 +546,8 @@ def publish_image_environments(inputs: dict[str, object], outputs: dict[str, obj
     repository = f"{inputs['github_org']}/{inputs['github_repo']}"
     values = image_environment_values(inputs, outputs)
     if not dry_run:
-        missing = sorted(
-            name
-            for secrets, variables in values.values()
-            for name, value in {**secrets, **variables}.items()
-            if not value
-        )
-        if missing:
-            raise ValueError(
-                "The build project lacks image outputs (" + ", ".join(sorted(set(missing))) + "); "
-                "set enable_image_build_network and enable_image_export_storage"
-            )
+        _require_image_values(values)
     for environment, (secrets, variables) in values.items():
         api = f"repos/{repository}/environments/{environment}"
-        run_cmd(
-            [
-                "gh",
-                "api",
-                "--method",
-                "PUT",
-                api,
-                "-F",
-                "deployment_branch_policy[protected_branches]=false",
-                "-F",
-                "deployment_branch_policy[custom_branch_policies]=true",
-            ],
-            dry_run=dry_run,
-            capture=True,
-        )
-        existing = run_cmd(
-            ["gh", "api", f"{api}/deployment-branch-policies", "--jq", ".branch_policies[].name"],
-            dry_run=dry_run,
-            capture=True,
-        )
-        present = set((existing.stdout if existing else "").split())
-        for branch in _environment_branches(inputs, environment):
-            if branch not in present:
-                run_cmd(
-                    [
-                        "gh",
-                        "api",
-                        "--method",
-                        "POST",
-                        f"{api}/deployment-branch-policies",
-                        "-f",
-                        f"name={branch}",
-                        "-f",
-                        "type=branch",
-                    ],
-                    dry_run=dry_run,
-                    capture=True,
-                )
-        for name, value in secrets.items():
-            status = run_cmd_secret_stdin(
-                ["gh", "secret", "set", name, "--env", environment, "--repo", repository],
-                secret_stdin=value,
-                dry_run=dry_run,
-            )
-            if status != 0:
-                raise ValueError(f"Cannot set the {name} secret of the {environment} Environment")
-        for name, value in variables.items():
-            run_cmd(
-                ["gh", "variable", "set", name, "--env", environment, "--repo", repository, "--body", value],
-                dry_run=dry_run,
-                capture=True,
-            )
+        _write_environment(api, _environment_branches(inputs, environment), dry_run=dry_run)
+        _write_environment_values(repository, environment, secrets, variables, dry_run=dry_run)

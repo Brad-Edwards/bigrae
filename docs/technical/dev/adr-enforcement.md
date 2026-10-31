@@ -630,7 +630,8 @@ The first slice intentionally stays small:
   vendor-binary exposures.
 
   The check also covers the guest image workflows (#2668, ADR-037-R8 and R9) in
-  `scripts/adr_guard/_guard/checks/_release_workflow_guests.py`:
+  `scripts/adr_guard/_guard/checks/_release_workflow_guests.py`. A missing or
+  unparseable guest workflow is a violation:
 
   - `packer-gcp.yml` starts only from `workflow_dispatch` and has no
     `environment` or `publish_target` input.
