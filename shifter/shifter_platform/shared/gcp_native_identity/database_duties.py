@@ -94,7 +94,15 @@ def _assert_policy_application_isolation(cursor: _DutyCursor, native_users: Mapp
 
 
 def reconcile_application_duties(cursor: _DutyCursor, native_users: Mapping[str, str]) -> None:
-    """Run after application migrations, never as a runtime database login."""
+    """Run around application migrations, never as a runtime database login.
+
+    The deploy also runs this before the identity probe (#2704). A database
+    without the application schema has no duties yet; the run after the first
+    migration reconciles them.
+    """
+    cursor.execute("SELECT to_regclass('public.django_migrations') IS NOT NULL")
+    if _required_row(cursor) != (True,):
+        return
     cursor.execute("""SELECT pg_has_role(current_user, relowner, 'USAGE')
                       FROM pg_class WHERE oid = 'public.django_migrations'::regclass""")
     if cursor.fetchone() != (True,):

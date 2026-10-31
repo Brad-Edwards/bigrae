@@ -517,6 +517,8 @@ def rollout_stage(
         binding, release = _publish_before_probe(
             runner, request, render, release, binding=binding, policy_enabled=policy_enabled
         )
+        # The probe connects as a native login, which needs its SQL duty first (#2704).
+        run_gcp_database_migrations(outputs, release.values_file, duties_only=True)
         with identity_cutover_boundary(
             runner,
             release.documents,

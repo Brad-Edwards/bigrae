@@ -77,6 +77,13 @@ def recorder(monkeypatch, chart):
     }.items():
         for name in names:
             monkeypatch.setattr(f"{module}.{name}", record(name))
+    # The duty reconciliation before the probe is not a schema migration (#2704).
+    monkeypatch.setattr(
+        "gcp_control_plane.run_gcp_database_migrations",
+        lambda *a, duties_only=False, **k: order.append(
+            "reconcile_database_duties" if duties_only else "run_gcp_database_migrations"
+        ),
+    )
     monkeypatch.setattr("gcp_terraform.terraform_context", record("terraform_context", lambda *a, **k: object()))
     monkeypatch.setattr("gcp_terraform.terraform_outputs", record("terraform_outputs", lambda *a, **k: outputs))
     monkeypatch.setattr("gcp_terraform.artifact_registry_kms_adoption", lambda *a, **k: False)
@@ -227,6 +234,8 @@ class TestRolloutStage:
         assert any("identity-cutover" in " ".join(call.argv) for call in runner.calls)
         assert order.index("verified_identity_probe") < order.index("run_gcp_database_migrations")
         assert order.index("verified_identity_probe") < order.index("adopt_objects")
+        # Only the duty reconciliation precedes the probe (#2704).
+        assert order.index("reconcile_database_duties") < order.index("verified_identity_probe")
 
     def test_rollout_order_and_identity_scope(self, inputs, recorder):
         order, outputs = recorder
@@ -245,6 +254,8 @@ class TestRolloutStage:
         # probe and registers the catalog as the bootstrap administrator after
         # the certificate wait. #2694: an existing installation publishes the
         # release model and renders with its IDs before the probe checks them.
+        # #2704: the SQL duties are reconciled before the probe connects as a
+        # native login.
         assert order == [
             "compose_runtime_env",
             "build_values",
@@ -256,6 +267,7 @@ class TestRolloutStage:
             "build_values",
             "write_values",
             "render_chart",
+            "reconcile_database_duties",
             "verified_identity_probe",
             "run_gcp_database_migrations",
             "sync_gcp_guacamole_runtime_secret",
