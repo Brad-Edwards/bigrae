@@ -34,6 +34,7 @@ from gcp_rollout import (
     RolloutError,
     record_running_images,
     release_deployments,
+    release_policy_image,
     release_support_images,
     restart_workloads,
     wait_for_certificate,
@@ -305,6 +306,39 @@ class TestRolloutChecks:
         }
         with pytest.raises(RolloutError, match="more than one image"):
             release_support_images([*documents, deployment("worker-mc", proxy.replace("4", "5"))])
+
+    def test_policy_image_comes_from_the_rendered_policy_servers(self, tmp_path: Path):
+        """#2698: the OpenFGA servers join the running image check at their pinned image."""
+        image = "docker.io/openfga/openfga@sha256:" + "6" * 64
+
+        def server(name):
+            return {
+                "kind": "Deployment",
+                "metadata": {"name": name, "namespace": "shifter-platform"},
+                "spec": {"template": {"spec": {"containers": [{"name": "openfga", "image": image}]}}},
+            }
+
+        assert release_policy_image([server("openfga"), server("openfga-admin")]) == image
+        assert release_policy_image([{"kind": "Service", "metadata": {}}]) is None
+
+        def verifier(argv, env, stdin):
+            if "--output" in argv:
+                Path(argv[argv.index("--output") + 1]).write_text("{}\n")
+            return ProcessResult(0, "[]" if argv[:3] == ["kubectl", "get", "pods"] else "")
+
+        runner = FakeRunner().on([], verifier)
+        record_running_images(
+            runner,
+            {},
+            identities=_identities(),
+            model_broker_enabled=False,
+            evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 3),
+            workdir=tmp_path,
+            policy_image=image,
+        )
+        verify = next(call.argv for call in runner.calls if "--expected-image" in call.argv)
+        assert verify[verify.index("--policy-enabled") + 1] == "true"
+        assert f"openfga={image}" in verify
 
     def test_ingress_and_certificate_waits(self):
         addresses = iter([ProcessResult(0, ""), ProcessResult(0, "34.1.2.3")])

@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 CHART = Path(__file__).resolve().parents[1]
-IMAGE = "openfga/openfga@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38"
+IMAGE = "docker.io/openfga/openfga@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38"
 
 
 def _values() -> dict[str, object]:

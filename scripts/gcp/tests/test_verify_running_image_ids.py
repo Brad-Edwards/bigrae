@@ -395,3 +395,35 @@ def test_optional_broker_requires_explicit_release_enablement_and_both_component
     assert {"model-broker", "model-access-control", "model-provider-egress"} <= set(
         module.release_deployments(model_broker_enabled=True)
     )
+
+
+def test_policy_servers_are_required_at_their_pinned_image_when_the_release_renders_them():
+    """#2698: native identity adds the OpenFGA runtime and admin servers."""
+    module = _load_module()
+    pods = _valid_pods(module)
+    openfga = {"root": "docker.io/openfga/openfga", "digest": "sha256:" + "6" * 64}
+    for component in ("openfga", "openfga-admin"):
+        container = _container("openfga", openfga["root"], openfga["digest"])
+        pods["items"].append(
+            {
+                "metadata": {
+                    "name": component + "-123",
+                    "labels": {"app.kubernetes.io/part-of": "shifter", "app.kubernetes.io/component": component},
+                },
+                "spec": {"containers": [{"name": "openfga", "image": container["image"]}]},
+                "status": {"containerStatuses": [container]},
+            }
+        )
+    expected = {**_EXPECTED, "openfga": openfga}
+    with pytest.raises(ValueError, match="unexpected Shifter workload component: openfga"):
+        module.build_evidence(pods, _EXPECTED, source_sha=_SHA)
+    evidence = module.build_evidence(pods, expected, source_sha=_SHA, policy_enabled=True)
+    assert len(evidence["running_containers"]) == len(module._RELEASE_CONTAINERS) + 2
+    # The pinned image is part of the closed expected set.
+    with pytest.raises(ValueError, match="expected image set"):
+        module.build_evidence(pods, _EXPECTED, source_sha=_SHA, policy_enabled=True)
+    pods["items"].pop()
+    with pytest.raises(ValueError, match="missing release components"):
+        module.build_evidence(pods, expected, source_sha=_SHA, policy_enabled=True)
+    assert {"openfga", "openfga-admin"} <= set(module.release_deployments(policy_enabled=True))
+    assert "openfga" not in module.release_deployments()
