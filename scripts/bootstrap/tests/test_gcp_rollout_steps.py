@@ -34,6 +34,7 @@ from gcp_rollout import (
     RolloutError,
     record_running_images,
     release_deployments,
+    release_support_images,
     restart_workloads,
     wait_for_certificate,
     wait_for_ingress_address,
@@ -259,6 +260,19 @@ class TestRolloutChecks:
         assert record.prefix == f"deployments/{REVISION}/r/1"
         verify = next(call.argv for call in runner.calls if "--expected-image" in call.argv)
         assert f"portal={_identities()['portal']}" in verify
+        assert "--support-image" not in verify
+        proxy = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:" + "4" * 64
+        record_running_images(
+            runner,
+            {},
+            identities=_identities(),
+            model_broker_enabled=False,
+            evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 2),
+            workdir=tmp_path,
+            support_images={"cloud-sql-proxy": proxy},
+        )
+        verify = [call.argv for call in runner.calls if "--expected-image" in call.argv][-1]
+        assert verify[verify.index("--support-image") + 1] == f"cloud-sql-proxy={proxy}"
         failing = FakeRunner().on(["kubectl"], ProcessResult(0, "[]")).on([], ProcessResult(1))
         with pytest.raises(RolloutError, match="approved release"):
             record_running_images(
@@ -269,6 +283,28 @@ class TestRolloutChecks:
                 evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 1),
                 workdir=tmp_path,
             )
+
+    def test_support_images_come_from_the_rendered_release_deployments(self):
+        """#2698: one pinned proxy reference per release; a second one is an error."""
+        proxy = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:" + "4" * 64
+
+        def deployment(name, image, namespace="shifter-platform"):
+            sidecar = {"name": "cloud-sql-proxy", "image": image, "restartPolicy": "Always"}
+            return {
+                "kind": "Deployment",
+                "metadata": {"name": name, "namespace": namespace},
+                "spec": {"template": {"spec": {"initContainers": [sidecar], "containers": [{"name": name}]}}},
+            }
+
+        documents = [deployment("portal-web", proxy), deployment("worker-cms", proxy), {"kind": "Service"}]
+        assert release_support_images(documents) == {"cloud-sql-proxy": proxy}
+        assert release_support_images([{"kind": "Service", "metadata": {}}]) == {}
+        # Another namespace is outside the verified release boundary.
+        assert release_support_images([deployment("x", proxy + "0", namespace="other"), *documents]) == {
+            "cloud-sql-proxy": proxy
+        }
+        with pytest.raises(RolloutError, match="more than one image"):
+            release_support_images([*documents, deployment("worker-mc", proxy.replace("4", "5"))])
 
     def test_ingress_and_certificate_waits(self):
         addresses = iter([ProcessResult(0, ""), ProcessResult(0, "34.1.2.3")])

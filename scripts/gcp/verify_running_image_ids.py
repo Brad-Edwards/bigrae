@@ -13,8 +13,9 @@ _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}")
 _RUNTIME_PREFIXES = ("containerd://", "docker-pullable://", "docker://")
 
 # The shifter-platform namespace is a closed release boundary. Every intended
-# workload has exactly one declared container, and each container maps to one
-# of the three continuously running release images. Provisioner is deliberately
+# workload has exactly one declared release container, and each container maps
+# to one of the three continuously running release images. The only other
+# containers are the pinned support containers below. Provisioner is deliberately
 # absent: it is an ephemeral task image verified by admission policy instead.
 _RELEASE_CONTAINERS: dict[str, dict[str, str]] = {
     "content-egress": {"content-egress": "portal"},
@@ -61,6 +62,11 @@ _RELEASE_DEPLOYMENTS: dict[str, str] = {
 }
 
 
+# Pinned third-party containers that the chart adds to release workloads, such
+# as the native SQL Cloud SQL proxy. A pod may run one only at the exact pinned
+# image identity of the rendered release; release containers stay required (#2698).
+_SUPPORT_CONTAINERS = frozenset({"cloud-sql-proxy"})
+
 _BROKER_CONTAINERS = {
     "model-broker": {"model-broker": "portal"},
     "model-access-control": {"model-access-control": "portal"},
@@ -92,6 +98,17 @@ def parse_expected_images(values: list[str]) -> dict[str, dict[str, str]]:
     if not expected:
         raise ValueError("at least one expected image is required")
     return expected
+
+
+def parse_support_images(values: list[str]) -> dict[str, dict[str, str]]:
+    """Parse ``name=repository@sha256`` arguments for the closed support container set."""
+    if not values:
+        return {}
+    support = parse_expected_images(values)
+    unknown = sorted(set(support) - _SUPPORT_CONTAINERS)
+    if unknown:
+        raise ValueError(f"unknown support containers: {unknown}")
+    return support
 
 
 def _runtime_reference(image_id: str) -> str:
@@ -151,11 +168,12 @@ def _require_closed_names(
     kind: str,
     entries: list[tuple[str, dict[str, object]]],
     expected_names: set[str],
+    optional_names: frozenset[str] = frozenset(),
 ) -> None:
     observed_names = [str(container.get("name", "")) for _, container in entries]
     if len(observed_names) != len(set(observed_names)):
         raise ValueError(f"pod {pod_name} reports duplicate {kind} container identities")
-    unexpected_names = sorted(set(observed_names) - expected_names)
+    unexpected_names = sorted(set(observed_names) - expected_names - optional_names)
     if unexpected_names:
         raise ValueError(f"pod {pod_name} reports unexpected {kind} containers: {unexpected_names}")
     missing_names = sorted(expected_names - set(observed_names))
@@ -170,17 +188,17 @@ def _verify_pod_containers(
     statuses: list[tuple[str, dict[str, object]]],
     expected: dict[str, dict[str, str]],
     containers: dict[str, dict[str, str]],
+    support: dict[str, dict[str, str]],
 ) -> list[dict[str, str]]:
-    expected_containers = containers[component]
-    expected_names = set(expected_containers)
-    _require_closed_names(pod_name, "declared", declared, expected_names)
-    _require_closed_names(pod_name, "status", statuses, expected_names)
+    images = {name: expected[image_name] for name, image_name in containers[component].items()}
+    _require_closed_names(pod_name, "declared", declared, set(images), frozenset(support))
+    _require_closed_names(pod_name, "status", statuses, set(images), frozenset(support))
+    images.update(support)
 
     declared_images: dict[str, str] = {}
     for _, container in declared:
         container_name = str(container.get("name", ""))
-        image_name = expected_containers[container_name]
-        image = expected[image_name]
+        image = images[container_name]
         exact_reference = f"{image['root']}@{image['digest']}"
         declared_image = str(container.get("image", ""))
         if declared_image != exact_reference:
@@ -192,8 +210,7 @@ def _verify_pod_containers(
     observed: list[dict[str, str]] = []
     for status_field, container in statuses:
         container_name = str(container.get("name", ""))
-        image_name = expected_containers[container_name]
-        image = expected[image_name]
+        image = images[container_name]
         exact_reference = f"{image['root']}@{image['digest']}"
         runtime_image = _runtime_reference(str(container.get("imageID", "")))
         # ``ContainerStatus.image`` is runtime-dependent display data. GKE's
@@ -224,8 +241,10 @@ def build_evidence(
     *,
     source_sha: str,
     model_broker_enabled: bool = False,
+    support: dict[str, dict[str, str]] | None = None,
 ) -> dict[str, object]:
     """Return evidence only for the exact closed release workload/image map."""
+    support = support or {}
     if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
         raise ValueError("source SHA must be 40 lowercase hexadecimal characters")
 
@@ -254,7 +273,7 @@ def build_evidence(
             ("initContainerStatuses", "containerStatuses", "ephemeralContainerStatuses"),
             "status",
         )
-        observed.extend(_verify_pod_containers(pod_name, component, declared, statuses, expected, containers))
+        observed.extend(_verify_pod_containers(pod_name, component, declared, statuses, expected, containers, support))
 
     missing_components = sorted(set(containers) - seen_components)
     if missing_components:
@@ -264,6 +283,7 @@ def build_evidence(
         "schema_version": 2,
         "source_sha": source_sha,
         "expected_images": {name: f"{image['root']}@{image['digest']}" for name, image in expected.items()},
+        "support_images": {name: f"{image['root']}@{image['digest']}" for name, image in support.items()},
         "running_containers": observed,
     }
 
@@ -283,11 +303,12 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--source-sha")
     parser.add_argument("--expected-image", action="append", default=[])
+    parser.add_argument("--support-image", action="append", default=[])
     args = parser.parse_args()
 
     try:
         if args.list_deployments:
-            if args.pods_json or args.output or args.source_sha or args.expected_image:
+            if args.pods_json or args.output or args.source_sha or args.expected_image or args.support_image:
                 parser.error("--list-deployments cannot be combined with evidence arguments")
             for deployment in release_deployments(model_broker_enabled=args.model_broker_enabled == "true"):
                 print(deployment)
@@ -297,7 +318,11 @@ def main() -> int:
         pods = json.loads(args.pods_json.read_text(encoding="utf-8"))
         expected = parse_expected_images(args.expected_image)
         evidence = build_evidence(
-            pods, expected, source_sha=args.source_sha, model_broker_enabled=args.model_broker_enabled == "true"
+            pods,
+            expected,
+            source_sha=args.source_sha,
+            model_broker_enabled=args.model_broker_enabled == "true",
+            support=parse_support_images(args.support_image),
         )
         _write_private_json(args.output, evidence)
     except (OSError, ValueError, json.JSONDecodeError) as exc:

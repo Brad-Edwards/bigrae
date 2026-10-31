@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from bootstrap_core import get_repo_root, info, success, warn
@@ -104,6 +104,30 @@ def wait_for_rollouts(
         sleep(5)
 
 
+# Pinned third-party containers that the chart adds to release workloads (#2698).
+_SUPPORT_CONTAINERS = ("cloud-sql-proxy",)
+
+
+def release_support_images(documents: Sequence[Mapping[str, object]]) -> dict[str, str]:
+    """Return the one pinned image of each support container in the rendered release Deployments.
+
+    The running image check accepts a support container only at this reference,
+    so it comes from the verified release chart, never from the running pods.
+    """
+    found: dict[str, set[str]] = {}
+    for document in documents:
+        metadata = document.get("metadata") or {}
+        if document.get("kind") != "Deployment" or metadata.get("namespace") != PLATFORM_NAMESPACE:  # type: ignore[union-attr]
+            continue
+        pod = document["spec"]["template"]["spec"]  # type: ignore[index]
+        for container in [*pod.get("initContainers", []), *pod.get("containers", [])]:
+            if container.get("name") in _SUPPORT_CONTAINERS:
+                found.setdefault(str(container["name"]), set()).add(str(container.get("image", "")))
+    if any(len(images) != 1 for images in found.values()):
+        raise RolloutError("the release declares more than one image for a support container")
+    return {name: images.pop() for name, images in found.items()}
+
+
 def record_running_images(
     runner: ProcessRunner,
     env: Mapping[str, str | None],
@@ -112,6 +136,7 @@ def record_running_images(
     model_broker_enabled: bool,
     evidence: EvidenceRun,
     workdir: Path,
+    support_images: Mapping[str, str] | None = None,
 ) -> EvidenceRecord:
     """Verify every running image against the approved digests and store the evidence."""
     directory = private_workdir(workdir / "running-images")
@@ -138,6 +163,11 @@ def record_running_images(
                 f"guacd={identities['guacd']}",
                 "--expected-image",
                 f"guacamole-client={identities['guacamole-client']}",
+                *[
+                    argument
+                    for name, image in sorted((support_images or {}).items())
+                    for argument in ("--support-image", f"{name}={image}")
+                ],
             ),
             env=env,
         )
