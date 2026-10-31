@@ -115,7 +115,7 @@ rdsIam:
 
 openfga:
   enabled: false
-  image: "openfga/openfga@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38"
+  image: "docker.io/openfga/openfga@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38"
   replicas: 2
   hostname: openfga.shifter-platform.svc.cluster.local
   storeId: ""

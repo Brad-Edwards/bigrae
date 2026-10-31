@@ -134,6 +134,10 @@ base range images and carries the OpenFGA authorization model. The first deploy
 generates the OpenFGA credentials, publishes the model, and creates the first
 administrator from the configured operator account. A tenant platform creates no
 image-build infrastructure; only maintainer build environments opt in.
+After each rollout, the deploy checks the image of every running platform
+container (#2698). Release containers must run the release images. The OpenFGA
+servers and the Cloud SQL proxy sidecars must run the images that the release
+chart pins.
 
 | Boundary | GCP | AWS |
 | --- | --- | --- |

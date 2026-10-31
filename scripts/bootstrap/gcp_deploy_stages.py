@@ -398,13 +398,15 @@ def _finish_rollout(
     pool: object,
     pki_changed: bool,
     broker_enabled: bool,
+    documents: list[dict[str, object]],
 ) -> None:
     """Restart and wait for the workloads, roll the VPN pool, and record the running images."""
     from gcp_openvpn import roll_out_pool
-    from gcp_rollout import record_running_images, restart_workloads, wait_for_rollouts
+    from gcp_rollout import ReleasePins, record_running_images, restart_workloads, wait_for_rollouts
 
+    pins = ReleasePins.from_documents(documents)
     restart_workloads(runner, {}, model_broker_enabled=broker_enabled)
-    wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled)
+    wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled, policy_enabled=pins.policy is not None)
     if pool:
         roll_out_pool(
             runner,
@@ -421,6 +423,7 @@ def _finish_rollout(
         model_broker_enabled=broker_enabled,
         evidence=request.evidence,
         workdir=inputs.workdir,
+        pins=pins,
     )
 
 
@@ -526,7 +529,15 @@ def rollout_stage(
             remove_retired_objects(runner, {})
             if policy_enabled and not cutover.required:
                 restart_policy_clients(runner)
-        _finish_rollout(runner, inputs, request, pool=pool, pki_changed=pki_changed, broker_enabled=broker_enabled)
+        _finish_rollout(
+            runner,
+            inputs,
+            request,
+            pool=pool,
+            pki_changed=pki_changed,
+            broker_enabled=broker_enabled,
+            documents=release.documents,
+        )
         wait_for_ingress_address(runner, {})
         active = wait_for_certificate(
             runner, {}, hostname=inputs.public_hostname, require_active=not request.first_install

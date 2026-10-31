@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from bootstrap_core import get_repo_root, info, success, warn
@@ -40,8 +41,8 @@ class RolloutError(RuntimeError):
     """A rollout check failed after the Helm upgrade."""
 
 
-def _broker_flag(enabled: bool) -> str:
-    """Return the command-line text of the model broker flag."""
+def _bool_flag(enabled: bool) -> str:
+    """Return the command-line text of a true/false verifier flag."""
     return "true" if enabled else "false"
 
 
@@ -53,7 +54,7 @@ def restart_workloads(runner: ProcessRunner, env: Mapping[str, str | None], *, m
 
 
 def release_deployments(
-    runner: ProcessRunner, env: Mapping[str, str | None], *, model_broker_enabled: bool
+    runner: ProcessRunner, env: Mapping[str, str | None], *, model_broker_enabled: bool, policy_enabled: bool = False
 ) -> list[str]:
     """Return the closed release Deployment inventory from the running-image verifier."""
     result = runner.run(
@@ -62,7 +63,9 @@ def release_deployments(
             "verify_running_image_ids",
             "--list-deployments",
             "--model-broker-enabled",
-            _broker_flag(model_broker_enabled),
+            _bool_flag(model_broker_enabled),
+            "--policy-enabled",
+            _bool_flag(policy_enabled),
         ),
         env=env,
     )
@@ -77,12 +80,15 @@ def wait_for_rollouts(
     env: Mapping[str, str | None],
     *,
     model_broker_enabled: bool,
+    policy_enabled: bool = False,
     terminating_timeout_seconds: int = 300,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> None:
     """Wait for every release Deployment and for superseded pods to finish terminating."""
-    for deployment in release_deployments(runner, env, model_broker_enabled=model_broker_enabled):
+    for deployment in release_deployments(
+        runner, env, model_broker_enabled=model_broker_enabled, policy_enabled=policy_enabled
+    ):
         runner.run(
             ["kubectl", "rollout", "status", f"deployment/{deployment}", "-n", PLATFORM_NAMESPACE, "--timeout=15m"],
             env=env,
@@ -104,6 +110,51 @@ def wait_for_rollouts(
         sleep(5)
 
 
+# Chart-pinned containers in the rendered release Deployments (#2698): the
+# support sidecars and the OpenFGA policy servers.
+_SUPPORT_CONTAINERS = ("cloud-sql-proxy",)
+_POLICY_DEPLOYMENTS = ("openfga", "openfga-admin")
+
+
+def _pinned_images(
+    documents: Sequence[Mapping[str, object]], container_names: tuple[str, ...], deployments: tuple[str, ...] = ()
+) -> dict[str, str]:
+    """Return the one image of each named container in the rendered platform Deployments."""
+    found: dict[str, set[str]] = {}
+    for document in documents:
+        metadata = document.get("metadata") or {}
+        namespace = metadata.get("namespace")  # type: ignore[union-attr]
+        if document.get("kind") != "Deployment" or namespace != PLATFORM_NAMESPACE:
+            continue
+        if deployments and metadata.get("name") not in deployments:  # type: ignore[union-attr]
+            continue
+        pod = document["spec"]["template"]["spec"]  # type: ignore[index]
+        for container in [*pod.get("initContainers", []), *pod.get("containers", [])]:
+            if container.get("name") in container_names:
+                found.setdefault(str(container["name"]), set()).add(str(container.get("image", "")))
+    if any(len(images) != 1 for images in found.values()):
+        raise RolloutError("the release declares more than one image for a pinned container")
+    return {name: images.pop() for name, images in found.items()}
+
+
+@dataclass(frozen=True)
+class ReleasePins:
+    """The chart-pinned images of the rendered release that are not release images (#2698).
+
+    The running image check accepts these containers only at these references,
+    so they come from the verified release chart, never from the running pods.
+    """
+
+    support: Mapping[str, str] = field(default_factory=dict)
+    policy: str | None = None
+
+    @classmethod
+    def from_documents(cls, documents: Sequence[Mapping[str, object]]) -> ReleasePins:
+        """Read the support sidecar images and the OpenFGA image from the rendered release Deployments."""
+        policy = _pinned_images(documents, ("openfga",), _POLICY_DEPLOYMENTS).get("openfga")
+        return cls(support=_pinned_images(documents, _SUPPORT_CONTAINERS), policy=policy)
+
+
 def record_running_images(
     runner: ProcessRunner,
     env: Mapping[str, str | None],
@@ -112,8 +163,10 @@ def record_running_images(
     model_broker_enabled: bool,
     evidence: EvidenceRun,
     workdir: Path,
+    pins: ReleasePins | None = None,
 ) -> EvidenceRecord:
     """Verify every running image against the approved digests and store the evidence."""
+    pins = pins or ReleasePins()
     directory = private_workdir(workdir / "running-images")
     pods = runner.run(["kubectl", "get", "pods", "-n", PLATFORM_NAMESPACE, "-o", "json"], env=env).stdout
     pods_file = write_private_file(directory / "running-pods.json", pods)
@@ -125,7 +178,7 @@ def record_running_images(
                 get_repo_root(),
                 "verify_running_image_ids",
                 "--model-broker-enabled",
-                _broker_flag(model_broker_enabled),
+                _bool_flag(model_broker_enabled),
                 "--pods-json",
                 str(pods_file),
                 "--output",
@@ -138,6 +191,14 @@ def record_running_images(
                 f"guacd={identities['guacd']}",
                 "--expected-image",
                 f"guacamole-client={identities['guacamole-client']}",
+                *[
+                    argument
+                    for name, image in sorted(pins.support.items())
+                    for argument in ("--support-image", f"{name}={image}")
+                ],
+                "--policy-enabled",
+                _bool_flag(pins.policy is not None),
+                *(["--expected-image", f"openfga={pins.policy}"] if pins.policy else []),
             ),
             env=env,
         )
