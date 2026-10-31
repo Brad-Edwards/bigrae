@@ -117,7 +117,8 @@ def release_support_images(documents: Sequence[Mapping[str, object]]) -> dict[st
     found: dict[str, set[str]] = {}
     for document in documents:
         metadata = document.get("metadata") or {}
-        if document.get("kind") != "Deployment" or metadata.get("namespace") != PLATFORM_NAMESPACE:  # type: ignore[union-attr]
+        namespace = metadata.get("namespace")  # type: ignore[union-attr]
+        if document.get("kind") != "Deployment" or namespace != PLATFORM_NAMESPACE:
             continue
         pod = document["spec"]["template"]["spec"]  # type: ignore[index]
         for container in [*pod.get("initContainers", []), *pod.get("containers", [])]:
