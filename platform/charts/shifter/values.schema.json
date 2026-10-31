@@ -31,6 +31,37 @@
     "edge"
   ],
   "properties": {
+    "rdsIam": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "databaseUsers": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "portal": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,62}$"
+            },
+            "workers": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,62}$"
+            },
+            "ctf-scheduler": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,62}$"
+            },
+            "provisioner-launcher": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_]{0,62}$"
+            }
+          }
+        }
+      }
+    },
     "openfga": {
       "type": "object",
       "additionalProperties": false,
@@ -161,6 +192,79 @@
               "type": "object",
               "additionalProperties": {
                 "type": "string"
+              }
+            }
+          }
+        },
+        "passwordDatastore": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "host": {
+              "type": "string",
+              "pattern": "^$|^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$"
+            },
+            "caBundleB64": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9+/=]*$"
+            },
+            "secretArns": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "runtime": {
+                  "type": "string",
+                  "pattern": "^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$"
+                },
+                "admin": {
+                  "type": "string",
+                  "pattern": "^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$"
+                },
+                "migrator": {
+                  "type": "string",
+                  "pattern": "^arn:aws:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$"
+                }
+              }
+            },
+            "credentialRefresh": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "string",
+                  "minLength": 9
+                },
+                "resources": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "requests",
+                    "limits"
+                  ],
+                  "properties": {
+                    "requests": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": [
+                          "string",
+                          "number"
+                        ]
+                      }
+                    },
+                    "limits": {
+                      "type": "object",
+                      "additionalProperties": {
+                        "type": [
+                          "string",
+                          "number"
+                        ]
+                      }
+                    }
+                  }
+                }
               }
             }
           }
@@ -568,7 +672,7 @@
           "required": ["annotations", "backendConfig"],
           "properties": {
             "annotations": { "$ref": "#/$defs/annotations" },
-            "backendConfig": { "$ref": "#/$defs/portalBackendConfig" }
+            "backendConfig": { "$ref": "#/$defs/backendConfig" }
           }
         },
         "guacamoleClient": {
@@ -1130,21 +1234,6 @@
       }
     },
     "backendConfig": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "name", "securityPolicyName", "timeoutSec", "connectionDraining"],
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "name": { "$ref": "#/$defs/dnsLabel" },
-        "securityPolicyName": {
-          "type": "string",
-          "pattern": "^(?:|[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)$"
-        },
-        "timeoutSec": { "type": "integer", "minimum": 30, "maximum": 86400 },
-        "connectionDraining": { "$ref": "#/$defs/connectionDraining" }
-      }
-    },
-    "portalBackendConfig": {
       "type": "object",
       "additionalProperties": false,
       "required": [

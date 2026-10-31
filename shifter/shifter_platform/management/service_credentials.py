@@ -2,7 +2,6 @@
 
 from uuid import UUID
 
-from django.conf import settings
 from django.db import transaction
 
 from shared.api_tokens.scopes import credential_ceiling, validate_scopes
@@ -10,6 +9,7 @@ from shared.audit import AuditAction, AuditEntityType, AuditEvent, audit_log, pr
 from shared.authorization import AuthorizationRequest, TargetRef, configured_authorization_provider
 from shared.credentials import CredentialContext, resolve_current_credential, resolve_local_credential
 from shared.identity_scope import ResourceScope
+from shared.service_proof import service_proof_profile
 
 from .models import Principal, ProviderBinding, ServiceCredentialAdmission
 from .principals import bind_principal_provider_identity, create_service_principal, resolve_principal
@@ -68,12 +68,12 @@ def create_service_credential(
     """Create an independent identity and immutable native admission, without grants."""
     actor = _authorize(actor)
     normalized = validate_scopes(scopes)
-    audience = getattr(settings, "GCP_SERVICE_TOKEN_AUDIENCE", "")
+    profile = service_proof_profile()
+    audience = profile.audience
     if (
         not audience.startswith("https://")
-        or not subject.isascii()
-        or not subject.isdecimal()
-        or not 10 <= len(subject) <= 32
+        or not profile.issuer.startswith("https://")
+        or not profile.subject_valid(subject)
         or any(not credential_ceiling([scope]).actions for scope in normalized)
     ):
         raise ValueError("Invalid service admission")
@@ -86,10 +86,8 @@ def create_service_credential(
             from shared.identity_scope import PrincipalRef
 
             principal = resolve_principal(PrincipalRef(principal_uuid, "service"))
-        bind_principal_provider_identity(principal, "https://accounts.google.com", subject, actor=actor.principal)
-        binding = ProviderBinding.objects.get(
-            principal__uuid=principal.uuid, issuer="https://accounts.google.com", subject=subject
-        )
+        bind_principal_provider_identity(principal, profile.issuer, subject, actor=actor.principal)
+        binding = ProviderBinding.objects.get(principal__uuid=principal.uuid, issuer=profile.issuer, subject=subject)
         admission = ServiceCredentialAdmission.objects.create(binding=binding, audience=audience, scopes=normalized)
         audit_log(
             AuditEvent(

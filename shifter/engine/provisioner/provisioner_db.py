@@ -23,6 +23,7 @@ from typing import Any
 
 import psycopg
 from psycopg import sql
+from shared.aws_database_duties import rds_ca_path
 from shared.enums import ResourceStatus
 
 from config import has_ngfw_attachment_state
@@ -70,6 +71,21 @@ def _connect_cloud_sql_proxy(
         sslmode="disable",
         connect_timeout=10,
     )
+
+
+def _rds_tls_options() -> dict[str, str]:
+    """Return verify-full TLS options with the deployment-supplied RDS CA bundle.
+
+    The renderer publishes the region's public RDS CA bundle as base64 runtime
+    configuration. Encryption without certificate and host-name checks does not
+    prove the server identity, so a missing or malformed bundle refuses (#2313).
+    """
+    if os.environ.get("DB_SSLMODE", "").strip() != "verify-full":
+        raise RuntimeError("RDS connections require verify-full TLS and the RDS CA bundle")
+    try:
+        return {"sslmode": "verify-full", "sslrootcert": rds_ca_path()}
+    except ValueError as invalid:
+        raise RuntimeError(str(invalid)) from None
 
 
 def get_db_connection() -> psycopg.Connection:
@@ -133,6 +149,8 @@ def get_db_connection() -> psycopg.Connection:
     assert db_user is not None
     from cloud import get_db_auth
 
+    # AWS RDS verifies the server identity with the published RDS CA bundle.
+    tls = _rds_tls_options() if os.environ.get("CLOUD_PROVIDER") == "aws" else {"sslmode": "require"}
     auth = get_db_auth()
     token = auth.generate_auth_token(
         hostname=db_host,
@@ -145,7 +163,8 @@ def get_db_connection() -> psycopg.Connection:
         dbname=db_name,
         user=db_user,
         password=token,
-        sslmode="require",
+        sslmode=tls["sslmode"],
+        sslrootcert=tls.get("sslrootcert"),
     )
 
 

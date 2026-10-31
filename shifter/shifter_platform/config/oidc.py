@@ -118,6 +118,7 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
         # every hook below fails closed when it is absent.
         self._verified_issuer: str | None = None
         self._verified_subject: str | None = None
+        self._verified_auth_time: int | None = None
         self._last_verified_identity: VerifiedIdentity | None = None
 
     def get_user(self, user_id: int) -> Any:
@@ -154,6 +155,24 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
         if not expected_issuer or not issuer or issuer != expected_issuer:
             raise SuspiciousOperation("OIDC ID token issuer does not match the expected issuer")
 
+        self._require_client_binding(payload)
+
+        subject = payload.get("sub")
+        if not subject:
+            raise SuspiciousOperation("OIDC ID token is missing a subject")
+
+        # Session assurance measures the absolute limit from authentication time.
+        auth_time = payload.get("auth_time")
+        if type(auth_time) is not int or auth_time < 0:
+            raise SuspiciousOperation("OIDC ID token is missing an authentication time")
+
+        self._verified_issuer = issuer
+        self._verified_subject = subject
+        self._verified_auth_time = auth_time
+        return payload
+
+    def _require_client_binding(self, payload: dict[str, Any]) -> None:
+        """Require this deployment's client as an audience and as any authorized party."""
         client_id = self.OIDC_RP_CLIENT_ID
         audience = payload.get("aud")
         audience_values = audience if isinstance(audience, list) else [audience]
@@ -163,14 +182,6 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
         authorized_party = payload.get("azp")
         if authorized_party is not None and authorized_party != client_id:
             raise SuspiciousOperation("OIDC ID token authorized party does not match the configured client")
-
-        subject = payload.get("sub")
-        if not subject:
-            raise SuspiciousOperation("OIDC ID token is missing a subject")
-
-        self._verified_issuer = issuer
-        self._verified_subject = subject
-        return payload
 
     def verify_claims(self, claims: dict[str, Any]) -> bool:
         """Require present email/sub and a verified email.
@@ -316,6 +327,13 @@ class ShifterOIDCBackend(OIDCAuthenticationBackend):
 
             if self._last_verified_identity is not None:
                 attach_fresh_verified_identity(request, self._last_verified_identity)
+            if request is not None and self._verified_auth_time is not None:
+                # The login signal stores only this verified evidence, never the token.
+                request.verified_session_claims = {  # type: ignore[attr-defined]
+                    "iss": self._verified_issuer,
+                    "sub": self._verified_subject,
+                    "auth_time": self._verified_auth_time,
+                }
             # Successful authentication
             audit_auth_event(
                 action=AuditAction.LOGIN,

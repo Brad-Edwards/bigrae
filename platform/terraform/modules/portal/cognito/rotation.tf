@@ -23,19 +23,28 @@ resource "aws_cloudwatch_log_group" "rotation" {
   tags = merge(var.tags, { Name = "${var.name_prefix}-cognito-rotation-logs" })
 }
 
+module "rotation_package" {
+  source = "../../lambda-signed-package"
+
+  signing      = var.lambda_code_signing
+  name         = "cognito-rotation"
+  package_path = data.archive_file.rotation.output_path
+}
+
+# Deploys only code that the portal root's Signer profile signed (#2313).
 resource "aws_lambda_function" "rotation" {
   # checkov:skip=CKV_AWS_115:Reserved concurrency unnecessary; invoked on demand by an operator.
   # checkov:skip=CKV_AWS_116:DLQ does not apply to a synchronous operator-invoked function.
   # checkov:skip=CKV_AWS_117:Calls only public AWS APIs (Cognito, Secrets Manager, Auto Scaling); a VPC config needs interface endpoints for no security gain.
   # checkov:skip=CKV_AWS_173:Env vars are non-sensitive (secret ARN reference, ASG name); the client secret is read from Secrets Manager, never an env var.
-  # checkov:skip=CKV_AWS_272:Lambda code signing requires CodeArtifact + Signer; out of scope (ADR-004-R11 #757).
-  function_name    = "${var.name_prefix}-cognito-rotation"
-  filename         = data.archive_file.rotation.output_path
-  source_code_hash = data.archive_file.rotation.output_base64sha256
-  handler          = "cognito_rotation.handler"
-  runtime          = "python3.12"
-  timeout          = 120
-  memory_size      = 128
+  function_name           = "${var.name_prefix}-cognito-rotation"
+  s3_bucket               = module.rotation_package.s3_bucket
+  s3_key                  = module.rotation_package.s3_key
+  code_signing_config_arn = module.rotation_package.code_signing_config_arn
+  handler                 = "cognito_rotation.handler"
+  runtime                 = "python3.12"
+  timeout                 = 120
+  memory_size             = 128
 
   role = aws_iam_role.rotation.arn
 

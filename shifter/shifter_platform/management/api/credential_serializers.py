@@ -2,6 +2,7 @@
 
 from rest_framework import serializers
 
+from management.models import PROVIDER_SUBJECT_MAX_LENGTH
 from shared.api.closed_serializer import ClosedSerializer
 from shared.api_tokens.scopes import AUTHORIZATION_ACTION_SCOPES, KNOWN_SCOPES
 
@@ -76,7 +77,8 @@ class CreateServiceCredentialSerializer(ClosedSerializer):
     """Validate a closed native service admission command."""
 
     name = serializers.CharField(max_length=200)
-    subject = serializers.RegexField(r"^[0-9]{10,32}$")
+    # The configured provider profile validates the exact subject grammar.
+    subject = serializers.CharField(max_length=PROVIDER_SUBJECT_MAX_LENGTH)
     scopes = serializers.ListField(
         child=serializers.ChoiceField(choices=sorted(KNOWN_SCOPES)), min_length=1, max_length=100
     )

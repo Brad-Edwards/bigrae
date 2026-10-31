@@ -199,7 +199,14 @@ class _Handler(BaseHTTPRequestHandler):
             (self.cfg.operator_subject, self.cfg.operator_email) if hint else (self.cfg.subject, self.cfg.email)
         )
         code = secrets.token_urlsafe(24)
-        self.state.codes[code] = {"nonce": nonce, "redirect_uri": redirect_uri, "subject": subject, "email": email}
+        # The user authenticates here, so this is the ID token's auth_time, as in Cognito.
+        self.state.codes[code] = {
+            "nonce": nonce,
+            "redirect_uri": redirect_uri,
+            "subject": subject,
+            "email": email,
+            "auth_time": int(time.time()),
+        }
         sep = "&" if "?" in redirect_uri else "?"
         self._redirect(f"{redirect_uri}{sep}code={code}&state={state}")
 
@@ -249,6 +256,7 @@ class _Handler(BaseHTTPRequestHandler):
                 "email": entry["email"],
                 "email_verified": True,
                 "token_use": "id",
+                "auth_time": entry["auth_time"],
                 "iat": now,
                 "exp": now + _ID_TOKEN_TTL,
             }

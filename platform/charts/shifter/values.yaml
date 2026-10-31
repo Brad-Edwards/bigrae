@@ -106,6 +106,13 @@ cloudSqlProxy:
   databaseUsers: {}
   databaseCidrs: []
 
+# AWS (#2313): each runtime workload connects with its own RDS IAM login. The
+# renderer maps chart roles to logins; DB_HOST/DB_PORT/DB_NAME and verified TLS
+# come from the runtime ConfigMap.
+rdsIam:
+  enabled: false
+  databaseUsers: {}
+
 openfga:
   enabled: false
   image: "openfga/openfga@sha256:d53ce5c48413d01e75ecf375f3f74eb35c50f155fc028c41d03dbc7c9838fb38"
@@ -126,6 +133,25 @@ openfga:
   caConfigMapName: openfga-ca
   databaseCidrs: []
   databasePort: 5432
+  # AWS (#2313): password logins rotated in Secrets Manager. The deploy tooling
+  # creates the openfga-<duty>-datastore Secrets; the weekly refresh updates
+  # them and restarts the servers. Connections verify the RDS server identity.
+  passwordDatastore:
+    enabled: false
+    host: ""
+    caBundleB64: ""
+    secretArns: {}
+    credentialRefresh:
+      schedule: "17 3 * * 1"
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+          ephemeral-storage: 16Mi
+        limits:
+          cpu: 250m
+          memory: 256Mi
+          ephemeral-storage: 64Mi
   pools:
     minOpen: 5
     minIdle: 3
@@ -418,6 +444,14 @@ services:
       timeoutSec: 30
       connectionDraining:
         drainingTimeoutSec: 30
+      healthCheck:
+        type: HTTP
+        requestPath: /guacamole/
+        port: 8080
+        checkIntervalSec: 15
+        timeoutSec: 5
+        healthyThreshold: 1
+        unhealthyThreshold: 2
 
 network:
   enabled: true

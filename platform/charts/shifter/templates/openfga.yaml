@@ -5,6 +5,10 @@
 {{- if or (eq .Values.openfga.runtimeSecretName .Values.openfga.adminSecretName) (eq .Values.openfga.runtimeSecretName .Values.openfga.migrationSecretName) (eq .Values.openfga.adminSecretName .Values.openfga.migrationSecretName) (eq .Values.openfga.runtimeDatabaseUser .Values.openfga.adminDatabaseUser) (eq .Values.openfga.runtimeDatabaseUser .Values.openfga.migrationDatabaseUser) (eq .Values.openfga.adminDatabaseUser .Values.openfga.migrationDatabaseUser) }}
 {{- fail "OpenFGA requires distinct runtime, administration and migration secrets and distinct API database logins" }}
 {{- end }}
+{{- $password := .Values.openfga.passwordDatastore }}
+{{- if and $password.enabled (or .Values.cloudSqlProxy.enabled (empty $password.host) (empty $password.caBundleB64)) }}
+{{- fail "The OpenFGA password datastore requires an RDS host, its CA bundle and no Cloud SQL proxy" }}
+{{- end }}
 {{- if and .Values.cloudSqlProxy.enabled (or (ne .Values.openfga.runtimeDatabaseUser (get .Values.cloudSqlProxy.databaseUsers "openfga-runtime")) (ne .Values.openfga.adminDatabaseUser (get .Values.cloudSqlProxy.databaseUsers "openfga-admin")) (ne .Values.openfga.migrationDatabaseUser (get .Values.cloudSqlProxy.databaseUsers "openfga-migrator"))) }}
 {{- fail "Policy database logins must match their attached native workload identities" }}
 {{- end }}
@@ -48,6 +52,27 @@ metadata:
 data:
   openfga-duties.sql: |
     {{- .Files.Get "files/openfga-duties.sql" | nindent 4 }}
+{{- if $password.enabled }}
+{{- range $hook := list false true }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ ternary "openfga-migration-rds-ca" "openfga-rds-ca" $hook }}
+  namespace: {{ $.Values.namespaces.platform }}
+  {{- if $hook }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation
+  {{- end }}
+  labels:
+    {{- include "shifter.partOfLabels" $ | nindent 4 }}
+data:
+  ca.pem: |
+    {{- b64dec $password.caBundleB64 | nindent 4 }}
+{{- end }}
+{{- end }}
 {{- if .Values.cloudSqlProxy.enabled }}
 ---
 apiVersion: v1
@@ -188,12 +213,21 @@ spec:
                      reconciliation creates (shifter_openfga_owner), so a later deploy can
                      reconcile ownership (#2688). */}}
               value: {{ printf "postgres://%s@127.0.0.1:5432/openfga?sslmode=disable&options=-c%%20role%%3Dshifter_openfga_owner" (.Values.openfga.migrationDatabaseUser | urlquery) | quote }}
+              {{- else if $password.enabled }}
+              value: {{ printf "postgres://%s:%d/openfga?sslmode=verify-full&sslrootcert=/etc/openfga/rds-ca/ca.pem" $password.host (int .Values.openfga.databasePort) | quote }}
+            {{- include "shifter.openfgaDatastoreLogin" "openfga-migrator-datastore" | nindent 12 }}
               {{- else }}
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.openfga.migrationSecretName }}
                   key: datastore-uri
               {{- end }}
+          {{- if $password.enabled }}
+          volumeMounts:
+            - name: rds-ca
+              mountPath: /etc/openfga/rds-ca
+              readOnly: true
+          {{- end }}
           resources:
             {{- toYaml .Values.openfga.resources | nindent 12 }}
       containers:
@@ -210,10 +244,33 @@ spec:
             - "-f"
             - /etc/openfga/duties/openfga-duties.sql
           env:
+            {{- if $password.enabled }}
+            - name: PGHOST
+              value: {{ $password.host | quote }}
+            - name: PGPORT
+              value: {{ .Values.openfga.databasePort | quote }}
+            - name: PGDATABASE
+              value: openfga
+            - name: PGSSLMODE
+              value: verify-full
+            - name: PGSSLROOTCERT
+              value: /etc/openfga/rds-ca/ca.pem
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-migrator-datastore
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: openfga-migrator-datastore
+                  key: password
+            {{- else }}
             - name: PGSERVICE
               value: openfga
             - name: PGSERVICEFILE
               value: /etc/openfga/migration/pg-service.conf
+            {{- end }}
           securityContext:
             runAsUser: 999
             runAsGroup: 999
@@ -223,15 +280,26 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            {{- if $password.enabled }}
+            - name: rds-ca
+              mountPath: /etc/openfga/rds-ca
+              readOnly: true
+            {{- else }}
             - name: migration-connection
               mountPath: /etc/openfga/migration
               readOnly: true
+            {{- end }}
             - name: duties
               mountPath: /etc/openfga/duties
               readOnly: true
           resources:
             {{- toYaml .Values.openfga.resources | nindent 12 }}
       volumes:
+        {{- if $password.enabled }}
+        - name: rds-ca
+          configMap:
+            name: openfga-migration-rds-ca
+        {{- else }}
         - name: migration-connection
           {{- if .Values.cloudSqlProxy.enabled }}
           configMap:
@@ -243,10 +311,11 @@ spec:
               - key: pg-service.conf
                 path: pg-service.conf
           {{- end }}
+        {{- end }}
         - name: duties
           configMap:
             name: openfga-duties
-{{- range $server := list (dict "name" "openfga" "component" "openfga" "account" "openfga-runtime" "secret" .Values.openfga.runtimeSecretName "replicas" .Values.openfga.replicas) (dict "name" "openfga-admin" "component" "openfga-admin" "account" "openfga-admin" "secret" .Values.openfga.adminSecretName "replicas" 1) }}
+{{- range $server := list (dict "name" "openfga" "component" "openfga" "account" "openfga-runtime" "secret" .Values.openfga.runtimeSecretName "datastore" "openfga-runtime-datastore" "replicas" .Values.openfga.replicas) (dict "name" "openfga-admin" "component" "openfga-admin" "account" "openfga-admin" "secret" .Values.openfga.adminSecretName "datastore" "openfga-admin-datastore" "replicas" 1) }}
 {{- with $ }}
 ---
 apiVersion: apps/v1
@@ -305,6 +374,9 @@ spec:
             - name: OPENFGA_DATASTORE_URI
               {{- if .Values.cloudSqlProxy.enabled }}
               value: {{ printf "postgres://%s@127.0.0.1:5432/openfga?sslmode=disable" (get .Values.cloudSqlProxy.databaseUsers $server.account | urlquery) | quote }}
+              {{- else if .Values.openfga.passwordDatastore.enabled }}
+              value: {{ printf "postgres://%s:%d/openfga?sslmode=verify-full&sslrootcert=/etc/openfga/rds-ca/ca.pem" .Values.openfga.passwordDatastore.host (int .Values.openfga.databasePort) | quote }}
+            {{- include "shifter.openfgaDatastoreLogin" $server.datastore | nindent 12 }}
               {{- else }}
               valueFrom:
                 secretKeyRef:
@@ -368,9 +440,19 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.openfga.passwordDatastore.enabled }}
+            - name: rds-ca
+              mountPath: /etc/openfga/rds-ca
+              readOnly: true
+            {{- end }}
           resources:
             {{- toYaml .Values.openfga.resources | nindent 12 }}
       volumes:
+        {{- if .Values.openfga.passwordDatastore.enabled }}
+        - name: rds-ca
+          configMap:
+            name: openfga-rds-ca
+        {{- end }}
         - name: tls
           secret:
             secretName: {{ $server.secret }}

@@ -27,7 +27,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 IDENTITY_BACKEND = "config.identity_platform.IdentityPlatformBackend"
+COGNITO_BACKEND = "config.oidc.ShifterOIDCBackend"
+ASSURED_BACKENDS = frozenset({IDENTITY_BACKEND, COGNITO_BACKEND})
 ASSURANCE_KEY = "identity_assurance"
+# Cognito states whose account may keep a session. Others need a new sign-in.
+_COGNITO_ADMISSIBLE_STATUSES = frozenset({"CONFIRMED", "EXTERNAL_PROVIDER"})
 
 
 class IdentityAssurance(TypedDict):
@@ -56,6 +60,16 @@ def establish_identity_session(session: SessionBase, claims: dict[str, object], 
     }
 
 
+def _expected_provider(backend: object) -> tuple[str, str]:
+    """Return the configured issuer and tenant for one assured backend."""
+    if backend == COGNITO_BACKEND:
+        return str(getattr(settings, "OIDC_ISSUER_URL", "") or ""), ""
+    return (
+        f"https://securetoken.google.com/{settings.IDENTITY_PLATFORM_PROJECT_ID}",
+        settings.IDENTITY_PLATFORM_TENANT_ID,
+    )
+
+
 def _validated_assurance(session: SessionBase, now: float) -> IdentityAssurance:
     """Validate and narrow persisted assurance state without trusting its shape."""
     raw = session.get(ASSURANCE_KEY)
@@ -64,8 +78,8 @@ def _validated_assurance(session: SessionBase, now: float) -> IdentityAssurance:
     issuer = raw.get("issuer")
     subject = raw.get("subject")
     tenant = raw.get("tenant")
-    expected_issuer = f"https://securetoken.google.com/{settings.IDENTITY_PLATFORM_PROJECT_ID}"
-    if issuer != expected_issuer or tenant != settings.IDENTITY_PLATFORM_TENANT_ID or not isinstance(subject, str):
+    expected_issuer, expected_tenant = _expected_provider(session.get(BACKEND_SESSION_KEY))
+    if not expected_issuer or issuer != expected_issuer or tenant != expected_tenant or not isinstance(subject, str):
         raise ValueError("Identity assurance does not match provider configuration")
     times = _validated_assurance_times(raw, now)
     return {
@@ -77,6 +91,22 @@ def _validated_assurance(session: SessionBase, now: float) -> IdentityAssurance:
         "checked": times["checked"],
         "auth_time": times["auth_time"],
     }
+
+
+def establish_login_assurance(sender: object, request: HttpRequest | None, user: object, **kwargs: object) -> None:
+    """Record Cognito assurance after login rotates the session key."""
+    if request is None or request.session.get(BACKEND_SESSION_KEY) != COGNITO_BACKEND:
+        return
+    claims = getattr(request, "verified_session_claims", None)
+    if isinstance(claims, dict):
+        establish_identity_session(request.session, claims)
+
+
+def register_session_assurance_signal() -> None:
+    """Register the Cognito post-login assurance writer once."""
+    from django.contrib.auth.signals import user_logged_in
+
+    user_logged_in.connect(establish_login_assurance, dispatch_uid="config_cognito_session_assurance", weak=False)
 
 
 def _validated_assurance_times(raw: dict[str, object], now: float) -> dict[str, float]:
@@ -93,8 +123,11 @@ def _validated_assurance_times(raw: dict[str, object], now: float) -> dict[str, 
     return times
 
 
-def _recheck_provider_state(state: IdentityAssurance) -> None:
+def _recheck_provider_state(state: IdentityAssurance, backend: object) -> None:
     """Require the provider account to remain enabled, verified, and unrevoked."""
+    if backend == COGNITO_BACKEND:
+        _recheck_cognito_state(state)
+        return
     from config.identity_platform import provider_user_state
 
     record = provider_user_state(state["subject"])
@@ -102,6 +135,24 @@ def _recheck_provider_state(state: IdentityAssurance) -> None:
         raise ValueError("Provider identity is inactive")
     if record.tokens_valid_after_timestamp / 1000 > state["auth_time"]:
         raise ValueError("Provider identity was revoked")
+
+
+def _recheck_cognito_state(state: IdentityAssurance) -> None:
+    """Require an enabled, confirmed, verified Cognito user with the bound subject.
+
+    Cognito publishes no revocation timestamp. A global sign-out made only in
+    Cognito therefore ends the session at the absolute limit (ADR-066).
+    """
+    from config import cognito_directory
+
+    record = cognito_directory.provider_user_state(state["issuer"], state["subject"])
+    if (
+        not record.enabled
+        or record.status not in _COGNITO_ADMISSIBLE_STATUSES
+        or not record.email_verified
+        or record.subject != state["subject"]
+    ):
+        raise ValueError("Provider identity is inactive")
 
 
 def _identity_session_valid(
@@ -119,7 +170,7 @@ def _identity_session_valid(
         if not resolve_user_by_provider_identity(state["issuer"], state["subject"]).filter(pk=user.pk).exists():
             raise ValueError("Provider identity binding is unavailable")
         if provider_check and now - state["checked"] >= settings.IDENTITY_SESSION_RECHECK_SECONDS:
-            _recheck_provider_state(state)
+            _recheck_provider_state(state, session.get(BACKEND_SESSION_KEY))
             state["checked"] = now
         if touch:
             state["seen"] = now
@@ -152,7 +203,7 @@ def validate_session(
             principal_for_user(user)
         except PrincipalResolutionError:
             valid = False
-        if valid and session.get(BACKEND_SESSION_KEY) == IDENTITY_BACKEND:
+        if valid and session.get(BACKEND_SESSION_KEY) in ASSURED_BACKENDS:
             valid = _identity_session_valid(
                 user, session, time.time() if now is None else now, touch=touch, provider_check=provider_check
             )
