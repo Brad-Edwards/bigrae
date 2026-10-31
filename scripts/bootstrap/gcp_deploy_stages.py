@@ -402,17 +402,11 @@ def _finish_rollout(
 ) -> None:
     """Restart and wait for the workloads, roll the VPN pool, and record the running images."""
     from gcp_openvpn import roll_out_pool
-    from gcp_rollout import (
-        record_running_images,
-        release_policy_image,
-        release_support_images,
-        restart_workloads,
-        wait_for_rollouts,
-    )
+    from gcp_rollout import ReleasePins, record_running_images, restart_workloads, wait_for_rollouts
 
-    policy_image = release_policy_image(documents)
+    pins = ReleasePins.from_documents(documents)
     restart_workloads(runner, {}, model_broker_enabled=broker_enabled)
-    wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled, policy_enabled=policy_image is not None)
+    wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled, policy_enabled=pins.policy is not None)
     if pool:
         roll_out_pool(
             runner,
@@ -429,8 +423,7 @@ def _finish_rollout(
         model_broker_enabled=broker_enabled,
         evidence=request.evidence,
         workdir=inputs.workdir,
-        support_images=release_support_images(documents),
-        policy_image=policy_image,
+        pins=pins,
     )
 
 

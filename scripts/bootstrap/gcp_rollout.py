@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from bootstrap_core import get_repo_root, info, success, warn
@@ -136,18 +137,22 @@ def _pinned_images(
     return {name: images.pop() for name, images in found.items()}
 
 
-def release_support_images(documents: Sequence[Mapping[str, object]]) -> dict[str, str]:
-    """Return the one pinned image of each support container in the rendered release Deployments.
+@dataclass(frozen=True)
+class ReleasePins:
+    """The chart-pinned images of the rendered release that are not release images (#2698).
 
-    The running image check accepts a support container only at this reference,
-    so it comes from the verified release chart, never from the running pods.
+    The running image check accepts these containers only at these references,
+    so they come from the verified release chart, never from the running pods.
     """
-    return _pinned_images(documents, _SUPPORT_CONTAINERS)
 
+    support: Mapping[str, str] = field(default_factory=dict)
+    policy: str | None = None
 
-def release_policy_image(documents: Sequence[Mapping[str, object]]) -> str | None:
-    """Return the pinned OpenFGA image of the rendered release, or None when it has no policy servers."""
-    return _pinned_images(documents, ("openfga",), _POLICY_DEPLOYMENTS).get("openfga")
+    @classmethod
+    def from_documents(cls, documents: Sequence[Mapping[str, object]]) -> ReleasePins:
+        """Read the support sidecar images and the OpenFGA image from the rendered release Deployments."""
+        policy = _pinned_images(documents, ("openfga",), _POLICY_DEPLOYMENTS).get("openfga")
+        return cls(support=_pinned_images(documents, _SUPPORT_CONTAINERS), policy=policy)
 
 
 def record_running_images(
@@ -158,10 +163,10 @@ def record_running_images(
     model_broker_enabled: bool,
     evidence: EvidenceRun,
     workdir: Path,
-    support_images: Mapping[str, str] | None = None,
-    policy_image: str | None = None,
+    pins: ReleasePins | None = None,
 ) -> EvidenceRecord:
     """Verify every running image against the approved digests and store the evidence."""
+    pins = pins or ReleasePins()
     directory = private_workdir(workdir / "running-images")
     pods = runner.run(["kubectl", "get", "pods", "-n", PLATFORM_NAMESPACE, "-o", "json"], env=env).stdout
     pods_file = write_private_file(directory / "running-pods.json", pods)
@@ -188,12 +193,12 @@ def record_running_images(
                 f"guacamole-client={identities['guacamole-client']}",
                 *[
                     argument
-                    for name, image in sorted((support_images or {}).items())
+                    for name, image in sorted(pins.support.items())
                     for argument in ("--support-image", f"{name}={image}")
                 ],
                 "--policy-enabled",
-                _bool_flag(policy_image is not None),
-                *(["--expected-image", f"openfga={policy_image}"] if policy_image else []),
+                _bool_flag(pins.policy is not None),
+                *(["--expected-image", f"openfga={pins.policy}"] if pins.policy else []),
             ),
             env=env,
         )

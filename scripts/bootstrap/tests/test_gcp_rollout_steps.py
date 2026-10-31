@@ -31,11 +31,10 @@ from gcp_inputs import load_deployment_inputs
 from gcp_openvpn import OpenVpnError, ensure_pki, pool_output, roll_out_pool
 from gcp_process import GcpCommandError, ProcessResult
 from gcp_rollout import (
+    ReleasePins,
     RolloutError,
     record_running_images,
     release_deployments,
-    release_policy_image,
-    release_support_images,
     restart_workloads,
     wait_for_certificate,
     wait_for_ingress_address,
@@ -270,7 +269,7 @@ class TestRolloutChecks:
             model_broker_enabled=False,
             evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 2),
             workdir=tmp_path,
-            support_images={"cloud-sql-proxy": proxy},
+            pins=ReleasePins(support={"cloud-sql-proxy": proxy}),
         )
         verify = [call.argv for call in runner.calls if "--expected-image" in call.argv][-1]
         assert verify[verify.index("--support-image") + 1] == f"cloud-sql-proxy={proxy}"
@@ -298,14 +297,14 @@ class TestRolloutChecks:
             }
 
         documents = [deployment("portal-web", proxy), deployment("worker-cms", proxy), {"kind": "Service"}]
-        assert release_support_images(documents) == {"cloud-sql-proxy": proxy}
-        assert release_support_images([{"kind": "Service", "metadata": {}}]) == {}
+        assert ReleasePins.from_documents(documents).support == {"cloud-sql-proxy": proxy}
+        assert ReleasePins.from_documents([{"kind": "Service", "metadata": {}}]) == ReleasePins()
         # Another namespace is outside the verified release boundary.
-        assert release_support_images([deployment("x", proxy + "0", namespace="other"), *documents]) == {
+        assert ReleasePins.from_documents([deployment("x", proxy + "0", namespace="other"), *documents]).support == {
             "cloud-sql-proxy": proxy
         }
         with pytest.raises(RolloutError, match="more than one image"):
-            release_support_images([*documents, deployment("worker-mc", proxy.replace("4", "5"))])
+            ReleasePins.from_documents([*documents, deployment("worker-mc", proxy.replace("4", "5"))])
 
     def test_policy_image_comes_from_the_rendered_policy_servers(self, tmp_path: Path):
         """#2698: the OpenFGA servers join the running image check at their pinned image."""
@@ -318,8 +317,8 @@ class TestRolloutChecks:
                 "spec": {"template": {"spec": {"containers": [{"name": "openfga", "image": image}]}}},
             }
 
-        assert release_policy_image([server("openfga"), server("openfga-admin")]) == image
-        assert release_policy_image([{"kind": "Service", "metadata": {}}]) is None
+        assert ReleasePins.from_documents([server("openfga"), server("openfga-admin")]).policy == image
+        assert ReleasePins.from_documents([{"kind": "Service", "metadata": {}}]).policy is None
 
         def verifier(argv, env, stdin):
             if "--output" in argv:
@@ -334,7 +333,7 @@ class TestRolloutChecks:
             model_broker_enabled=False,
             evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 3),
             workdir=tmp_path,
-            policy_image=image,
+            pins=ReleasePins(policy=image),
         )
         verify = next(call.argv for call in runner.calls if "--expected-image" in call.argv)
         assert verify[verify.index("--policy-enabled") + 1] == "true"
