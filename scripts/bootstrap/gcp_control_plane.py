@@ -48,7 +48,6 @@ from gdc_cluster import (
 )
 
 _GUACAMOLE_RUNTIME_RESOURCE_NAME = "guacamole-runtime"
-_GCP_MIGRATION_JOB_REF = "job/platform-migrate"
 _GCP_MIGRATION_TMP_DIR = "/var/run/shifter-migrate"
 _K8S_COMPONENT_LABEL = "app.kubernetes.io/component"
 _K8S_PART_OF_LABEL = "app.kubernetes.io/part-of"
@@ -920,9 +919,13 @@ def _gcp_migration_prerequisites(
 
 
 def render_gcp_migration_manifests(
-    outputs: dict[str, dict[str, object]], values: Mapping[str, object]
+    outputs: dict[str, dict[str, object]], values: Mapping[str, object], *, duties_only: bool = False
 ) -> tuple[dict[str, object], dict[str, object]]:
-    """Render Helm-owned prerequisites and the one-off schema migration Job."""
+    """Render Helm-owned prerequisites and the one-off schema migration Job.
+
+    ``duties_only`` renders the ``platform-duties`` Job, which reconciles the
+    SQL duties without a schema migration (#2704).
+    """
     runtime_env = values.get("runtimeEnv")
     images = values.get("images")
     if not isinstance(runtime_env, Mapping) or not isinstance(images, Mapping):
@@ -954,15 +957,21 @@ def render_gcp_migration_manifests(
     return prerequisites, render_migration_job(
         platform_image,
         instance_connection_name=instance,
+        job_name="platform-duties" if duties_only else "platform-migrate",
+        duties_only=duties_only,
     )
 
 
 def run_gcp_database_migrations(
-    outputs: dict[str, dict[str, object]], values_path: Path, *, dry_run: bool = False
+    outputs: dict[str, dict[str, object]], values_path: Path, *, dry_run: bool = False, duties_only: bool = False
 ) -> None:
-    """Run migrations under the dedicated GCP Workload Identity and DB owner."""
+    """Run migrations under the dedicated GCP Workload Identity and DB owner.
+
+    ``duties_only`` reconciles only the SQL duties, with no schema migration.
+    """
     values = json.loads(values_path.read_text(encoding="utf-8"))
-    prerequisites, job = render_gcp_migration_manifests(outputs, values)
+    prerequisites, job = render_gcp_migration_manifests(outputs, values, duties_only=duties_only)
+    job_ref = f"job/{job['metadata']['name']}"  # type: ignore[index]
     if dry_run:
         info("[DRY-RUN] Would run the dedicated GCP database migration Job")
         return
@@ -971,7 +980,7 @@ def run_gcp_database_migrations(
         [
             "kubectl",
             "delete",
-            _GCP_MIGRATION_JOB_REF,
+            job_ref,
             "--namespace",
             "shifter-platform",
             "--ignore-not-found",
@@ -1002,7 +1011,7 @@ def run_gcp_database_migrations(
                 "kubectl",
                 "wait",
                 "--for=condition=complete",
-                _GCP_MIGRATION_JOB_REF,
+                job_ref,
                 "--namespace",
                 "shifter-platform",
                 "--timeout=15m",
@@ -1012,7 +1021,7 @@ def run_gcp_database_migrations(
             check=False,
         )
         logs = subprocess.run(  # nosec B603 B607
-            ["kubectl", "logs", _GCP_MIGRATION_JOB_REF, "--namespace", "shifter-platform", "--all-containers=true"],
+            ["kubectl", "logs", job_ref, "--namespace", "shifter-platform", "--all-containers=true"],
             capture_output=True,
             text=True,
             check=False,
@@ -1040,7 +1049,7 @@ def run_gcp_database_migrations(
             [
                 "kubectl",
                 "delete",
-                _GCP_MIGRATION_JOB_REF,
+                job_ref,
                 "--namespace",
                 "shifter-platform",
                 "--ignore-not-found",
