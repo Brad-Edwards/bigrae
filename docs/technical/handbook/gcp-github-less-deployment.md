@@ -524,7 +524,7 @@ The command runs these stages in order:
 | Stage | Identity | Steps |
 | --- | --- | --- |
 | Inputs | Your identity, then deploy | Load and validate the bundle, check the tooling revision, verify the provenance of the release images, import the release's base range images when the bundle has none, and take the lock. |
-| Infrastructure | Deploy | Initialize Identity Platform, harden the state bucket, apply Terraform, verify range audit telemetry, and seed the provider account without an application grant. |
+| Infrastructure | Deploy | Initialize Identity Platform, harden the state bucket, remove project bindings to deleted custom roles, apply Terraform, verify range audit telemetry, and seed the provider account without an application grant. |
 | Preconditions | Deploy | Check the GCE range inputs and images. |
 | Images | Deploy | Copy each release image and its attestations into the deployment registry by digest. |
 | Scan | Release scan | Scan each exact digest with Trivy for HIGH and CRITICAL findings. |
