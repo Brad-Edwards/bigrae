@@ -12,7 +12,7 @@ import dataclasses
 import functools
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -424,6 +424,28 @@ def _finish_rollout(
     )
 
 
+def _publish_before_probe(
+    runner: ProcessRunner,
+    request: RolloutRequest,
+    render: Callable[..., RenderedRelease],
+    release: RenderedRelease,
+    *,
+    binding: tuple[str, str] | None,
+    policy_enabled: bool,
+) -> tuple[tuple[str, str] | None, RenderedRelease]:
+    """Publish first on an existing installation and render with the published IDs (#2694).
+
+    The identity probe checks an activated cutover against the rendered
+    binding. A fresh install has no policy servers yet; it publishes later.
+    """
+    from gcp_policy import policy_admin_available, publish_policy_model, release_model
+
+    if not policy_enabled or binding is not None or not policy_admin_available(runner):
+        return binding, release
+    binding = publish_policy_model(runner, release.documents, release_model(request.authorization_model))
+    return binding, render(binding=binding)
+
+
 def rollout_stage(
     runner: ProcessRunner,
     inputs: DeploymentInputs,
@@ -476,6 +498,9 @@ def rollout_stage(
         # Only prerequisite bindings change before a conclusive probe. Policy
         # rotation that makes the incumbent runtime unverifiable stops here.
         policy_enabled = sync_policy_credentials(runner, inputs, outputs)
+        binding, release = _publish_before_probe(
+            runner, request, render, release, binding=binding, policy_enabled=policy_enabled
+        )
         with identity_cutover_boundary(
             runner,
             release.documents,
