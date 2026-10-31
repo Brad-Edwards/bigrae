@@ -78,6 +78,8 @@ def test_service_administration_creates_no_human_or_implicit_grant(django_user_m
     from management.models import Principal
     from shared.authorization import port
 
+    settings.CLOUD_PROVIDER = "gcp"
+
     settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
     user = django_user_model.objects.create_user(username="service-administrator")
     client = APIClient()

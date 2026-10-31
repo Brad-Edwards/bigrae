@@ -54,8 +54,17 @@ class _FakeCursor:
         return self._pending
 
 
+class _FakePgConn:
+    """libpq's client-side SCRAM verifier computation."""
+
+    def encrypt_password(self, password: bytes, user: bytes, algorithm: bytes | None = None) -> bytes:
+        assert (user, algorithm) == (b"guacamole_admin", b"scram-sha-256")
+        return b"SCRAM-SHA-256$4096:synthetic-salt$synthetic-stored:synthetic-server"
+
+
 class _FakeConnection:
     def __init__(self, cursor: _FakeCursor) -> None:
+        self.pgconn = _FakePgConn()
         self._cursor = cursor
         self.closed = False
         self.connect_kwargs: dict[str, object] = {}
@@ -83,6 +92,8 @@ def patched(monkeypatch):
             monkeypatch.delenv(key, raising=False)
         for key, value in (env or {"DB_SECRET_ID": "master-arn", "GUACAMOLE_DB_SECRET_ID": "guac-arn"}).items():
             monkeypatch.setenv(key, value)
+        monkeypatch.setenv("DB_SSLMODE", "verify-full")
+        monkeypatch.setenv("DB_SSL_ROOT_CERT", "/run/rds-ca/ca.pem")
 
         payloads = {
             "master-arn": json.dumps(_MASTER),
@@ -124,10 +135,13 @@ def test_creates_role_and_database_when_absent(patched):
     rendered = _rendered(cursor)
     assert any('CREATE ROLE "guacamole_admin" WITH LOGIN PASSWORD' in q for q in rendered)
     assert any('CREATE DATABASE "guacamole" OWNER "guacamole_admin"' in q for q in rendered)
-    # The password is embedded as a quoted literal, never a bound param on argv.
-    assert any("'guac-secret-pw'" in q for q in rendered)
+    # Statement logs hold only the client-computed SCRAM verifier, never the password.
+    assert any("'SCRAM-SHA-256$4096:synthetic-salt$synthetic-stored:synthetic-server'" in q for q in rendered)
+    assert not any("guac-secret-pw" in q for q in rendered)
     assert connection.connect_kwargs["autocommit"] is True
     assert connection.connect_kwargs["user"] == "shifter_admin"
+    assert connection.connect_kwargs["sslmode"] == "verify-full"
+    assert connection.connect_kwargs["sslrootcert"] == "/run/rds-ca/ca.pem"
     assert connection.closed is True
     assert "provisioned" in output
 
@@ -137,6 +151,7 @@ def test_alters_role_password_and_skips_existing_database(patched):
     _run()
     rendered = _rendered(cursor)
     assert any('ALTER ROLE "guacamole_admin" WITH LOGIN PASSWORD' in q for q in rendered)
+    assert not any("guac-secret-pw" in q for q in rendered)
     assert not any(q.startswith("CREATE DATABASE") for q in rendered)
 
 

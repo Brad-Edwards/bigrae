@@ -37,7 +37,7 @@ spec:
           {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
           {{- include "shifter.tmpVolumeMount" . | nindent 10 }}
           args: ["python", "manage.py", "drain_provisioner_launch_outbox", "--loop", "--interval", "10"]
-          {{- if or (eq .Values.provider.name "gcp") .Values.openfga.enabled }}
+          {{- if or (eq .Values.provider.name "gcp") .Values.openfga.enabled .Values.rdsIam.enabled }}
           env:
             {{- include "shifter.databaseUserEnv" (dict "root" . "role" "provisioner-launcher") | nindent 12 }}
             {{- if eq .Values.provider.name "gcp" }}

@@ -55,4 +55,11 @@ class GatewayControlTest {
         assertThrows(IllegalArgumentException.class, () -> new GatewayControl(URI.create("http://remote.example.test/authority"), () -> "Bearer synthetic"));
         assertThrows(IllegalArgumentException.class, () -> new GatewayControl(URI.create("https://user:password@remote.example.test/authority"), () -> "Bearer synthetic"));
     }
+
+    @Test void refusedOriginIsRejectedBeforeAnIdentityExists() {
+        // An unknown kind fails only at identity selection, so this message proves the origin check ran first.
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+            () -> new GatewayControl("http://remote.example.test/authority", "synthetic-control", "azure"));
+        assertEquals("Invalid gateway control origin", refused.getMessage());
+    }
 }

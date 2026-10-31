@@ -345,13 +345,22 @@ module "rds" {
 # Redis (for Django Channels)
 # ------------------------------------------------------------------------------
 
+# Portal Lambdas deploy only code that this root's Signer profile signed (#2313).
+module "lambda_code_signing" {
+  source = "../../../modules/lambda-code-signing"
+
+  name_prefix = local.name_prefix
+  tags        = var.tags
+}
+
 module "redis" {
   source = "../../../modules/portal/redis"
 
-  name_prefix     = local.name_prefix
-  iam_name_prefix = local.iam_name_prefix
-  vpc_id          = module.vpc.vpc_id
-  subnet_ids      = module.vpc.private_subnet_ids
+  name_prefix         = local.name_prefix
+  iam_name_prefix     = local.iam_name_prefix
+  lambda_code_signing = module.lambda_code_signing.signing
+  vpc_id              = module.vpc.vpc_id
+  subnet_ids          = module.vpc.private_subnet_ids
   # Reached by the EKS control plane over the portal<->EKS VPC peering; scoped to
   # the peered EKS VPC CIDR (see the RDS module note above).
   allowed_cidr_blocks = [var.eks_vpc_cidr]
@@ -389,6 +398,7 @@ module "cognito" {
   source = "../../../modules/portal/cognito"
 
   name_prefix              = local.name_prefix
+  lambda_code_signing      = module.lambda_code_signing.signing
   iam_name_prefix          = local.iam_name_prefix
   permissions_boundary_arn = local.ci_role_permissions_boundary_arn
   environment              = var.environment

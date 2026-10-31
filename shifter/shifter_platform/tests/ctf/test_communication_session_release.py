@@ -31,6 +31,7 @@ def native_service_http(ctf_event, settings, monkeypatch):
         issuer="https://accounts.google.com",
         subject="123456789012345678901",
     )
+    settings.CLOUD_PROVIDER = "gcp"
     settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
     admission = ServiceCredentialAdmission.objects.create(
         binding=binding,

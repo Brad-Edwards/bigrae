@@ -170,6 +170,8 @@ def test_native_service_can_be_admitted_and_read_its_participant_projection_via_
     client.logout()
     services.mark_user_deleted(event.created_by)
 
+    settings.CLOUD_PROVIDER = "gcp"
+
     settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
     subject = "123456789012345678901"
     services.bind_principal_provider_identity(service, "https://accounts.google.com", subject)
@@ -231,6 +233,8 @@ def test_read_only_service_http_proof_cannot_mutate_webhooks(ctf_event, settings
         TargetRef,
         configured_authorization_provider,
     )
+
+    settings.CLOUD_PROVIDER = "gcp"
 
     settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
     principal = Principal.objects.create(kind="service", name="Synthetic communication reader")

@@ -60,7 +60,11 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "google-auth", extras = ["requests"], specifier = ">=2.40,<3" }]
+requires-dist = [
+    { name = "boto3", marker = "extra == 'aws'", specifier = ">=1.43,<2" },
+    { name = "google-auth", extras = ["requests"], specifier = ">=2.40,<3" },
+]
+provides-extras = ["aws"]
 
 [[package]]
 name = "certifi"

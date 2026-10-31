@@ -24,7 +24,14 @@ from channels.testing import WebsocketCommunicator
 from shared.channels.groups import notification_user_topic_group
 from shared.enums import WebSocketCloseCode
 
-from .conftest import DENY_TOPIC, NOTIFICATION_TOPIC, NOTIFICATION_TYPE, handshake_headers, make_notification
+from .conftest import (
+    DENY_TOPIC,
+    NOTIFICATION_TOPIC,
+    NOTIFICATION_TYPE,
+    handshake_headers,
+    login_cookie,
+    make_notification,
+)
 
 NOTIFICATIONS_PATH = "/ws/notifications/"
 
@@ -212,7 +219,7 @@ class TestNotificationWebsocketRealStack:
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 async def test_temporary_participant_replay_is_body_free_and_live(
-    asgi_application, ws_user, ws_headers, redis_channel_layer, settings
+    asgi_application, ws_user, redis_channel_layer, settings
 ):
     """Opening the temporary-account socket cannot resurrect stored legacy bodies."""
     from datetime import timedelta
@@ -265,10 +272,13 @@ async def test_temporary_participant_replay_is_body_free_and_live(
             payload={"kind": "announcement", "body": "private-canary"},
             expires_at=timezone.now() + timedelta(minutes=5),
         )
-        return participant.pk, row.pk, row.topic
+        # A temporary participant signs in through the CTF participant backend;
+        # the platform backend excludes temporary identities.
+        cookie = login_cookie(ws_user, backend="config.auth.CTFParticipantBackend")
+        return participant.pk, row.pk, row.topic, cookie
 
-    participant_id, row_id, topic = await sync_to_async(arrange)()
-    communicator = await _connect_subscribed(asgi_application, ws_headers, topic=topic)
+    participant_id, row_id, topic, cookie = await sync_to_async(arrange)()
+    communicator = await _connect_subscribed(asgi_application, handshake_headers(cookie), topic=topic)
     try:
         message = await communicator.receive_json_from()
         assert message["payload"] == {"kind": "refresh"}

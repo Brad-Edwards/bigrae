@@ -145,22 +145,31 @@ data "archive_file" "pre_signup" {
   output_path = "${path.module}/lambda/pre_signup.zip"
 }
 
+module "pre_signup_package" {
+  source = "../../lambda-signed-package"
+
+  signing      = var.lambda_code_signing
+  name         = "cognito-pre-signup"
+  package_path = data.archive_file.pre_signup.output_path
+}
+
 # Cognito pre-signup Lambda — invoked synchronously by Cognito (AWS-owned
 # infrastructure), so several Lambda hardening checks do not apply in the
 # usual way. Per ADR-004-R11 exception ckv-aws-cognito-pre-signup-lambda.
+# It deploys only code that the portal root's Signer profile signed (#2313).
 resource "aws_lambda_function" "pre_signup" {
   # checkov:skip=CKV_AWS_115:Hot synchronous Cognito hook; reserved concurrency would block legitimate signups.
   # checkov:skip=CKV_AWS_116:DLQ only applies to async Lambda; this is invoked synchronously by Cognito.
   # checkov:skip=CKV_AWS_117:Cognito invokes from AWS-managed infra; VPC config needs a Cognito VPC endpoint for no security gain.
   # checkov:skip=CKV_AWS_173:Env vars are non-sensitive allowlists (email domains).
-  # checkov:skip=CKV_AWS_272:Lambda code signing requires CodeArtifact + Signer; out of scope for #757.
-  function_name    = "${var.name_prefix}-cognito-pre-signup"
-  filename         = data.archive_file.pre_signup.output_path
-  source_code_hash = data.archive_file.pre_signup.output_base64sha256
-  handler          = "pre_signup.handler"
-  runtime          = "python3.12"
-  timeout          = 5
-  memory_size      = 128
+  function_name           = "${var.name_prefix}-cognito-pre-signup"
+  s3_bucket               = module.pre_signup_package.s3_bucket
+  s3_key                  = module.pre_signup_package.s3_key
+  code_signing_config_arn = module.pre_signup_package.code_signing_config_arn
+  handler                 = "pre_signup.handler"
+  runtime                 = "python3.12"
+  timeout                 = 5
+  memory_size             = 128
 
   role = aws_iam_role.lambda_exec.arn
 

@@ -190,3 +190,16 @@ variable "model_broker" {
   })
   default = {}
 }
+
+variable "openfga_rotation_schedule" {
+  description = "Create the OpenFGA datastore rotation schedules. The deploy sets true only after the provisioning Job has created the logins (#2313)."
+  type        = bool
+  default     = false
+}
+
+variable "openfga_rotation_package" {
+  description = "Path to the OpenFGA datastore rotation package that the deploy tooling builds (#2313). Required to create or update the rotation functions; teardown may omit it."
+  type        = string
+  default     = null
+  nullable    = true
+}

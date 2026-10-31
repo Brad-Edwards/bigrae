@@ -14,7 +14,14 @@ from shared.credentials import CredentialContext
 from shared.identity_scope import PrincipalRef
 from shared.verified_identity import VerifiedIdentity
 
-from .models import Principal, PrincipalConflictError, ProviderBinding, ServiceCredentialAdmission, UserProfile
+from .models import (
+    PROVIDER_SUBJECT_MAX_LENGTH,
+    Principal,
+    PrincipalConflictError,
+    ProviderBinding,
+    ServiceCredentialAdmission,
+    UserProfile,
+)
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import User
@@ -307,7 +314,7 @@ def _valid_provider_identity(principal_ref: object, issuer: object, subject: obj
         and len(issuer) <= 255
         and isinstance(subject, str)
         and bool(subject.strip())
-        and len(subject) <= 255
+        and len(subject) <= PROVIDER_SUBJECT_MAX_LENGTH
     )
 
 
