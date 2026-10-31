@@ -1660,7 +1660,7 @@ export interface paths {
         /** @description List safe service-principal admission metadata. */
         get: operations["credentials_services_retrieve"];
         put?: never;
-        /** @description Register a native Google service identity admission. */
+        /** @description Register a native cloud service identity admission. */
         post: operations["credentials_services_create"];
         delete?: never;
         options?: never;

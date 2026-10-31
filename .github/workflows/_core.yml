@@ -36,6 +36,9 @@ jobs:
       contents: read
       pull-requests: write
     name: Plan (${{ inputs.environment }})
+    # The deploy role trusts only exact Environment subjects and protected refs
+    # (#2313), so the plan binds the same protected deploy Environment.
+    environment: ${{ inputs.github_environment }}
     runs-on: self-hosted
     # Backstop only: bound a hung step so it can't hold the self-hosted runner
     # for GitHub's 6h default (see #1220). Generous vs. real plan times (minutes)

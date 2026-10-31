@@ -61,6 +61,13 @@ run "native_workloads_keep_exact_login_and_resource_duties" {
     error_message = "Native directory rechecks must not include configuration or hash-export authority."
   }
   assert {
+    condition = (
+      toset(keys(google_project_iam_member.directory_reader)) == toset(["portal", "workers", "ctf-scheduler", "provisioner-launcher"]) &&
+      alltrue([for binding in google_project_iam_member.directory_reader : binding.role == google_project_iam_custom_role.directory_reader.id])
+    )
+    error_message = "Only the identities that recheck session credentials may read Identity Platform user state."
+  }
+  assert {
     condition     = !contains(keys(local.workload_identity_members), "operator") && !contains(keys(local.workload_project_roles), "openfga-runtime")
     error_message = "Policy clients must not acquire broad operator or unrelated application roles."
   }

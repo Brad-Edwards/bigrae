@@ -149,12 +149,6 @@ roots:
     providers:
       - registry.terraform.io/hashicorp/aws
       - registry.terraform.io/hashicorp/random
-  - id: aws-global-se-admins
-    path: platform/terraform/global/se-admins
-    owner: "@Brad-Edwards"
-    toolchain: aws-1.13.3
-    providers:
-      - registry.terraform.io/hashicorp/aws
   - id: provisioner-range
     path: shifter/engine/provisioner/terraform/modules/range
     owner: "@Brad-Edwards"
@@ -193,6 +187,16 @@ modules:
     contract: deferred
     reason: "Contract-test rollout tracked in #1597."
     tracking: "#1597"
+  - path: platform/terraform/modules/lambda-code-signing
+    owner: "@Brad-Edwards"
+    contract: terraform_test
+    test: tests/code_signing.tftest.hcl
+    test_profile: aws-1.13.3
+  - path: platform/terraform/modules/lambda-signed-package
+    owner: "@Brad-Edwards"
+    contract: terraform_test
+    test: tests/signed_package.tftest.hcl
+    test_profile: aws-1.13.3
   - path: platform/terraform/modules/log-aggregation
     owner: "@Brad-Edwards"
     contract: deferred

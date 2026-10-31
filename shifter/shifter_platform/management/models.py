@@ -290,12 +290,16 @@ class PrincipalConflictError(ValueError):
     """Principal or provider binding conflicts with durable identity."""
 
 
+PROVIDER_SUBJECT_MAX_LENGTH = 2048
+
+
 class ProviderBinding(models.Model):
     """Immutable exact provider tuple attached to one principal."""
 
     principal = models.ForeignKey(Principal, on_delete=models.PROTECT, related_name="provider_bindings")
     issuer = models.CharField(max_length=255)
-    subject = models.CharField(max_length=255)
+    # An AWS IAM role ARN subject may be up to 2048 characters (#2313).
+    subject = models.CharField(max_length=PROVIDER_SUBJECT_MAX_LENGTH)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

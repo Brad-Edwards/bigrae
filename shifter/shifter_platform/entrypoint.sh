@@ -33,11 +33,26 @@ DC_DOMAIN_PASSWORD_SECRET_ID="${DC_DOMAIN_PASSWORD_SECRET_ID:-${DC_DOMAIN_PASSWO
 
 DB_AUTH_MODE="${DB_AUTH_MODE:-password}"
 export DB_AUTH_MODE
+
+# The AWS renderer publishes the region's public RDS CA bundle as base64 runtime
+# configuration (#2313). Write it once to a read-only file for verify-full TLS.
+if [[ -n "${DB_SSL_ROOT_CERT_PEM_B64:-}" && -z "${DB_SSL_ROOT_CERT:-}" ]]; then
+    DB_SSL_ROOT_CERT=$(python -c "from shared.aws_database_duties import rds_ca_path; print(rds_ca_path())")
+    export DB_SSL_ROOT_CERT
+fi
 if [[ "$DB_AUTH_MODE" == "cloud-sql-proxy" ]]; then
     if [[ "${CLOUD_PROVIDER:-}" != "gcp" || "${DB_HOST:-}" != "127.0.0.1" || "${DB_PORT:-}" != "5432" || -z "${DB_NAME:-}" || -z "${DB_USER:-}" || -n "${DB_SECRET_ID:-}" || -n "${DB_PASSWORD:-}" || -z "${SKIP_MIGRATIONS:-}" ]]; then
         echo "DB_AUTH_MODE cloud-sql-proxy requires GCP, loopback metadata, no database password and a separate migration duty" >&2
         exit 1
     fi
+elif [[ "$DB_AUTH_MODE" == "rds-iam" ]]; then
+    # AWS runtime workloads connect with their own RDS IAM login from start
+    # (#2313). They read no master credential and verify the server identity.
+    if [[ "${CLOUD_PROVIDER:-}" != "aws" || -z "${DB_HOST:-}" || -z "${DB_PORT:-}" || -z "${DB_NAME:-}" || -z "${DB_USER:-}" || -n "${DB_SECRET_ID:-}" || -n "${DB_PASSWORD:-}" || "${DB_SSLMODE:-}" != "verify-full" || -z "${DB_SSL_ROOT_CERT:-}" || -z "${SKIP_MIGRATIONS:-}" ]]; then
+        echo "DB_AUTH_MODE rds-iam requires AWS, explicit login metadata, verify-full TLS, no database password and a separate migration duty" >&2
+        exit 1
+    fi
+    export DB_IAM_AUTH=true
 elif [[ "$DB_AUTH_MODE" != "password" ]]; then
     echo "Unsupported DB_AUTH_MODE" >&2
     exit 1
@@ -213,14 +228,30 @@ echo "Waiting for database..."
 while ! python -c "
 import os
 import psycopg
+mode = os.environ.get('DB_AUTH_MODE')
+extra = {}
+if mode == 'rds-iam':
+    from config.db_backends.rds_iam.base import _resolve_region, generate_iam_auth_token
+    password = generate_iam_auth_token(os.environ['DB_HOST'], int(os.environ['DB_PORT']), os.environ['DB_USER'], _resolve_region())
+    extra = {'sslmode': os.environ['DB_SSLMODE'], 'sslrootcert': os.environ['DB_SSL_ROOT_CERT']}
+elif mode == 'cloud-sql-proxy':
+    password = ''
+else:
+    password = os.environ.get('DB_PASSWORD', 'postgres')
+    # The password path verifies the server like Django does (#2313).
+    if os.environ.get('DB_SSLMODE'):
+        extra = {'sslmode': os.environ['DB_SSLMODE']}
+        if os.environ.get('DB_SSL_ROOT_CERT'):
+            extra['sslrootcert'] = os.environ['DB_SSL_ROOT_CERT']
 try:
     psycopg.connect(
         host=os.environ.get('DB_HOST', 'localhost'),
         port=os.environ.get('DB_PORT', '5432'),
         user=os.environ.get('DB_USER', 'postgres'),
-        password='' if os.environ.get('DB_AUTH_MODE') == 'cloud-sql-proxy' else os.environ.get('DB_PASSWORD', 'postgres'),
+        password=password,
         dbname=os.environ.get('DB_NAME', 'shifter'),
-        connect_timeout=5
+        connect_timeout=5,
+        **extra
     )
     print('Database is ready')
 except Exception:

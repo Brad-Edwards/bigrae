@@ -16,6 +16,15 @@
   </dependencyManagement>
   <dependencies>
     <dependency><groupId>com.google.auth</groupId><artifactId>google-auth-library-oauth2-http</artifactId><version>1.54.0</version></dependency>
+    <!-- AWS STS outbound web identity for the gateway on EKS. The URL-connection
+         client replaces the default Apache and Netty transports. -->
+    <dependency><groupId>software.amazon.awssdk</groupId><artifactId>sts</artifactId><version>2.57.6</version>
+      <exclusions>
+        <exclusion><groupId>software.amazon.awssdk</groupId><artifactId>apache-client</artifactId></exclusion>
+        <exclusion><groupId>software.amazon.awssdk</groupId><artifactId>netty-nio-client</artifactId></exclusion>
+      </exclusions>
+    </dependency>
+    <dependency><groupId>software.amazon.awssdk</groupId><artifactId>url-connection-client</artifactId><version>2.57.6</version></dependency>
     <dependency><groupId>org.apache.guacamole</groupId><artifactId>guacamole-ext</artifactId><version>1.6.0</version><scope>provided</scope></dependency>
     <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.13.4</version><scope>test</scope></dependency>
   </dependencies>
@@ -40,7 +49,11 @@
       <groupId>org.apache.maven.plugins</groupId><artifactId>maven-shade-plugin</artifactId><version>3.6.0</version>
       <executions><execution><phase>package</phase><goals><goal>shade</goal></goals><configuration>
         <createDependencyReducedPom>false</createDependencyReducedPom>
-        <relocations><relocation><pattern>com.google</pattern><shadedPattern>com.shifter.guacamole.vendor.google</shadedPattern></relocation></relocations>
+        <relocations>
+          <relocation><pattern>com.google</pattern><shadedPattern>com.shifter.guacamole.vendor.google</shadedPattern></relocation>
+          <relocation><pattern>software.amazon</pattern><shadedPattern>com.shifter.guacamole.vendor.amazon</shadedPattern></relocation>
+          <relocation><pattern>org.reactivestreams</pattern><shadedPattern>com.shifter.guacamole.vendor.reactivestreams</shadedPattern></relocation>
+        </relocations>
         <filters><filter><artifact>*:*</artifact><excludes><exclude>META-INF/*.SF</exclude><exclude>META-INF/*.RSA</exclude><exclude>META-INF/*.DSA</exclude></excludes></filter></filters>
         <transformers>
           <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>

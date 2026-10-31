@@ -327,6 +327,7 @@ knobs live in `config/settings.py`.
 | `GUACAMOLE_BOOTSTRAP_PRUNE_BATCH_SIZE` | `500` | Revalidation limit and prune batch size. |
 | `GUACAMOLE_CONTROL_AUDIENCE` | `""` | Required workload-token audience for gateway renewal. |
 | `GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_EMAIL` / `ID` | `""` | Exact configured gateway workload identity. Missing identity denies renewal. |
+| `GUACAMOLE_CONTROLLER_ROLE_ARN` | `""` | AWS: exact IAM role ARN of the gateway's IRSA identity. Set this or the Google pair; both or neither deny renewal. |
 | `GUACAMOLE_TOKEN_RETRY_ATTEMPTS` | `3` | `/api/tokens` retry attempts. |
 | `GUACAMOLE_TOKEN_RETRY_BASE_DELAY_MS` | `200` | `/api/tokens` backoff base. |
 
@@ -395,6 +396,7 @@ fails validation.
 | `JSON_ENABLED` / `OPENID_ENABLED` | deployment | `true` / `false`. |
 | `JSON_SECRET_KEY` | secret store | Must equal `GUACAMOLE_JSON_AUTH_SECRET`. |
 | `GUACAMOLE_CONTROL_URL` / `GUACAMOLE_CONTROL_AUDIENCE` | runtime config | Administrator-selected HTTPS renewal endpoint and workload-token audience. |
+| `GUACAMOLE_CONTROL_IDENTITY` | runtime config | `google` (default) or `aws`. AWS uses an STS web identity token from the gateway's IRSA role. |
 
 ### Secrets
 

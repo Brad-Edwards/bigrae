@@ -155,6 +155,25 @@ def test_aws_eks_runtime_projection_initializes_deployed_settings(monkeypatch) -
                 "workers": "arn:aws:iam::123456789012:role/shifter-dev-workers",
                 "provisionerLauncher": "arn:aws:iam::123456789012:role/shifter-dev-provisioner-launcher",
                 "provisioner": "arn:aws:iam::123456789012:role/shifter-dev-provisioner",
+                "guacamoleClient": "arn:aws:iam::123456789012:role/shifter-dev-guacamole-client",
+                "policyCredentialRefresh": "arn:aws:iam::123456789012:role/shifter-dev-policy-credential-refresh",
+            }
+        },
+        "aws_account_id": {"value": "123456789012"},
+        "service_token_issuer": {"value": "https://11111111-2222-3333-4444-555555555555.tokens.sts.global.api.aws"},
+        "gateway_control_audience": {"value": "https://shifter.example.test/guacamole-control"},
+        "database_iam_users": {
+            "value": {
+                "portal": "portal_web",
+                "workers": "portal_workers",
+                "ctfScheduler": "ctf_scheduler",
+                "provisionerLauncher": "provisioner_launcher",
+            }
+        },
+        "openfga_datastore_secret_arns": {
+            "value": {
+                duty: f"arn:aws:secretsmanager:us-east-2:123456789012:secret:shifter/dev/eks/openfga-{duty}-datastore"
+                for duty in ("runtime", "admin", "migrator")
             }
         },
         "certificate_arn": {"value": "arn:aws:acm:us-east-2:123456789012:certificate/example"},
@@ -178,6 +197,7 @@ def test_aws_eks_runtime_projection_initializes_deployed_settings(monkeypatch) -
                 },
                 "portal_db_address": "dev-portal-db.abcdef.us-east-2.rds.amazonaws.com",
                 "portal_db_port": 5432,
+                "portal_vpc_cidr": "10.0.0.0/16",
             }
         },
     }
@@ -202,7 +222,8 @@ def test_aws_eks_runtime_projection_initializes_deployed_settings(monkeypatch) -
         "provisioner": f"example.invalid/shifter/engine-provisioner@sha256:{digest}",
     }
 
-    values = aws_eks.render_aws_values(config, outputs, images)
+    synthetic_ca = b"-----BEGIN CERTIFICATE-----\nU3ludGhldGlj\n-----END CERTIFICATE-----\n"
+    values = aws_eks.render_aws_values(config, outputs, images, rds_ca_bundle=synthetic_ca)
     result = _run_settings_import(
         _settings_import_env(**{key: str(value) for key, value in values["runtimeEnv"].items()})
     )

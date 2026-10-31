@@ -80,25 +80,11 @@ resource "aws_iam_role" "github_actions" {
   # aborts the deploy. Allow up to 6h (workflows request role-duration-seconds).
   max_session_duration = 21600
 
+  # GitHub jobs and named operators are the only trusted callers. The
+  # statements are in operator-access.tf.
   assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Principal = {
-          Federated = aws_iam_openid_connect_provider.github.arn
-        }
-        Action = "sts:AssumeRoleWithWebIdentity"
-        Condition = {
-          StringEquals = {
-            "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-          }
-          StringLike = {
-            "token.actions.githubusercontent.com:sub" = "${local.github_subject_prefix}:*"
-          }
-        }
-      }
-    ]
+    Version   = "2012-10-17"
+    Statement = local.deploy_trust_statements
   })
 
   tags = {
@@ -493,6 +479,10 @@ resource "aws_iam_policy" "compute" {
           "lambda:GetFunction",
           "lambda:GetFunctionConfiguration",
           "lambda:GetFunctionCodeSigningConfig",
+          "lambda:PutFunctionCodeSigningConfig",
+          "lambda:DeleteFunctionCodeSigningConfig",
+          "lambda:PutFunctionConcurrency",
+          "lambda:DeleteFunctionConcurrency",
           "lambda:UpdateFunctionCode",
           "lambda:UpdateFunctionConfiguration",
           "lambda:ListVersionsByFunction",
@@ -786,6 +776,44 @@ resource "aws_iam_policy" "data" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      {
+        # Each root's Lambda functions accept only code its Signer profile signed (#2313).
+        Sid    = "LambdaCodeSigningConfigs"
+        Effect = "Allow"
+        Action = [
+          "lambda:GetCodeSigningConfig",
+          "lambda:UpdateCodeSigningConfig",
+          "lambda:DeleteCodeSigningConfig",
+          "lambda:TagResource",
+          "lambda:UntagResource",
+          "lambda:ListTags"
+        ]
+        Resource = "arn:aws:lambda:${var.aws_region}:${data.aws_caller_identity.current.account_id}:code-signing-config:*"
+      },
+      {
+        # A new configuration has no ARN until it exists.
+        Sid      = "CreateLambdaCodeSigningConfigs"
+        Effect   = "Allow"
+        Action   = ["lambda:CreateCodeSigningConfig"]
+        Resource = "*"
+      },
+      {
+        Sid    = "SignLambdaPackages"
+        Effect = "Allow"
+        Action = [
+          "signer:PutSigningProfile",
+          "signer:GetSigningProfile",
+          "signer:CancelSigningProfile",
+          "signer:StartSigningJob",
+          "signer:DescribeSigningJob",
+          "signer:TagResource",
+          "signer:ListTagsForResource"
+        ]
+        Resource = [
+          "arn:aws:signer:${var.aws_region}:${data.aws_caller_identity.current.account_id}:/signing-profiles/*",
+          "arn:aws:signer:${var.aws_region}:${data.aws_caller_identity.current.account_id}:/signing-jobs/*"
+        ]
+      },
       {
         Sid      = "ECR"
         Effect   = "Allow"
@@ -1324,9 +1352,45 @@ resource "aws_iam_policy" "eks" {
           "secretsmanager:UpdateSecret",
           "secretsmanager:TagResource",
           "secretsmanager:UntagResource",
-          "secretsmanager:GetResourcePolicy"
+          "secretsmanager:GetResourcePolicy",
+          # OpenFGA datastore login rotation schedules (#2313).
+          "secretsmanager:RotateSecret",
+          "secretsmanager:CancelRotateSecret"
         ]
         Resource = "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:shifter/*"
+      },
+      {
+        # The EKS root's signed Lambda package bucket (#2313).
+        Sid    = "ManageEksLambdaArtifacts"
+        Effect = "Allow"
+        Action = local.terraform_s3_bucket_actions
+        Resource = [
+          "arn:aws:s3:::shifter-${var.environment}-eks-*",
+          "arn:aws:s3:::shifter-${var.environment}-eks-*/*"
+        ]
+      },
+      {
+        # The EKS root's OpenFGA rotation dead-letter queue (#2313).
+        Sid    = "ManageEksQueues"
+        Effect = "Allow"
+        Action = [
+          "sqs:CreateQueue",
+          "sqs:DeleteQueue",
+          "sqs:GetQueueAttributes",
+          "sqs:SetQueueAttributes",
+          "sqs:ListQueueTags",
+          "sqs:TagQueue",
+          "sqs:UntagQueue"
+        ]
+        Resource = "arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:shifter-${var.environment}-eks-*"
+      },
+      {
+        # The EKS root reads the account's STS token issuer (#2313). The API
+        # names no resource, so it takes "*"; it is read-only.
+        Sid      = "ReadOutboundWebIdentityIssuer"
+        Effect   = "Allow"
+        Action   = ["iam:GetOutboundWebIdentityFederationInfo"]
+        Resource = "*"
       }
     ]
   })

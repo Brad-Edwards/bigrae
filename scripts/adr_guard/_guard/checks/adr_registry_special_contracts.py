@@ -112,7 +112,7 @@ ACCESSIBILITY_FIXED_SECTIONS: dict[str, dict[str, object]] = {
         "automated_conformance_claim": False,
     },
     "toolchain": {
-        "static": "eslint-plugin-jsx-a11y",
+        "static": "eslint-plugin-jsx-a11y-x",
         "component": "vitest-axe",
         "browser": "@axe-core/playwright",
         "runner": "playwright",

@@ -12,9 +12,10 @@ idempotently:
 
 so guacamole-client can connect with ``POSTGRESQL_USER``/``POSTGRESQL_PASSWORD``
 and run its own schema initialisation (the guacamole image entrypoint's
-``initdb.sh``). Credentials are read from Secrets Manager, never passed on argv;
-the role password is emitted as a quoted SQL literal via ``psycopg.sql`` so it is
-injection-safe, and ``CREATE DATABASE`` runs outside a transaction (autocommit).
+``initdb.sh``). Credentials are read from Secrets Manager, never passed on argv.
+The portal RDS logs every statement, so the password reaches the server only as
+a SCRAM-SHA-256 verifier that libpq computes on the client (#2313). ``CREATE
+DATABASE`` runs outside a transaction (autocommit).
 
 GCP provisions the equivalent objects declaratively in Terraform (``google_sql_user``
 / ``google_sql_database``); this command is the AWS-side equivalent.
@@ -30,6 +31,7 @@ import psycopg
 from django.core.management.base import BaseCommand, CommandError
 from psycopg import Cursor, sql
 
+from shared.aws_database_duties import master_connection_parameters, password_verifier
 from shared.cloud import get_secrets_store
 
 
@@ -54,36 +56,32 @@ class Command(BaseCommand):
         password = guacamole["password"]
         database = guacamole["dbname"]
 
-        connection = psycopg.connect(
-            host=os.environ.get("DB_HOST") or master["host"],
-            port=str(os.environ.get("DB_PORT") or master.get("port", 5432)),
-            user=master["username"],
-            password=master["password"],
-            dbname=master["dbname"],
-            connect_timeout=15,
-            autocommit=True,
-        )
+        try:
+            parameters = master_connection_parameters(master)
+        except ValueError as exc:
+            raise CommandError(str(exc)) from None
+        connection = psycopg.connect(**parameters, autocommit=True)
         try:
             with connection.cursor() as cursor:
-                self._ensure_role(cursor, role, password)
+                self._ensure_role(cursor, role, password_verifier(connection.pgconn, role, password))
                 self._ensure_database(cursor, database, role)
         finally:
             connection.close()
 
         self.stdout.write(self.style.SUCCESS(f"Guacamole database {database!r} and role {role!r} are provisioned."))
 
-    def _ensure_role(self, cursor: Cursor, role: str, password: str) -> None:
-        """Create the guacamole_admin LOGIN role or re-sync its password to the secret."""
+    def _ensure_role(self, cursor: Cursor, role: str, verifier: str) -> None:
+        """Create the guacamole_admin LOGIN role or re-sync its password verifier to the secret."""
         cursor.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
         action = "ALTER" if cursor.fetchone() is not None else "CREATE"
         # `action` is a fixed literal chosen here (never user input); the role name
-        # is a quoted identifier and the password a quoted literal, so neither can
-        # inject SQL.
+        # is a quoted identifier and the verifier a quoted literal, so neither can
+        # inject SQL, and statement logs never hold the password.
         cursor.execute(
-            sql.SQL("{action} ROLE {role} WITH LOGIN PASSWORD {password}").format(
+            sql.SQL("{action} ROLE {role} WITH LOGIN PASSWORD {verifier}").format(
                 action=sql.SQL(action),
                 role=sql.Identifier(role),
-                password=sql.Literal(password),
+                verifier=sql.Literal(verifier),
             )
         )
         self.stdout.write(f"{action.title()}d role {role!r}.")

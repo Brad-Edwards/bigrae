@@ -13,6 +13,7 @@ output "bundle_outputs" {
     ingress_waf_acl_arn             = module.eks.ingress_waf_acl_arn
     portal_db_address               = module.eks.portal_db_address
     portal_db_port                  = module.eks.portal_db_port
+    portal_vpc_cidr                 = module.eks.portal_vpc_cidr
   }
 }
 
@@ -94,4 +95,39 @@ output "model_broker" {
 output "runtime_plugin_node_group_asg" {
   description = "Auto Scaling group of the runtime-plugin pool, consumed by the trusted node-pool labeler (#2526)."
   value       = module.eks.runtime_plugin_node_group_asg
+}
+
+output "database_iam_users" {
+  description = "RDS IAM login of each runtime workload; each is a member of the portal_runtime duty."
+  value       = local.runtime_db_logins
+}
+
+output "openfga_datastore_secret_arns" {
+  description = "OpenFGA datastore login secrets by duty."
+  value       = module.eks.openfga_datastore_secret_arns
+}
+
+output "openfga_rotation_scheduled" {
+  description = "Whether the OpenFGA datastore rotation schedules exist."
+  value       = module.eks.openfga_rotation_scheduled
+}
+
+output "operator_access_instance_id" {
+  description = "Session Manager target for operator access to the private EKS API."
+  value       = module.eks.operator_access_instance_id
+}
+
+output "service_token_issuer" {
+  description = "Account issuer URL for STS outbound web identity tokens."
+  value       = module.eks.service_token_issuer
+}
+
+output "gateway_control_audience" {
+  description = "STS web identity audience of the Guacamole gateway control endpoint."
+  value       = local.gateway_control_audience
+}
+
+output "aws_account_id" {
+  description = "AWS account that owns the service token issuer."
+  value       = data.aws_caller_identity.current.account_id
 }

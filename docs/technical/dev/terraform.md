@@ -46,7 +46,6 @@ platform/terraform/
 └── global/                   # Cross-environment resources
     ├── iam/                  # GitHub OIDC, roles
     ├── github-runner/        # Self-hosted runners (+ runner-health)
-    ├── se-admins/            # SE administrator access
     ├── tssummit/             # Technical Summit event stack
     ├── tssummit-ranges/      # Technical Summit event ranges
     └── dev-box/              # Windows dev instance

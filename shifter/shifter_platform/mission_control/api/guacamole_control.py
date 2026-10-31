@@ -15,8 +15,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from mission_control.guacamole_authority import renew_gateway_authority
+from shared.aws_web_identity import verify_aws_web_identity_token
 from shared.model_access import ContractError
 from shared.model_access.control_identity import verify_google_control_assertion
+
+_UNAUTHORIZED = "control.unauthorized"
 
 
 @dataclass(frozen=True)
@@ -27,28 +30,62 @@ class GatewayIdentity:
 
 
 class GatewayAuthentication(BaseAuthentication):
-    """The configured Google workload email AND immutable subject must match."""
+    """Exactly one configured native workload identity must match.
+
+    GCP requires the Google workload email AND immutable subject. AWS requires
+    an STS web identity token whose role ARN equals the configured gateway role.
+    Configuring both modes, or neither, refuses every request.
+    """
 
     def authenticate(self, request: Request) -> tuple[GatewayIdentity, None]:
-        from google.auth.transport.requests import Request as GoogleTransport
-
+        """Admit only the configured gateway identity; refuse every other request."""
         header = get_authorization_header(request)
         audience = settings.GUACAMOLE_CONTROL_AUDIENCE
         email = settings.GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_EMAIL
         subject = settings.GUACAMOLE_CONTROLLER_SERVICE_ACCOUNT_ID
-        if not header or len(header) > 16_384 or not (audience and email and subject):
+        role = getattr(settings, "GUACAMOLE_CONTROLLER_ROLE_ARN", "")
+        google = bool(email or subject)
+        if not header or len(header) > 16_384 or not audience or google == bool(role):
             raise AuthenticationFailed("Gateway authentication failed")
         try:
-            verify_google_control_assertion(
-                header.decode("ascii"),
-                audience=audience,
-                expected_subject=email,
-                expected_subject_id=subject,
-                request=partial(GoogleTransport(), timeout=5),
-            )
+            assertion = header.decode("ascii")
+            if role:
+                self._verify_aws(assertion, audience, role)
+            elif email and subject:
+                self._verify_google(assertion, audience, email, subject)
+            else:
+                raise ContractError(_UNAUTHORIZED)
         except (UnicodeError, ContractError):
             raise AuthenticationFailed("Gateway authentication failed") from None
         return GatewayIdentity(), None
+
+    @staticmethod
+    def _verify_google(assertion: str, audience: str, email: str, subject: str) -> None:
+        from google.auth.transport.requests import Request as GoogleTransport
+
+        verify_google_control_assertion(
+            assertion,
+            audience=audience,
+            expected_subject=email,
+            expected_subject_id=subject,
+            request=partial(GoogleTransport(), timeout=5),
+        )
+
+    @staticmethod
+    def _verify_aws(assertion: str, audience: str, role: str) -> None:
+        if not assertion.startswith("Bearer "):
+            raise ContractError(_UNAUTHORIZED)
+        try:
+            verified = verify_aws_web_identity_token(
+                assertion[7:],
+                issuer=str(getattr(settings, "AWS_SERVICE_TOKEN_ISSUER", "") or ""),
+                audience=audience,
+                account_id=str(getattr(settings, "AWS_ACCOUNT_ID", "") or ""),
+            )
+        except ValueError:
+            raise ContractError(_UNAUTHORIZED) from None
+        if verified != role:
+            raise ContractError(_UNAUTHORIZED)
 
     def authenticate_header(self, request: Request) -> str:
         return 'Bearer realm="guacamole-control"'

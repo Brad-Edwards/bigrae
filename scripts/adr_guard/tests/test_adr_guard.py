@@ -591,7 +591,7 @@ class AdrGuardTests(unittest.TestCase):
                 "automated_conformance_claim": False,
             },
             "toolchain": {
-                "static": "eslint-plugin-jsx-a11y",
+                "static": "eslint-plugin-jsx-a11y-x",
                 "component": "vitest-axe",
                 "browser": "@axe-core/playwright",
                 "runner": "playwright",
