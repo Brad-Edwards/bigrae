@@ -45,6 +45,26 @@
   "overrides": {
     "@istanbuljs/load-nyc-config": {
       "js-yaml": "^4.3.0"
+    },
+    "eslint": {
+      "minimatch": "^11.0.3"
+    },
+    "@eslint/config-array": {
+      "minimatch": "^11.0.3"
+    },
+    "babel-plugin-istanbul": "^8.0.2",
+    "test-exclude": {
+      "glob": "^14.0.3",
+      "minimatch": "^11.0.3"
+    },
+    "@jest/reporters": {
+      "glob": "^14.0.3"
+    },
+    "jest-config": {
+      "glob": "^14.0.3"
+    },
+    "jest-runtime": {
+      "glob": "^14.0.3"
     }
   }
 }

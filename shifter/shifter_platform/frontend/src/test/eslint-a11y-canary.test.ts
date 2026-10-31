@@ -6,17 +6,18 @@ import { describe, expect, it } from "vitest";
 /**
  * Accessibility-lint canary (#1880).
  *
- * `eslint-plugin-jsx-a11y@6.10.2` reaches `minimatch` through a callable
- * default import. Any change that gives it `minimatch@10` — whose CommonJS
- * build exports only a named `minimatch` — clears the `brace-expansion`
- * advisory but kills accessibility linting with
- * `TypeError: (0 , _minimatch.default) is not a function`.
+ * The accessibility plugin calls `minimatch` from its label rules. The
+ * original `eslint-plugin-jsx-a11y@6.10.2` called a default export that
+ * `minimatch@10` and later do not have, so a `minimatch` upgrade stopped
+ * accessibility linting with `TypeError: (0 , _minimatch.default) is not a
+ * function`. The SPA now uses the `eslint-plugin-jsx-a11y-x` fork, which uses
+ * the named export (#2313).
  *
- * That trade must never be made silently, so this canary runs the SPA's real
- * `eslint.config.js` and asserts both halves of it:
+ * A `minimatch` upgrade must not stop accessibility linting silently, so this
+ * canary runs the SPA's real `eslint.config.js` and asserts both halves of it:
  *
- *   - the `<img>` with no `alt` still produces `jsx-a11y/alt-text`, proving the
- *     accessibility rules are loaded and firing rather than quietly inert;
+ *   - the `<img>` with no `alt` still produces `jsx-a11y-x/alt-text`, proving
+ *     the accessibility rules are loaded and firing rather than quietly inert;
  *   - the `<label>` wrapping an `<input>` drives `label-has-associated-control`
  *     through `mayContainChildComponent` -> `minimatch`, which is the exact
  *     call path that breaks. A fixture containing only the `<img>` would still
@@ -58,7 +59,7 @@ describe("jsx-a11y lint canary", () => {
         "ESLint crashed while linting the accessibility canary, so accessibility " +
           "linting is broken repository-wide. This is the failure mode described in " +
           `issue #1880 — check whether minimatch was upgraded under ` +
-          `eslint-plugin-jsx-a11y. Original error: ${(error as Error).message}`,
+          `eslint-plugin-jsx-a11y-x. Original error: ${(error as Error).message}`,
       );
     }
 
@@ -68,6 +69,6 @@ describe("jsx-a11y lint canary", () => {
     // A parse or config failure would otherwise masquerade as "no violations".
     expect(result.messages.filter((message) => message.fatal)).toEqual([]);
 
-    expect(result.messages.map((message) => message.ruleId)).toEqual(["jsx-a11y/alt-text"]);
+    expect(result.messages.map((message) => message.ruleId)).toEqual(["jsx-a11y-x/alt-text"]);
   }, 30_000);
 });

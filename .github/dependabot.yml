@@ -338,9 +338,7 @@ updates:
           - "patch"
 
   # The SPA is its own package root, so it needs its own entry — the
-  # `/shifter/shifter_platform` block above does not reach it. This is the
-  # lane that surfaces the `eslint-plugin-jsx-a11y` release which unblocks
-  # the `brace-expansion` advisory tracked in #1880.
+  # `/shifter/shifter_platform` block above does not reach it.
   - package-ecosystem: "npm"
     directory: "/shifter/shifter_platform/frontend"
     target-branch: "dev"

@@ -21,5 +21,13 @@
   "devDependencies": {
     "eslint": "^10.3.0",
     "eslint-plugin-security": "^4.0.0"
+  },
+  "overrides": {
+    "eslint": {
+      "minimatch": "^11.0.3"
+    },
+    "@eslint/config-array": {
+      "minimatch": "^11.0.3"
+    }
   }
 }
