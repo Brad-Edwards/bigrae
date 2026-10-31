@@ -278,7 +278,7 @@ mode. It creates these resources:
 
 - the deploy, release-scan, and destroy service accounts;
 - the token-creator grants for the named principals;
-- object and bucket-read grants on the state bucket for the deploy principals.
+- object and bucket-owner grants on the state bucket for the deploy principals.
   Each deploy removes the broad project bindings from the state bucket, so
   these grants keep the operators' access to the foundation state;
 - the release-evidence bucket, with a locked 90-day retention policy;
