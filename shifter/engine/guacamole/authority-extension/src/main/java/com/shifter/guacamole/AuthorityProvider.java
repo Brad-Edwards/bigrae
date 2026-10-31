@@ -25,9 +25,9 @@ public final class AuthorityProvider extends AbstractAuthenticationProvider {
         try { control = new GatewayControl(endpoint, audience, kind); }
         catch (IllegalArgumentException unsupported) { return null; }
         try { return new GatewayRenewals(control, System::nanoTime, Duration.ofSeconds(90), 512); }
-        catch (RuntimeException failed) {
+        catch (IllegalArgumentException invalid) {
             control.close();
-            throw failed;
+            return null;
         }
     }
 
