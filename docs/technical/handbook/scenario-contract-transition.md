@@ -27,6 +27,10 @@ CPython `cbor2` dependency update. It changes transport dependencies only; the
 RAES pins, serialized plans, authoring contract and cleanup reader remain the
 same. The related Node adapter lock updates affect the MCP HTTP transport.
 
+The 2026-10-31 dependency security update (#2696) raised the `pyasn1` floor to
+0.6.5. It did not change the RAES package pins, the serialized plan versions,
+the ownership boundary, or the migration contract.
+
 Only `shared.raes` imports the released RAES module family. It validates and
 compiles authored intent into the RAES ProvisioningPlan. The independent
 provisioner validates and reads plain serialized data, not a second authored
