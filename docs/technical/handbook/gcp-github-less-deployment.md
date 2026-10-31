@@ -277,8 +277,10 @@ saved plan. That root creates no Workload Identity pool or provider in this
 mode. It creates these resources:
 
 - the deploy, release-scan, and destroy service accounts;
-- the image build service account, which this mode does not use;
 - the token-creator grants for the named principals;
+- object and bucket-read grants on the state bucket for the deploy principals.
+  Each deploy removes the broad project bindings from the state bucket, so
+  these grants keep the operators' access to the foundation state;
 - the release-evidence bucket, with a locked 90-day retention policy;
 - the deployment config bucket, with uniform access, public access
   prevention, and versioning;
@@ -286,7 +288,8 @@ mode. It creates these resources:
   delivery to the release-evidence bucket is optional
   (`enable_gcs_usage_log_delivery`), because a Domain Restricted Sharing org
   policy rejects its Google-managed writer group;
-- the image-build network, only when `enable_image_build_network` is `true`.
+- the image-build network and the image build service account, only when
+  `enable_image_build_network` is `true`.
 
 The retention lock on the release-evidence bucket is permanent. Check the
 project and the bucket name in the plan before you apply it.
