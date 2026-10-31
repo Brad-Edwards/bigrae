@@ -4,20 +4,19 @@ import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
 /**
- * Accessibility-lint canary (#1880).
+ * Accessibility-lint canary (#1880, #2696).
  *
- * The accessibility plugin calls `minimatch` from its label rules. The
- * original `eslint-plugin-jsx-a11y@6.10.2` called a default export that
- * `minimatch@10` and later do not have, so a `minimatch` upgrade stopped
- * accessibility linting with `TypeError: (0 , _minimatch.default) is not a
- * function`. The SPA now uses the `eslint-plugin-jsx-a11y-x` fork, which uses
- * the named export (#2313).
+ * `eslint-plugin-jsx-a11y@6.10.2` reached `minimatch` through a callable
+ * default import, so a fixed `minimatch` killed accessibility linting with
+ * `TypeError: (0 , _minimatch.default) is not a function`. The SPA now uses
+ * the maintained fork `eslint-plugin-jsx-a11y-x`, which imports the named
+ * `minimatch` export.
  *
- * A `minimatch` upgrade must not stop accessibility linting silently, so this
+ * A dependency change must never silence accessibility linting, so this
  * canary runs the SPA's real `eslint.config.js` and asserts both halves of it:
  *
- *   - the `<img>` with no `alt` still produces `jsx-a11y-x/alt-text`, proving
- *     the accessibility rules are loaded and firing rather than quietly inert;
+ *   - the `<img>` with no `alt` still produces `jsx-a11y-x/alt-text`, proving the
+ *     accessibility rules are loaded and firing rather than quietly inert;
  *   - the `<label>` wrapping an `<input>` drives `label-has-associated-control`
  *     through `mayContainChildComponent` -> `minimatch`, which is the exact
  *     call path that breaks. A fixture containing only the `<img>` would still
@@ -58,7 +57,7 @@ describe("jsx-a11y lint canary", () => {
       throw new Error(
         "ESLint crashed while linting the accessibility canary, so accessibility " +
           "linting is broken repository-wide. This is the failure mode described in " +
-          `issue #1880 — check whether minimatch was upgraded under ` +
+          `issue #1880 — check the minimatch version under ` +
           `eslint-plugin-jsx-a11y-x. Original error: ${(error as Error).message}`,
       );
     }

@@ -68,28 +68,8 @@
   "overrides": {
     "js-yaml": "^4.3.0",
     "uuid": "^11.1.1",
-    "@redocly/openapi-core": {
-      "minimatch": "^11.0.3"
-    },
-    "eslint": {
-      "minimatch": "^11.0.3"
-    },
-    "@eslint/config-array": {
-      "minimatch": "^11.0.3"
-    },
-    "@eslint/eslintrc": {
-      "minimatch": "^11.0.3"
-    },
-    "eslint-plugin-react": {
-      "minimatch": "^11.0.3"
-    },
     "dompurify": "^3.4.17",
     "katex": "^0.18.2",
-    "@typescript-eslint/typescript-estree": {
-      "minimatch": "^11.0.3"
-    },
-    "eslint-plugin-jsx-a11y-x": {
-      "minimatch": "^11.0.3"
-    }
+    "minimatch": "^11.0.1"
   }
 }

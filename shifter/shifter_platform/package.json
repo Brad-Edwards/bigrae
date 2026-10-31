@@ -33,12 +33,12 @@
     "@babel/core": "^8.0.1",
     "@babel/preset-env": "^8.0.2",
     "@eslint/js": "^10.0.1",
-    "babel-jest": "^30.4.1",
+    "babel-jest": "^30.5.2",
     "eslint": "^10.3.0",
     "eslint-plugin-security": "^4.0.0",
     "globals": "^17.6.0",
-    "jest": "^30.4.2",
-    "jest-environment-jsdom": "^30.4.1",
+    "jest": "^30.5.2",
+    "jest-environment-jsdom": "^30.5.2",
     "stylelint": "^17.11.1",
     "stylelint-config-standard": "^40.0.0"
   },
@@ -46,25 +46,8 @@
     "@istanbuljs/load-nyc-config": {
       "js-yaml": "^4.3.0"
     },
-    "eslint": {
-      "minimatch": "^11.0.3"
-    },
-    "@eslint/config-array": {
-      "minimatch": "^11.0.3"
-    },
-    "babel-plugin-istanbul": "^8.0.2",
-    "test-exclude": {
-      "glob": "^14.0.3",
-      "minimatch": "^11.0.3"
-    },
-    "@jest/reporters": {
-      "glob": "^14.0.3"
-    },
-    "jest-config": {
-      "glob": "^14.0.3"
-    },
-    "jest-runtime": {
-      "glob": "^14.0.3"
-    }
+    "minimatch": "^11.0.1",
+    "glob": "^14.0.2",
+    "test-exclude": "^8.0.0"
   }
 }
