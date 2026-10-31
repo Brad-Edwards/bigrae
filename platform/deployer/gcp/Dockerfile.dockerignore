@@ -6,6 +6,8 @@
 *
 !scripts/bootstrap/
 !scripts/gcp/
+# gcp-foundation compares its saved plan with this trust check (#2668).
+!scripts/check_tf_gcp_wif_trust/_resolved_plan.py
 !scripts/smoke-test-gcp.sh
 !shifter/installation/
 !shifter/shifter_platform/shared/model_access/

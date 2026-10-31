@@ -60,6 +60,29 @@ output "image_build_network_name" {
   value       = module.image_build_network.image_build_network_name
 }
 
+variable "enable_image_export_storage" {
+  description = "Create the image export storage of a developer build project (#2668)."
+  type        = bool
+  default     = false
+}
+
+module "image_export_storage" {
+  count  = var.enable_image_export_storage ? 1 : 0
+  source = "../../modules/image-export-storage"
+
+  project_id                   = var.project_id
+  region                       = var.region
+  name_prefix                  = var.name_prefix
+  packer_service_account_email = module.cicd_oidc_identity.packer_build_service_account_email
+  # Usage logs go to the private evidence bucket, as for the deployment config bucket.
+  access_log_bucket_name = module.cicd_oidc_identity.release_evidence_bucket_name
+}
+
+output "image_export_bucket_name" {
+  description = "GCP_GCE_BASE_IMAGE_BUCKET of a developer build project, or an empty string."
+  value       = var.enable_image_export_storage ? module.image_export_storage[0].staging_bucket_name : ""
+}
+
 output "image_build_subnetwork_name" {
   description = "GCP_PACKER_SUBNETWORK and GCP_VALIDATE_SUBNETWORK for first-project image jobs."
   value       = module.image_build_network.image_build_subnetwork_name

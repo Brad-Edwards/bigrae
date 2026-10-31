@@ -44,7 +44,7 @@ variable "purpose_contexts" {
   validation {
     condition = alltrue([
       for purpose, contexts in var.purpose_contexts :
-      contains(["build", "validate", "promote", "release_scan", "deploy", "destroy"], purpose) && length(contexts) > 0
+      contains(["build", "validate", "release_scan", "deploy", "destroy"], purpose) && length(contexts) > 0
     ])
     error_message = "purpose_contexts must enable only supported purposes with non-empty contexts."
   }
@@ -74,7 +74,7 @@ variable "purpose_contexts" {
       for context in lookup(var.purpose_contexts, "destroy", []) :
       contains(["refs/heads/dev", "refs/heads/main"], context.ref) && endswith(context.workflow_ref, "@${context.ref}")
     ])
-    error_message = "Destroy trust tuples must bind protected refs/heads/dev or refs/heads/main; gcp-dev-destroy.yml rejects every other dispatch ref."
+    error_message = "Destroy trust tuples must bind protected refs/heads/dev or refs/heads/main; a destroy workflow rejects every other dispatch ref."
   }
 }
 

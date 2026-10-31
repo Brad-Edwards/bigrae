@@ -199,6 +199,7 @@ COPY shifter/shifter_platform/shared/gcp_range_telemetry /opt/bigrae/lib/shared/
 COPY shifter/shifter_platform/shared/gcp_native_identity /opt/bigrae/lib/shared/gcp_native_identity
 COPY scripts/bootstrap /opt/bigrae/scripts/bootstrap
 COPY scripts/gcp /opt/bigrae/scripts/gcp
+COPY scripts/check_tf_gcp_wif_trust/_resolved_plan.py /opt/bigrae/scripts/check_tf_gcp_wif_trust/_resolved_plan.py
 COPY scripts/smoke-test-gcp.sh /opt/bigrae/scripts/smoke-test-gcp.sh
 COPY platform/terraform/gcp /opt/bigrae/platform/terraform/gcp
 COPY platform/charts/shifter /opt/bigrae/platform/charts/shifter

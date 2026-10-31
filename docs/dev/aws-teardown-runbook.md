@@ -8,7 +8,7 @@ identity and state backend, and the local operator config. It is the reverse of
 [`aws-terraform-apply-order.md`](aws-terraform-apply-order.md).
 
 The repeatable AWS teardown workflow is `.github/workflows/aws-env-destroy.yml`
-(#1287), the AWS analogue of `gcp-dev-destroy.yml`. It runs on GitHub-hosted
+(#1287). It runs on GitHub-hosted
 compute and delegates to `scripts/bootstrap/aws_env_destroy.py`, which encodes
 the ordered sequence in this runbook. Live-fire validation against a real
 environment is tracked in #2044; until then this runbook is both the
@@ -22,9 +22,8 @@ hand teardown.
 ## CI teardown architecture guardrails (#1287)
 
 The manual sequence below is also the architecture contract for any automated
-AWS environment destroy. `gcp-dev-destroy.yml` is a useful workflow-shape
-reference, but its provider-specific resource semantics are not an AWS teardown
-contract.
+AWS environment destroy. The GCP teardown (`deploy.py gcp-destroy`) has
+provider-specific resource semantics, so it is not an AWS teardown contract.
 
 ### Contract conflicts to resolve before implementation
 
@@ -242,7 +241,7 @@ terraform destroy -auto-approve
 If a destroy fails on an unremovable resource (for example a KMS key with
 `prevent_destroy`), remove it from state with `terraform state rm` and let the
 account-level cleanup handle it, mirroring the KMS handling in
-`gcp-dev-destroy.yml`.
+`deploy.py gcp-destroy`.
 
 ### Known destroy stalls and fixes
 

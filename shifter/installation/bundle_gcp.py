@@ -290,8 +290,9 @@ GCP_BUNDLE = BackendBundle(
         scripts=("scripts/gcp", "scripts/bootstrap"),
         workflows=(
             ".github/workflows/_gcp-dev.yml",
-            ".github/workflows/gcp-dev-destroy.yml",
             ".github/workflows/release-gcp.yml",
+            ".github/workflows/packer-gcp.yml",
+            ".github/workflows/packer-gcp-validate.yml",
         ),
         examples=("shifter/installation/examples/gcp.yaml",),
         docs=(

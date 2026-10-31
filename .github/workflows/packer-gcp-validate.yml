@@ -12,60 +12,51 @@ name: Packer GCE Image Validate
 # (#1343 codex security review): the runner opens an IAP tunnel to the candidate
 # and either SSH-executes the check script and gates on its exit code (Linux /
 # ubuntu) or probes AD over LDAP (dc-prebaked). A candidate cannot forge a
-# pass. On success it labels the EXACT validated candidate `validated=passed` and
-# stores raw evidence in private retained GCS and uploads only a redacted verdict;
-# packer-gcp-promote.yml refuses to promote unless the label, protected run,
-# revision, immutable build evidence, and an externally collected guest-disk
-# SBOM all agree.
-# Runs in a tenant environment (gcp-dev/orthanc/sauron/balrog), never prod.
+# pass. On success it labels the EXACT validated candidate `validated=passed`,
+# stores raw evidence and the externally collected guest-disk SBOM in private
+# retained GCS, uploads only a redacted verdict, and returns the validated numeric
+# image ID.
+#
+# packer-gcp.yml calls this workflow for the image that it built (#2668). Its
+# publish job needs this validation of the exact candidate before it exports
+# anything. The job runs in the gcp-image-validate Environment of the developer
+# build project, as the validation identity, which can not build or publish.
 #
 # NOTE: the live behaviour (IAP tunnel to Linux management SSH, AD
 # LDAP probe) is exercised by an operator against real GCP; CI covers template /
 # workflow / script shape only.
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       image_type:
-        description: 'GCE image to validate. Only image types with a matching validator are selectable: the generic Linux guests boot-check, and dc-prebaked checks an already-serving DC. Sysprepped windows / first-boot-promotion dc images have no matching validator and are intentionally excluded.'
+        description: 'GCE image to validate: ubuntu or kali (the generic Linux boot check) or dc-prebaked (an already-serving DC). Sysprepped windows and first-boot-promotion dc images have no validator.'
         required: true
-        type: choice
-        options:
-          - ubuntu
-          - kali
-          - dc-prebaked
-      environment:
-        description: 'GCP environment the candidate lives in'
-        required: true
-        type: choice
-        options:
-          - gcp-dev
-          - orthanc
-          - sauron
-          - balrog
-        default: gcp-dev
-      source_image:
-        description: 'Exact candidate image name to validate. Empty resolves the newest image in the image family at validate time and pins it.'
-        required: false
         type: string
-        default: ''
+      source_image:
+        description: 'Exact candidate image name that the calling run built.'
+        required: true
+        type: string
       dc_profile:
         description: 'Pre-promoted DC profile (only used when image_type=dc-prebaked); selects the shifter-<profile>-dc family and expected domain.'
         required: false
         type: string
         default: ''
+    outputs:
+      image_id:
+        description: 'Numeric GCE image ID of the validated candidate.'
+        value: ${{ jobs.validate.outputs.image_id }}
 
 permissions:
   contents: read
 
 jobs:
   validate:
-    name: Validate ${{ inputs.image_type }} GCE image in ${{ inputs.environment }}
+    name: Validate ${{ inputs.image_type }} GCE image
     runs-on: ubuntu-latest
-    # The gcp-dev tenant's purpose Environments keep their historical short
-    # suffix (gcp-validate-dev), so map the gcp-dev tenant name back to `dev`
-    # here; every other tenant uses its own name verbatim (gcp-validate-<tenant>).
-    environment: gcp-validate-${{ inputs.environment == 'gcp-dev' && 'dev' || inputs.environment }}
+    environment: gcp-image-validate
+    outputs:
+      image_id: ${{ steps.outcome.outputs.image_id }}
     permissions:
       contents: read
       id-token: write
@@ -86,6 +77,13 @@ jobs:
       # file — has been tampered with. Runs before cloud credentials are issued.
       - name: Reject non-protected dispatch refs
         run: |
+          case "${IMAGE_TYPE}" in
+            ubuntu|kali|dc-prebaked) ;;
+            *)
+              echo "::error::No validator exists for image type '${IMAGE_TYPE}'."
+              exit 1
+              ;;
+          esac
           case "${GITHUB_REF}" in
             refs/heads/dev|refs/heads/main) ;;
             *)
@@ -155,7 +153,7 @@ jobs:
         run: |
           set -euo pipefail
           # The image family is the deployment channel; the exact image is the
-          # validation/promotion unit. Derive the family from the image type
+          # validation and publication unit. Derive the family from the image type
           # (dc-prebaked is purpose-scoped: shifter-<profile>-dc).
           if [ "${IMAGE_TYPE}" = "dc-prebaked" ] \
             && ! printf '%s' "${DC_PROFILE}" | grep -qE '^[a-z0-9][a-z0-9-]*$'; then
@@ -166,16 +164,11 @@ jobs:
             dc-prebaked) FAMILY="shifter-${DC_PROFILE}-dc" ;;
             *)           FAMILY="shifter-${IMAGE_TYPE}" ;;
           esac
-          if [ -n "${SOURCE_IMAGE_INPUT}" ]; then
-            CANDIDATE="${SOURCE_IMAGE_INPUT}"
-          else
-            # Resolve the newest image in the family ONCE and pin the exact name;
-            # everything downstream uses this concrete identity, never the family.
-            CANDIDATE="$(gcloud compute images describe-from-family "${FAMILY}" \
-              --project="${GCP_PROJECT_ID}" --format='value(name)')"
-          fi
+          # The caller names the exact image that it built; a family is never
+          # resolved here.
+          CANDIDATE="${SOURCE_IMAGE_INPUT}"
           if [ -z "${CANDIDATE}" ]; then
-            echo "::error::No candidate image found (image_type=${IMAGE_TYPE}, family=${FAMILY}). Build it first."
+            echo "::error::No candidate image was named (image_type=${IMAGE_TYPE})."
             exit 1
           fi
           if ! printf '%s' "${CANDIDATE}" | grep -qE '^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$'; then
@@ -198,7 +191,7 @@ jobs:
           # MUST equal the family for the requested image_type/dc_profile. Without
           # this a caller could validate a sensitive-family image (e.g. a
           # purpose-DC) under a weak profile (e.g. ubuntu) and still get it
-          # labelled validated=passed for promotion (#1343 codex review).
+          # labelled validated=passed for publication (#1343 codex review).
           if [ "${IMG_FAMILY}" != "${FAMILY}" ]; then
             echo "::error::Candidate ${CANDIDATE} is in family '${IMG_FAMILY}', not the family '${FAMILY}' for image_type='${IMAGE_TYPE}'. The candidate and validation profile must be the same release identity."
             exit 1
@@ -218,7 +211,7 @@ jobs:
             EXPECTED_IMAGE_ID="${CANDIDATE_IMAGE_ID}" \
             EXPECTED_IMAGE_FAMILY="${IMG_FAMILY}" \
             EXPECTED_IMAGE_TYPE="${IMAGE_TYPE}" \
-            EXPECTED_ENVIRONMENT="${{ inputs.environment }}" \
+            EXPECTED_ENVIRONMENT="gcp-image-build" \
             bash shifter/packer/gcp/scripts/validate/verify-build-evidence.sh
           CANDIDATE_SOURCE_REVISION="$(jq -er '.source_revision' "${build_evidence}")"
           if [ "${CANDIDATE_SOURCE_LABEL}" != "${CANDIDATE_SOURCE_REVISION}" ]; then
@@ -476,7 +469,7 @@ jobs:
             --arg project "${GCP_PROJECT_ID}" \
             --arg image_family "${IMAGE_FAMILY}" \
             --arg image_type "${IMAGE_TYPE}" \
-            --arg environment "${{ inputs.environment }}" \
+            --arg environment "gcp-image-validate" \
             --arg source_revision "${CANDIDATE_SOURCE_REVISION}" \
             --argjson validation_run "${GITHUB_RUN_ID}" \
             --argjson validation_run_attempt "${GITHUB_RUN_ATTEMPT}" \
@@ -571,6 +564,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish the authoritative validation outcome
+        id: outcome
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           VALIDATED_VERDICT_ID: ${{ steps.upload_verdict.outputs.artifact-id }}
@@ -584,8 +578,8 @@ jobs:
             echo "::error::Redacted verdict upload returned no valid artifact ID; refusing to publish validation labels."
             exit 1
           fi
-          # Promotion derives the private, immutable object prefix from the run,
-          # attempt, and image ID, then verifies this digest binding.
+          # The labels locate the private, immutable evidence of this run, attempt,
+          # and image ID. The publish job of the calling run rechecks them.
           gcloud compute images update "${CANDIDATE}" \
             --project="${GCP_PROJECT_ID}" \
             --update-labels="validated=passed,validated-run=${GITHUB_RUN_ID},validated-attempt=${GITHUB_RUN_ATTEMPT},validated-verdict-id=${VALIDATED_VERDICT_ID},validated-evidence-sha=${VALIDATED_EVIDENCE_SHA},validated-image-id=${CANDIDATE_IMAGE_ID},validated-revision=${CANDIDATE_SOURCE_REVISION}"
@@ -594,9 +588,8 @@ jobs:
             echo "- **Image type:** ${IMAGE_TYPE}"
             echo "- **Candidate:** \`${CANDIDATE}\` (ID \`${CANDIDATE_IMAGE_ID}\`, family \`${IMAGE_FAMILY}\`)"
             echo "- **Evidence:** run \`${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}\`, private locator \`${VALIDATED_EVIDENCE_SHA:0:16}...\`"
-            echo ""
-            echo "**Next step:** promote \`${CANDIDATE}\` with packer-gcp-promote.yml."
           } >> "$GITHUB_STEP_SUMMARY"
+          echo "image_id=${CANDIDATE_IMAGE_ID}" >> "$GITHUB_OUTPUT"
 
       - name: Delete disposable validation resources
         if: always()

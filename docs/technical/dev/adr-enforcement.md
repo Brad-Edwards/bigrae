@@ -204,8 +204,8 @@ prove a live repository, publisher or workload-identity cutover.
   their real service and image entrypoints. Sharding changes execution cost,
   not the required evidence or coverage thresholds. Full suites and image
   smoke run in CI; local development uses focused regressions.
-- `.github/workflows/_gcp-dev.yml` and `gcp-dev-destroy.yml` are thin wrappers
-  over the GCP deploy commands (ADR-070). The deploy renders each image by its
+- `.github/workflows/_gcp-dev.yml` is a thin wrapper over the GCP deploy
+  commands (ADR-070). The deploy renders each image by its
   exact digest from the release manifest, so a mutable tag never selects a
   running image.
 
@@ -535,8 +535,7 @@ The first slice intentionally stays small:
 
   The manual-deploy invariant (`TestManualDeployDispatch`, #730) asserts that
   environment deploys are a `workflow_dispatch` naming the `environment` input
-  (a closed `choice` of `aws-dev` / `gcp-dev` /
-  `orthanc` / `sauron` / `balrog`), that the `Set
+  (a closed `choice` that has only `aws-dev` after #2668), that the `Set
   environment` step keys on that input rather than a branch-name `case` router,
   and that `push` / `pull_request` run validation only (no run/apply flags).
 
@@ -549,41 +548,33 @@ The first slice intentionally stays small:
   IAP TCP port-2222 addition. Other resource or output changes fail the run;
   ordinary deployments skip the foundation stage.
 
-  The GCP teardown guardrail
-  (`test_gcp_workflows_keep_sensitive_tfvars_out_of_the_checkout`) asserts that
-  `gcp-dev-destroy.yml` is parameterized over the tenant. `GCP_ENVIRONMENT` and
-  the destroy `environment` (`<environment>-destroy`) derive from the
-  `environment` dispatch input. Every GCP tenant (gcp-dev / orthanc /
-  sauron / balrog) tears down through the one workflow. The workflow keeps
-  its protected-ref check and calls `deploy.py gcp-destroy` with
-  `--confirm "${GCP_ENVIRONMENT}"` (ADR-070). The test also requires the
-  deployment inputs in a private directory under `RUNNER_TEMP`, which the job
-  removes. The CI adapter must create exclusive 0600 files in a 0700
-  directory. It
-  runs on `ubuntu-latest` because teardown deletes resources through the GCP
-  APIs over WIF and needs no in-VPC or self-hosted runner access. The destroy
-  command renders `cloud_sql_deletion_protection = false`, which the shared GCP
-  root declares (default true), so teardown lifts deletion protection. The `packer-gcp.yml` and
-  `packer-gcp-validate.yml` environment enums name the gcp-dev tenant `gcp-dev`
-  (mapped back to the `gcp-build-dev` / `gcp-validate-dev` Environments, whose
-  validate identity is provisioned at standup via the tenant's cicd-oidc
-  `validate` purpose) for parity with `deploy.yml`, and drop the unbacked
-  `proof` option. The teardown workflow runs an upfront preflight that fails with
-  the full list of any secrets missing from the selected `<environment>-destroy`
-  Environment before checkout or auth.
+  The GCP deployment-input guardrail
+  (`test_gcp_workflows_keep_sensitive_tfvars_out_of_the_checkout`) requires the
+  deployment inputs of `_gcp-dev.yml` in a private directory under
+  `RUNNER_TEMP`, which the job removes. The CI adapter must create exclusive
+  0600 files in a 0700 directory. No GitHub workflow tears down a GCP
+  deployment after #2668; an operator runs `deploy.py gcp-destroy` (ADR-070).
+  The destroy command renders `cloud_sql_deletion_protection = false`, which
+  the shared GCP root declares (default true), so teardown lifts deletion
+  protection.
 
-  The reusable GCE base-image guardrail
+  The GCE guest image guardrail
   (`test_gcp_base_image_publish_uses_gce_native_contract_and_protected_ref_gate`)
-  asserts `packer-gcp.yml` publishes the minimum base set (kali, ubuntu, and DC
-  via `dc-prebaked`) to GHCR as GCE-native disk tarballs (package
-  `shifter-gce-<role>`, artifact type `application/vnd.shifter.gce-image.v1`,
-  layer media type `application/vnd.shifter.gce-image.tar.gz`, provenance
-  annotations) gated on `publish_target=ghcr` and a protected dispatch ref, with
-  the staging object keyed on `BUILT_IMAGE_ID` (not the build-step-local
-  `IMAGE_ID`). The retired GDC qcow2 `shifter-vm-*` publish contract is gone.
-  `deploy.py gcp-images` imports
-  each artifact as a native GCE image from an explicit `--source` prefix
-  (`scripts/bootstrap/gcp_base_images.py`, issues #2309 and #2571).
+  asserts that `packer-gcp.yml` publishes the minimum base set (kali, ubuntu,
+  and DC through `dc-prebaked`) as GCE-native disk tarballs to
+  `ghcr.io/<owner>/<repository>/gce-<role>`. The artifact type is
+  `application/vnd.shifter.gce-image.v1`, the layer media type is
+  `application/vnd.shifter.gce-image.tar.gz`, and annotations record the build
+  revision. The publish job checks that the validated image ID equals
+  `BUILT_IMAGE_ID`, and the export object name uses `BUILT_IMAGE_ID`. The
+  retired GDC qcow2 `shifter-vm-*` publish contract is gone.
+  `test_gcp_guest_publication_needs_the_validation_of_the_same_run` asserts
+  that the publish job needs the build and validate jobs, that the validate job
+  calls the local validation workflow without secrets, and that no promotion
+  workflow exists (#2668). `gcp-deploy` and `deploy.py gcp-images` import the
+  guest images of the release manifest as native GCE images after they verify
+  their build provenance (`scripts/bootstrap/gcp_base_images.py`, issues #2309,
+  #2571, #2679, and #2668).
 
 - `portal-deploy-mode-source-of-truth`
   Enforces ADR-003-R4 for the AWS portal deploy path. `_shifter-platform.yml`
@@ -636,7 +627,25 @@ The first slice intentionally stays small:
   an unconditional step must scan the deployer digest with the blocking Trivy
   gate (`--severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`). The step must
   use `platform/deployer/gcp/trivyignore.yaml`, which holds only time-boxed
-  vendor-binary exposures. The check runs at the `fast` and `ci` levels;
+  vendor-binary exposures.
+
+  The check also covers the guest image workflows (#2668, ADR-037-R8 and R9) in
+  `scripts/adr_guard/_guard/checks/_release_workflow_guests.py`. A missing or
+  unparseable guest workflow is a violation:
+
+  - `packer-gcp.yml` starts only from `workflow_dispatch` and has no
+    `environment` or `publish_target` input.
+  - `packer-gcp-validate.yml` starts only from `workflow_call`. The build
+    workflow calls it with a local reference and passes no secrets.
+  - Each job that publishes binds its fixed Environment (`gcp-image-build` or
+    `gcp-image-validate`) and runs on a GitHub-hosted runner. Before its first
+    publishing step, it rejects every ref except `refs/heads/dev` and
+    `refs/heads/main`.
+  - The job that pushes the guest image needs the validation job. An
+    `actions/attest-build-provenance` step in that job signs the pushed digest
+    with `push-to-registry: true`.
+
+  The check runs at the `fast` and `ci` levels;
   `scripts/adr_guard/tests/test_release_workflow.py` covers it.
 
 - `TFLint`

@@ -13,11 +13,6 @@ output "packer_validate_service_account_email" {
   value       = module.cicd_oidc_identity.packer_validate_service_account_email
 }
 
-output "packer_promote_service_account_email" {
-  description = "Packer promote service account email; set as GCP_PACKER_PROMOTE_SERVICE_ACCOUNT."
-  value       = module.cicd_oidc_identity.packer_promote_service_account_email
-}
-
 output "deploy_service_account_email" {
   description = "Platform deploy service account email; set as GCP_DEPLOY_SERVICE_ACCOUNT."
   value       = module.cicd_oidc_identity.deploy_service_account_email

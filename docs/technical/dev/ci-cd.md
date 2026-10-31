@@ -24,18 +24,13 @@ triggers a deploy (#730).
 | Pull request | Quality only; no deploy |
 | Push to `dev` / `main` | Quality only; no deploy |
 | Manual dispatch, `environment: aws-dev` | Quality, then AWS dev deploy |
-| Manual dispatch, `environment: gcp-dev` | Quality, then GCP dev deploy |
-| Manual dispatch, `environment: orthanc` | Quality, then Orthanc deploy |
-| Manual dispatch, `environment: sauron` | Quality, then Sauron deploy |
-| Manual dispatch, `environment: balrog` | Quality, then Balrog deploy |
 | Release Please release on `main` | GCP release (`release-gcp.yml`) for the tagged commit; no deploy |
+| Manual dispatch of `packer-gcp.yml` on `dev` or `main` | Build, validate, and publish one GCP guest image; no deploy |
 
-GCP dispatches bind deployment and release scanning to separate protected
-Environments. The deploy Environment matches the selected Terraform root; the
-scanner uses `gcp-release-scan-<deployment suffix>`. Both accept the non-secret
-identity locators published by deployment-inventory bootstrap. The prepare
-preflight validates only the deploy boundary; the release-scan job validates
-its scanner identity after entering the scanner Environment.
+No GCP tenant deploys through GitHub Actions after #2668. GCP tenants install
+published releases with the GitHub-less commands (ADR-070). The GCP deploy jobs
+stay in `deploy.yml`, but no `environment` option selects them; #2672 decides
+the future of that path.
 
 Run a deploy from the Actions UI (**Deploy → Run workflow**, pick the branch to
 deploy and the `environment`) or the CLI:
@@ -58,7 +53,8 @@ picks where it goes. `dev` is the integration branch (Quality only).
 ├── _gcp-dev.yml            # GCP CI wrapper over the gcp-deploy commands
 ├── _shifter-engine.yml     # Shifter Engine container
 ├── _shifter-platform.yml   # Shifter Platform infra + deploy
-├── gcp-dev-destroy.yml     # GCP teardown wrapper over gcp-destroy
+├── packer-gcp.yml          # GCP guest image build, validation call, and publication
+├── packer-gcp-validate.yml # GCP guest candidate-boot validation (packer-gcp.yml calls it)
 └── release-gcp.yml         # GCP release images and deployer image (release-please.yml calls it)
 ```
 
@@ -295,7 +291,6 @@ Event / input                  → Behavior
 Pull request                   → Quality only
 Push to dev / main             → Quality only
 dispatch environment=aws-dev   → AWS dev deploy
-dispatch environment=gcp-dev|orthanc|sauron|balrog → selected GCP deploy
 ```
 
 ## Provider Routing
@@ -345,7 +340,7 @@ Terraform plans are also posted as PR comments.
 - Check branch protection rules
 - Verify path filters match your changes
 - Look for `paths-filter` in deploy.yml
-- A deploy is a manual dispatch: `gh workflow run deploy.yml --ref <branch> -f environment=<aws-dev|gcp-dev|orthanc|sauron|balrog>`. Pushes and PRs run validation only; no branch push deploys.
+- A deploy is a manual dispatch: `gh workflow run deploy.yml --ref <branch> -f environment=aws-dev`. Pushes and PRs run validation only; no branch push deploys.
 
 ### Terraform Plan Fails
 - Check for formatting issues: `terraform fmt -recursive`

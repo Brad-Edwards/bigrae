@@ -12,12 +12,11 @@ on:
       environment:
         description: Which environment to deploy (the branch you run this from is the code that deploys).
         type: choice
+        # No GitHub-deployed GCP tenant exists (#2668); GCP tenants deploy from a
+        # release with deploy.py gcp-deploy. Issue #2672 decides whether the GitHub
+        # GCP deploy path below stays.
         options:
           - aws-dev
-          - gcp-dev
-          - orthanc
-          - sauron
-          - balrog
       gcp_require_active_certificate:
         description: >-
           Fail the GCP deploy if the GKE ManagedCertificate is not Active for the
@@ -267,9 +266,9 @@ jobs:
           AWS_ENV="dev"
           AWS_IS_DEV="true"
           AWS_GITHUB_ENV="aws-dev"
-          GCP_ENV="gcp-dev"
-          GCP_GITHUB_ENV="gcp-dev"
-          GCP_RELEASE_SCAN_GITHUB_ENV="gcp-release-scan-dev"
+          GCP_ENV=""
+          GCP_GITHUB_ENV=""
+          GCP_RELEASE_SCAN_GITHUB_ENV=""
           RUN_AWS="false"
           RUN_GCP="false"
           APPLY_AWS="false"
@@ -283,13 +282,6 @@ jobs:
               aws-dev)
                 RUN_AWS="true"
                 APPLY_AWS="true"
-                ;;
-              gcp-dev|orthanc|sauron|balrog)
-                GCP_ENV="$ENVIRONMENT"
-                GCP_GITHUB_ENV="$ENVIRONMENT"
-                GCP_RELEASE_SCAN_GITHUB_ENV="gcp-release-scan-${ENVIRONMENT#gcp-}"
-                RUN_GCP="true"
-                DEPLOY_GCP="true"
                 ;;
             esac
           fi
@@ -448,7 +440,7 @@ jobs:
   # `quality` job runs (it is conditional on quality-relevant paths), so
   # requiring them directly leaves branch protection waiting forever on
   # PRs that touch none of those paths. Scoped to pull_request events, so
-  # it never runs on aws-dev / gcp-dev / main pushes.
+  # it never runs on manual deploys or main pushes.
   pr-gate:
     name: PR Gate
     needs: [changes, precommit, quality, accessibility]

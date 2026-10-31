@@ -50,7 +50,10 @@ tracks the AWS path.
    `GITHUB_TOKEN`. It uses no cloud identity. For each digest it signs build provenance with an SBOM and
    stores the attestation with the image (`push-to-registry: true`). The release
    manifest (`bigrae.gcp-release.v1`) inside the deployer image names the source
-   revision, the chart version, and the exact image identities. Before it attests
+   revision, the chart version, and the exact image identities. It also names
+   the guest images of decision 8. Before it builds anything, the workflow
+   verifies each guest that it names. It never builds, exports, or attests a
+   guest image (#2668). Before it attests
    the deployer image, the workflow scans that exact digest with the blocking
    Trivy gate. The only accepted exposures are time-boxed vendor-binary entries
    in `platform/deployer/gcp/trivyignore.yaml`. Each entry stops applying on its
@@ -96,7 +99,9 @@ tracks the AWS path.
    The deploy then verifies the Sigstore bundle that is stored with each image.
    The policy binds the GitHub Actions issuer and the immutable repository and
    owner IDs in `settings.release_trust`. It also binds the release revision, the
-   exact digest subject, and the SLSA provenance v1 predicate. After rollout, the command
+   exact digest subject, and the SLSA provenance v1 predicate. `gcp-images`
+   applies the same policy to each guest image at its recorded build revision
+   before it imports anything (#2668). After rollout, the command
    compares each running workload and container with the approved digests. No
    gate has a bypass. The raw evidence and the redacted verdicts go to the private
    release-evidence bucket, not to Actions artifacts.
@@ -110,12 +115,26 @@ tracks the AWS path.
    with the deployment name. It removes the platform resources and keeps the
    foundation identities and the state, evidence, and config buckets. In
    operator mode, the release tooling check replaces the protected-branch rule of
-   the destroy workflow. The CI destroy workflow keeps its protected-ref check.
-8. **Base guest images come from an explicit source.** `deploy.py gcp-images`
-   imports from an explicit `--source` registry prefix. It keeps the digest pins
-   and the OCI contract checks, and it writes the exact image references to
-   `range-images.json`. The source is the public GHCR packages that
-   `packer-gcp.yml` publishes, or a mirror of the same digests.
+   the destroy workflow.
+8. **Guest images ship as releases (#2668).** A developer builds and validates
+   the guest images with their own GitHub repository and a build project that
+   they supply. `deploy.py gcp-foundation` creates the build project with only
+   the build and validate purposes and writes the `gcp-image-build` and
+   `gcp-image-validate` Environments of that repository. `packer-gcp.yml`
+   publishes a guest image only after `packer-gcp-validate.yml` passes for the
+   exact numeric image ID in the same run. The image goes to
+   `ghcr.io/<owner>/<repository>/gce-<role>` with the tag
+   `run-<run number>.<attempt>` and a Sigstore attestation of its exact digest.
+   Each release names the newest publication of each role in `base_images`
+   (decision 10), so a guest changes only when a developer builds it again.
+   The release workflow, `gcp-deploy`, and `deploy.py gcp-images` verify every
+   role before any change: the artifact contract and a Sigstore bundle that
+   satisfies the trust anchor at the build revision of the artifact, from
+   `refs/heads/dev` or `refs/heads/main`. The import holds the deployment lock,
+   reuses an unchanged image, and writes `range-images.json`. A mirror changes
+   only the transport. No BigRAE deployment creates image-build resources. The
+   [guest image design](../architecture/gcp-guest-images.md) records the
+   components.
 9. **The release registry is public.** One release serves every deployment.
    A deployment trusts a release only through the provenance policy of
    decision 5, not through the owner of the registry. The commands send the
@@ -134,8 +153,7 @@ tracks the AWS path.
     and reuses an unchanged one. On an empty database, the deploy derives the
     identity facts from the configured operator account. A database with users
     still needs the reviewed legacy conversion facts. A tenant platform creates
-    no image-build infrastructure; only a maintainer build environment opts in.
-    The current release requires native SQL and OpenFGA, so a setting that
+    no image-build infrastructure (decision 8). The current release requires native SQL and OpenFGA, so a setting that
     disables either fails before any change.
 
 Catalog initialization is an application operation after verified native
@@ -153,6 +171,16 @@ leaves catalog work pending with a warning while the active application remains
 available for administrator login. Private credential files and transient
 Secret mounts stay outside the deployment input bundle and logs.
 
+## Environment retirement (#2668)
+
+The GitHub-deployed tenants `balrog`, `gcp-dev`, `orthanc`, and `sauron` do
+not exist. Issue #2668 removes their committed values, workflow choices,
+GitHub Environments, and the `orthanc` and `sauron` branches. It also removes
+`gcp-dev-destroy.yml` and `packer-gcp-promote.yml`. The validated release of
+decision 8 replaces promotion. The reusable deploy roots, the generic Helm
+profiles, and the deploy commands stay. Issue #2672 decides whether the GitHub
+deploy-to-tenant path stays.
+
 ## Consequences
 
 - An operator can deploy, update, and tear down a GCP deployment from a public
@@ -164,9 +192,10 @@ Secret mounts stay outside the deployment input bundle and logs.
   GitHub token or the GitHub API.
 - CI deploys and operator deploys run the same code, the same gates, and the same
   renderer.
-- Existing CI deployments keep their workflows, Environments, and committed
-  Terraform values. Their first deploy after this change adopts the objects that
-  Kustomize applied into the Helm release.
+- No CI deployment exists after #2668. Every deployment runs the deploy
+  commands from a release.
+- A release with unchanged guest images carries the same guest digests, and an
+  import reuses the images that it created before.
 - The `release-workflow-provenance` and `workflow-action-sha-pinning` ADR guard
   checks and `scripts/check_tf_gcp_wif_trust` enforce the decision. The deploy
   workflow guard tests, the bootstrap unit tests, and the native Terraform tests

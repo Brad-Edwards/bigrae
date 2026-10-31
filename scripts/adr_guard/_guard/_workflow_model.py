@@ -235,9 +235,9 @@ _DW_SET_ENVIRONMENT_PROGRAM = (
     'AWS_ENV="dev"',
     'AWS_IS_DEV="true"',
     'AWS_GITHUB_ENV="aws-dev"',
-    'GCP_ENV="gcp-dev"',
-    'GCP_GITHUB_ENV="gcp-dev"',
-    'GCP_RELEASE_SCAN_GITHUB_ENV="gcp-release-scan-dev"',
+    'GCP_ENV=""',
+    'GCP_GITHUB_ENV=""',
+    'GCP_RELEASE_SCAN_GITHUB_ENV=""',
     'RUN_AWS="false"',
     'RUN_GCP="false"',
     'APPLY_AWS="false"',
@@ -247,13 +247,6 @@ _DW_SET_ENVIRONMENT_PROGRAM = (
     'aws-dev)',
     'RUN_AWS="true"',
     'APPLY_AWS="true"',
-    ';;',
-    'gcp-dev|orthanc|sauron|balrog)',
-    'GCP_ENV="$ENVIRONMENT"',
-    'GCP_GITHUB_ENV="$ENVIRONMENT"',
-    'GCP_RELEASE_SCAN_GITHUB_ENV="gcp-release-scan-${ENVIRONMENT#gcp-}"',
-    'RUN_GCP="true"',
-    'DEPLOY_GCP="true"',
     ';;',
     'esac',
     'fi',
@@ -301,9 +294,9 @@ def _dw_evaluate_env(
         "aws_environment": "dev",
         "aws_is_dev": "true",
         "aws_github_environment": "aws-dev",
-        "gcp_environment": "gcp-dev",
-        "gcp_github_environment": "gcp-dev",
-        "gcp_release_scan_github_environment": "gcp-release-scan-dev",
+        "gcp_environment": "",
+        "gcp_github_environment": "",
+        "gcp_release_scan_github_environment": "",
         "run_aws": "false",
         "run_gcp": "false",
         "apply_aws": "false",
@@ -311,17 +304,10 @@ def _dw_evaluate_env(
     }
     if event_name != "workflow_dispatch":
         return outputs
+    # No GitHub-deployed GCP tenant exists (#2668), so no input selects GCP.
     if environment_input == "aws-dev":
         outputs["run_aws"] = "true"
         outputs["apply_aws"] = "true"
-    elif environment_input in {"gcp-dev", "orthanc", "sauron", "balrog"}:
-        outputs["gcp_environment"] = environment_input
-        outputs["gcp_github_environment"] = environment_input
-        outputs["gcp_release_scan_github_environment"] = (
-            f"gcp-release-scan-{environment_input.removeprefix('gcp-')}"
-        )
-        outputs["run_gcp"] = "true"
-        outputs["deploy_gcp"] = "true"
     return outputs
 
 

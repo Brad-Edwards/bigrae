@@ -107,24 +107,6 @@ variable "validate_permissions" {
   ]
 }
 
-variable "promote_permissions" {
-  description = "Custom-role permissions for prod image copy and verified family commit."
-  type        = list(string)
-  default = [
-    "compute.globalOperations.get",
-    "compute.images.create",
-    "compute.images.deprecate",
-    "compute.images.get",
-    "compute.images.getFromFamily",
-    "compute.images.list",
-    "compute.images.setLabels",
-    "compute.images.update",
-    "compute.images.useReadOnly",
-    "resourcemanager.projects.get",
-    "serviceusage.services.use",
-  ]
-}
-
 variable "deploy_roles" {
   description = "Platform-core roles granted only to the deploy identity."
   type        = list(string)
@@ -274,20 +256,6 @@ variable "destroy_vpn_pool_permissions" {
     "compute.instanceTemplates.delete",
     "compute.instanceTemplates.get",
   ]
-}
-
-variable "promotion_reader_service_account_email" {
-  description = "Prod promote SA email granted read-only access to source images by the source-project root."
-  type        = string
-  default     = ""
-
-  validation {
-    condition = var.promotion_reader_service_account_email == "" || can(regex(
-      "^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z][a-z0-9-]{4,28}[a-z0-9]\\.iam\\.gserviceaccount\\.com$",
-      var.promotion_reader_service_account_email,
-    ))
-    error_message = "promotion_reader_service_account_email must be empty or a service-account email."
-  }
 }
 
 variable "terraform_state_bucket_name" {

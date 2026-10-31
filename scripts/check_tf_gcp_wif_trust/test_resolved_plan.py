@@ -96,6 +96,31 @@ class ResolvedPlanTests(unittest.TestCase):
             with self.subTest(mutation=mutation):
                 self.assertTrue(check_resolved_plan(plan, expected))
 
+    def test_only_an_unauthorized_service_account_may_be_deleted(self):
+        """#2679: a foundation that builds no images removes its builder identity."""
+        plan, expected = fixture()
+
+        def account_change(email, actions):
+            return {
+                "address": "module.cicd_oidc_identity.google_service_account.x",
+                "type": "google_service_account",
+                "change": {"actions": actions, "before": {
+                    "name": f"projects/example-foundation/serviceAccounts/{email}",
+                    "email": email, "project": "example-foundation",
+                }, "after": None if actions == ["delete"] else {}, "after_unknown": {}},
+            }
+
+        builder = "new-packer@example-foundation.iam.gserviceaccount.com"
+        deploy = "new-deploy@example-foundation.iam.gserviceaccount.com"
+        removal = copy.deepcopy(plan)
+        removal["resource_changes"].append(account_change(builder, ["delete"]))
+        self.assertEqual(check_resolved_plan(removal, expected), [])
+        for email, actions in ((deploy, ["delete"]), (builder, ["delete", "create"])):
+            with self.subTest(email=email, actions=actions):
+                changed = copy.deepcopy(plan)
+                changed["resource_changes"].append(account_change(email, actions))
+                self.assertIn("Migration would delete or replace an identity foundation", check_resolved_plan(changed, expected))
+
 
 def impersonation_fixture():
     """A deployment without GitHub federation: named operators only (ADR-070)."""

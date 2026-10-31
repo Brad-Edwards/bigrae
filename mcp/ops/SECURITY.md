@@ -89,7 +89,7 @@ class**:
 | `ssm_named` | Allowlisted Django manage.py commands via SSM |
 | `ssm_arbitrary` | Free-form SSM `send-command` / `get-command-invocation` |
 | `db_arbitrary` | `query`, `execute`, `list_tables`, `describe_table` |
-| `infra_mutation` | `start_ec2_instance`, `stop_ec2_instance`, `terminate_ec2_instance`, `restart_ecs_service`, `reconcile_ranges`, `build_ami`, `promote_ami`, `build_gce_image`, `promote_gce_image` |
+| `infra_mutation` | `start_ec2_instance`, `stop_ec2_instance`, `terminate_ec2_instance`, `restart_ecs_service`, `reconcile_ranges`, `build_ami`, `promote_ami`, `build_gce_image` |
 | `dev_bypass_tunnel` | `start_portal_test_tunnel`, `stop_portal_test_tunnel` (agent auth without MFA in dev) |
 
 Class membership drives the gates the policy wrapper composes around

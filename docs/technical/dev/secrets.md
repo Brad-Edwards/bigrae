@@ -18,13 +18,11 @@ These must be configured in repository Settings > Secrets and variables > Action
 |--------|---------|
 | `AWS_ROLE_ARN` | GitHub Actions IAM role for **prod** (OIDC) |
 | `AWS_ROLE_ARN_DEV` | GitHub Actions IAM role for **dev** (OIDC) |
-| `GCP_DEPLOY_SERVICE_ACCOUNT` | GitHub Actions deploy service account email in `gcp-dev` |
-| `GCP_DESTROY_SERVICE_ACCOUNT` | GitHub Actions destroy service account email in `gcp-dev-destroy` |
-| `GCP_PACKER_BUILD_SERVICE_ACCOUNT` | Image build service account in `gcp-build-dev` / `gcp-build-proof` |
-| `GCP_PACKER_VALIDATE_SERVICE_ACCOUNT` | Image validation service account in `gcp-validate-dev` / `gcp-validate-proof` |
-| `GCP_PACKER_PROMOTE_SERVICE_ACCOUNT` | Image promotion service account in `gcp-promote-prod` |
+| `GCP_DEPLOY_SERVICE_ACCOUNT` | GitHub Actions deploy service account email in the deployment Environment of a CI-deployed GCP tenant (none exists after #2668) |
+| `GCP_PACKER_BUILD_SERVICE_ACCOUNT` | Image build service account in `gcp-image-build`; the foundation bootstrap writes it |
+| `GCP_PACKER_VALIDATE_SERVICE_ACCOUNT` | Image validation service account in `gcp-image-validate`; the foundation bootstrap writes it |
 | `GCP_RELEASE_SCAN_SERVICE_ACCOUNT` | Exact-release scanner service account in `gcp-release-scan-<deployment suffix>` |
-| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub Actions workload identity provider resource for `gcp-dev` deploys |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | GitHub Actions workload identity provider resource of the GCP project that the Environment uses |
 | `GCP_BOOTSTRAP_ADMIN_EMAIL` | Optional first GCP operator email for Identity Platform bootstrap |
 | `GCP_BOOTSTRAP_ADMIN_PASSWORD` | Optional first GCP operator password for Identity Platform bootstrap |
 | `PLATFORM_BOOTSTRAP_STAFF_EMAILS` | Optional comma-separated runtime staff bootstrap emails for production auth providers |

@@ -13,8 +13,9 @@ GitHub Actions with self-hosted runners.
 ├── _shifter-engine.yml     # Engine container build and push
 ├── _shifter-platform.yml   # Portal infrastructure and app deployment
 ├── _gcp-dev.yml            # GCP CI wrapper over the gcp-deploy commands
-├── gcp-dev-destroy.yml     # GCP CI wrapper over gcp-destroy
 ├── release-gcp.yml         # GCP release: images, attestations, deployer image (release-please.yml calls it)
+├── packer-gcp.yml          # GCP guest image build, validation call, and publication
+├── packer-gcp-validate.yml # GCP guest candidate-boot validation (packer-gcp.yml calls it)
 ├── packer.yml              # AMI builds (AWS)
 └── packer-promote.yml      # AMI promotion to prod (AWS)
 ```
@@ -50,7 +51,6 @@ push and pull_request run validation only (#730).
 - Pull request → Quality only
 - Push to `dev` / `main` → Quality only; no deploy
 - Manual dispatch `environment=aws-dev` → AWS dev deploy
-- Manual dispatch `environment=<gcp-dev|orthanc|sauron|balrog>` → selected GCP deploy
 
 Run a deploy with `gh workflow run deploy.yml --ref <branch> -f environment=<env>`.
 
@@ -63,10 +63,8 @@ OIDC federation per cloud. No long-lived credentials.
 | `AWS_ROLE_ARN` | AWS prod IAM role |
 | `AWS_ROLE_ARN_DEV` | AWS dev IAM role |
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | Purpose-scoped GCP deploy service account email |
-| `GCP_DESTROY_SERVICE_ACCOUNT` | Purpose-scoped GCP destroy service account email |
-| `GCP_PACKER_BUILD_SERVICE_ACCOUNT` | Purpose-scoped GCE image build service account email |
-| `GCP_PACKER_VALIDATE_SERVICE_ACCOUNT` | Purpose-scoped GCE image validation service account email |
-| `GCP_PACKER_PROMOTE_SERVICE_ACCOUNT` | Purpose-scoped GCE image promotion service account email |
+| `GCP_PACKER_BUILD_SERVICE_ACCOUNT` | Purpose-scoped GCE image build service account email (`gcp-image-build`) |
+| `GCP_PACKER_VALIDATE_SERVICE_ACCOUNT` | Purpose-scoped GCE image validation service account email (`gcp-image-validate`) |
 | `GCP_RELEASE_SCAN_SERVICE_ACCOUNT` | Purpose-scoped GCP release-scan service account email |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | GCP Workload Identity Federation provider |
 
@@ -78,15 +76,18 @@ operators impersonate the purpose identities instead (ADR-070).
 
 ## GCP Current State
 
-GCP deploys through CI/CD via a manual `workflow_dispatch` with an allowlisted
-GCP environment (`gh workflow run deploy.yml --ref <branch> -f environment=<gcp-dev|orthanc|sauron|balrog>`). Branch names
-no longer trigger deploys; `dev`/`main` are Quality-only integration branches (#730).
-The selected deployment Environment and the purpose-scoped
-`gcp-release-scan-<deployment suffix>` Environment provide their own exact WIF
-identity variables; the reusable workflow does not reuse the deploy identity for
-release scanning. Its prepare preflight is scoped to deploy credentials, while
-the isolated scanner performs its own fail-closed identity check inside the
-release-scan Environment.
+No GCP tenant deploys through CI/CD after #2668. GCP tenants install published
+releases with the GitHub-less commands (ADR-070). The GCP jobs stay in
+`deploy.yml`, but no `environment` option selects them; #2672 decides the future
+of that path. When a tenant is wired in, its deployment Environment and the
+purpose-scoped `gcp-release-scan-<deployment suffix>` Environment provide their
+own exact WIF identity variables. The reusable workflow does not reuse the
+deploy identity for release scanning.
+
+The developer build project holds the only GitHub Actions WIF identities in use.
+`packer-gcp.yml` builds in the `gcp-image-build` Environment and calls
+`packer-gcp-validate.yml` in the `gcp-image-validate` Environment (see
+`docs/architecture/gcp-guest-images.md`).
 
 `_gcp-dev.yml` is a thin wrapper over the GitHub-less deploy commands
 (ADR-070). Each job renders the deployment input bundle from the GitHub
@@ -101,8 +102,8 @@ runs `scripts/bootstrap/deploy.py`:
 | `deploy` | `gcp-deploy --stage rollout` |
 | `post-deploy-smoke` | `gcp-smoke`; a failure opens a GitHub issue |
 
-`gcp-dev-destroy.yml` runs `gcp-destroy` after the `DESTROY` confirmation, the
-protected-ref check, and the secrets preflight.
+No GitHub workflow runs `gcp-destroy`. An operator runs it as the destroy
+identity (ADR-070).
 
 Every deploy dispatch runs the quality gate before an apply. All GCP
 deployments use the shared Terraform root `environments/platform` with the

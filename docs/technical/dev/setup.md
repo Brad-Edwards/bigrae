@@ -62,8 +62,8 @@ for the authoritative order.
 - Without GitHub: a published release that the deployment can read, the
   deployment input bundle in the config bucket, and the first operator password
   in Secret Manager.
-- Kali/Ubuntu/DC base packages in an OCI registry. `deploy.py gcp-images
-  --source <registry prefix>` imports them as native GCE images; no
+- A release that selects the Kali, Ubuntu, and DC guest images. `deploy.py
+  gcp-images` verifies and imports them as native GCE images; no
   platform-owned transfer bucket must already exist. See
   [`gcp-range-cell-deploy.md`](../../dev/gcp-range-cell-deploy.md) and
   [`gcp-guest-images.md`](../../architecture/gcp-guest-images.md).
@@ -333,6 +333,11 @@ inputs select the mode:
   explicit purpose Environment and workflow trust tuples. Follow the ordering in
   `scripts/bootstrap/README.md` and the staged cutover and readback in
   `docs/dev/deploy-secrets.md`.
+- **For a developer build project:** start from
+  `scripts/bootstrap/gcp-image-builder.example.tfvars.json`. The command creates
+  the image build resources and writes the `gcp-image-build` and
+  `gcp-image-validate` Environments of the GitHub repository. See
+  [GCP Guest Images](../../architecture/gcp-guest-images.md#build-project).
 
 Both modes create the state bucket before the identity Terraform initializes,
 and both can create an isolated private image-build network. Do not hand-create
@@ -343,19 +348,18 @@ For CI, add each output only to its matching GitHub Environment:
 | Secret | Value |
 |--------|-------|
 | `GCP_DEPLOY_SERVICE_ACCOUNT` | Deploy service account email |
-| `GCP_DESTROY_SERVICE_ACCOUNT` | Destroy service account email |
 | `GCP_RELEASE_SCAN_SERVICE_ACCOUNT` | Release-scan service account email |
-| `GCP_PACKER_BUILD_SERVICE_ACCOUNT` | Image build service account email |
-| `GCP_PACKER_VALIDATE_SERVICE_ACCOUNT` | Image validation service account email |
-| `GCP_PACKER_PROMOTE_SERVICE_ACCOUNT` | Image promotion service account email |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | WIF provider resource name |
+
+A developer build project does not need these steps. The bootstrap writes the
+image Environments itself.
 
 ### 3. Configure the deployment inputs
 
 - **Without GitHub:** write `bigrae.yaml` and `terraform.tfvars.json`, then
   publish them with `deploy.py gcp-config publish`. Create the first operator
-  password in Secret Manager. Import the range guest images with
-  `deploy.py gcp-images --source <registry prefix> --store gs://<bucket>`. See
+  password in Secret Manager. Import the guest images that the release selects
+  with `deploy.py gcp-images --store gs://<bucket>`. See
   [Author and publish the deployment input bundle](../handbook/gcp-github-less-deployment.md#author-and-publish-the-deployment-input-bundle).
 - **For CI:** set the GitHub secrets and variables in
   [`docs/dev/deploy-secrets.md`](../../dev/deploy-secrets.md).

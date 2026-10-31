@@ -4443,8 +4443,9 @@
         ],
         "workflows": [
           ".github/workflows/_gcp-dev.yml",
-          ".github/workflows/gcp-dev-destroy.yml",
-          ".github/workflows/release-gcp.yml"
+          ".github/workflows/release-gcp.yml",
+          ".github/workflows/packer-gcp.yml",
+          ".github/workflows/packer-gcp-validate.yml"
         ]
       },
       "required_secrets": [

@@ -43,7 +43,7 @@ run "impersonation_only_foundation" {
     error_message = "Impersonation must enable the lifecycle identities with the naming contract that gcp-deploy derives."
   }
   assert {
-    condition     = length(google_service_account.packer_build) == 0 && length(google_service_account.validate) == 0 && length(google_service_account.promote) == 0
+    condition     = length(google_service_account.packer_build) == 0 && length(google_service_account.validate) == 0
     error_message = "Impersonation must not enable the image purposes."
   }
   assert {

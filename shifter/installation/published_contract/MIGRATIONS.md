@@ -85,3 +85,10 @@ The `helm-template` check renders the chart with the GCP profile values, and the
 The required tools replace `docker` with `oras` and `trivy`, because a deploy copies and scans release images and builds none.
 The GCP bundle also owns `platform/deployer/gcp`, `.github/workflows/gcp-dev-destroy.yml`, `.github/workflows/release-gcp.yml`, `docs/technical/handbook/gcp-github-less-deployment.md`, and `docs/runbooks/rb023-gcp-deployment.md`.
 The current artifact is regenerated; the version-1 frozen snapshot remains unchanged.
+
+## Contract version 1 GCP image workflows (issue #2668)
+
+The GCP bundle no longer owns `.github/workflows/gcp-dev-destroy.yml`, which is removed with the retired GitHub-deployed tenants.
+It now owns `.github/workflows/packer-gcp.yml` and `.github/workflows/packer-gcp-validate.yml`, which build, validate, and publish the guest images of a release.
+The bundle schema and settings schema remain unchanged.
+The current artifact is regenerated; the version-1 frozen snapshot remains unchanged.

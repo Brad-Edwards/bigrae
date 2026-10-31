@@ -120,10 +120,15 @@ The AWS bundle owns the Terraform modules and environments under
 `platform/terraform`. Vendor connector templates are not part of the package.
 GCP uses one Terraform execution root with separate environment values and state metadata.
 See [deployment configuration](../dev/deployment-configuration.md) for selection and recovery.
-A GCP deployment runs from a published release. Operators and CI use the same
+A GCP deployment runs from a published release. Operators use the
 `deploy.py gcp-deploy` command, which reads the deployment input bundle from the
 deployment config bucket or a local directory. Secret values stay in Secret
-Manager (ADR-070, [GitHub-less GCP deployment guide](handbook/gcp-github-less-deployment.md)). Keep platform
+Manager (ADR-070, [GitHub-less GCP deployment guide](handbook/gcp-github-less-deployment.md)).
+A release also names one signed guest image for each published range role.
+A developer builds and validates those images in a build project that they
+supply. Each release takes the newest verified publication of each role, and
+the deploy imports the release guests after it verifies them
+([GCP guest images](../architecture/gcp-guest-images.md), #2668). Keep platform
 hosting separate from the range guest backend. `gcp-destroy` keeps the Artifact
 Registry key ring and key, which GCP can not delete. A later install adopts them
 with import blocks. The range network peers with the platform network after the

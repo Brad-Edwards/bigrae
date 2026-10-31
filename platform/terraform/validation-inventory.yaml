@@ -107,7 +107,7 @@ roots:
       - registry.terraform.io/hashicorp/random
       - registry.terraform.io/hashicorp/time
   # GCP-native self-hosted runner (issue #1546). A dedicated execution root and
-  # state prefix, separate from the gcp-dev platform root, so a platform destroy
+  # state prefix, separate from the platform root, so a platform destroy
   # never removes the runner (dev-tenant containment).
   - id: gcp-global-github-runner
     test: tests/inventory.tftest.hcl
@@ -118,7 +118,7 @@ roots:
       - registry.terraform.io/hashicorp/google
   # GCP-native GitHub Actions OIDC/WIF identity (pool, provider, packer build SA).
   # A foundational identity root with its own state prefix, separate from the
-  # gcp-dev platform root, so a platform destroy never removes the credentials CI
+  # platform root, so a platform destroy never removes the credentials CI
   # authenticates as (mirrors the github-runner containment).
   - id: gcp-global-cicd-oidc
     test: tests/inventory.tftest.hcl
@@ -289,7 +289,7 @@ modules:
     contract: deferred
     reason: "Contract-test rollout tracked in #1597."
     tracking: "#1597"
-  - path: platform/terraform/gcp/modules/packer-build-infra
+  - path: platform/terraform/gcp/modules/image-export-storage
     owner: "@Brad-Edwards"
     contract: deferred
     reason: "Contract-test rollout tracked in #1597."

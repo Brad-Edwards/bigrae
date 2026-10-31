@@ -151,13 +151,13 @@ describe("triggerGceImageWorkflow protected-ref dispatch", () => {
     const runner = makeRecordingRunner();
     const message = triggerGceImageWorkflow(
       {
-        workflow: "packer-gcp-promote.yml",
+        workflow: "packer-gcp.yml",
         inputs: {
-          image_type: "ubuntu",
-          source_image: "shifter-ubuntu-123",
+          image_type: "dc-prebaked",
+          dc_profile: "example",
         },
         ref: "main",
-        actionsPath: "packer-gcp-promote.yml",
+        actionsPath: "packer-gcp.yml",
       },
       { runner, token: "test-token", env: { GH_REPO: SYNTHETIC_REPO } },
     );
@@ -166,19 +166,19 @@ describe("triggerGceImageWorkflow protected-ref dispatch", () => {
     assert.deepEqual(runner.calls[0].argv, [
       "workflow",
       "run",
-      "packer-gcp-promote.yml",
+      "packer-gcp.yml",
       "--repo",
       SYNTHETIC_REPO,
       "--ref",
       "main",
       "-f",
-      "image_type=ubuntu",
+      "image_type=dc-prebaked",
       "-f",
-      "source_image=shifter-ubuntu-123",
+      "dc_profile=example",
     ]);
     assert.equal(
       message,
-      `Triggered packer-gcp-promote.yml for ubuntu on ref main. View at: https://github.com/${SYNTHETIC_REPO}/actions/workflows/packer-gcp-promote.yml`,
+      `Triggered packer-gcp.yml for dc-prebaked on ref main. View at: https://github.com/${SYNTHETIC_REPO}/actions/workflows/packer-gcp.yml`,
     );
   });
 });

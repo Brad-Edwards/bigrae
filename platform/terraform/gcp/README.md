@@ -6,7 +6,7 @@ This tree provisions the GCP control plane for Shifter.
 
 | Root | Purpose |
 | --- | --- |
-| `environments/platform` | Shared platform root of every GCP deployment. `scripts/bootstrap/deploy.py gcp-deploy` and `gcp-destroy` run it with the state prefix `shifter/<environment>/platform-core`. It creates the image-build subnet, firewalls, and buckets only with `enable_image_build_infra = true`, which only the maintainer image-build environments set. |
+| `environments/platform` | Shared platform root of every GCP deployment. `scripts/bootstrap/deploy.py gcp-deploy` and `gcp-destroy` run it with the state prefix `shifter/<environment>/platform-core`. It creates no image-build resources; guest images are built in a developer build project (#2668). |
 | `environments/<deployment>` | Committed Terraform values of the deployments that GitHub CI deploys. A deployment without GitHub keeps its values in its deployment input bundle. |
 | `global/cicd-oidc` | Purpose identities that outlive the platform. GitHub federation is optional: an empty `purpose_contexts` creates no pool or provider. `impersonation_principals` names the principals that may impersonate the deploy, release-scan, and destroy identities. `deployment_config_bucket_name` creates the deployment config bucket. |
 | `global/github-runner` | Self-hosted runner of a deployment that GitHub CI deploys. |
@@ -148,7 +148,7 @@ python3 scripts/gcp/probe_range_secret_permissions.py \
   --platform-project PLATFORM_PROJECT \
   --dynamic-project RANGE_SECRET_PROJECT \
   --unrelated-project UNRELATED_CONTROL_PROJECT \
-  --environment gcp-dev \
+  --environment ENVIRONMENT \
   --provisioner-service-account PROVISIONER_GSA \
   --portal-service-account PORTAL_GSA \
   --range-host-service-account ASSIGNED_RANGE_HOST_GSA \
@@ -296,7 +296,7 @@ contract consumed by the provisioner runtime:
 - `range_network_region`
 - `portal_network_cidrs`
 
-`gcp-dev` concrete values:
+Example concrete values:
 
 - `project_id = "example-gcp-project"`
 - `public_hostname = "shifter.example.com"`

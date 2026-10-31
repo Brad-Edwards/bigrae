@@ -46,17 +46,12 @@ export const BASE_AMI_TYPES = Object.freeze([
   "dc",
 ]);
 
-/** Protected integration branch for prod GCE image promotion workflows. */
-export const PROMOTE_GCE_IMAGE_REF = "dev";
-
-// GCE image build/promote (issue #505, PLAT-001.10). Mirrors the AWS AMI
-// constants above for the GCP guest-image bake pipeline. The order matches the
-// `image_type` choices in .github/workflows/packer-gcp.yml.
+// GCE guest image builds (issue #505, PLAT-001.10). packer-gcp.yml builds,
+// validates, and publishes one guest; no promotion step exists (#2668). The
+// order matches the `image_type` choices in .github/workflows/packer-gcp.yml.
 export const GCE_IMAGE_TYPES = Object.freeze([
   "ubuntu",
   "kali",
-  "windows",
-  "dc",
   "dc-prebaked",
 ]);
 

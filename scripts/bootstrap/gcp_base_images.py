@@ -1,30 +1,37 @@
-"""Reusable GCE base-image consumption for the supported GCP deployment standup.
+"""Release guest images for the supported GCP deployment (#2309, #2679, #2668).
 
-A fresh GCP deployment should not re-bake its guest images. This module discovers
-the minimum base guest set (Kali, Ubuntu, DC) from the OCI packages that
-``packer-gcp.yml`` publishes, validates each artifact and its provenance, pins an
-immutable digest, and imports the disk as a *native GCE image* in the target
-project - reusing an existing image when the digest is unchanged, creating a
-traceable new one when it changes (#2309).
+A fresh GCP deployment does not bake its guest images. ``packer-gcp.yml`` publishes each
+validated guest to ``<release registry>/gce-<role>`` with a ``run-<number>.<attempt>``
+tag. The release workflow takes the newest publication of each role, verifies it, and
+records its exact digest in the release manifest (``base_images``).
 
-The source registry prefix is an explicit operator input (#2571): the release
-Artifact Registry repository for a GitHub-less deployment, or any other registry
-that holds the ``shifter-gce-<role>`` packages. It is never derived from a GitHub
-repository owner. The caller records the resulting image references in the
-deployment input bundle (``range-images.json``).
+Before any change, this module verifies every guest of a release: the digest-verified OCI
+manifest, the artifact/layer/role contract, and a Sigstore bundle that satisfies the
+deployment trust anchor at the build revision of the artifact, from a protected build
+branch. Then it imports each disk as a *native GCE image* in the range project, reusing
+an image that it created before for the same canonical reference.
 
-Subprocess calls go through ``bootstrap_core.run_cmd`` / ``gcloud_resource_exists``
-so tests mock that boundary (ADR-019). The parsing/validation helpers are pure.
+A mirror (``release_source``) changes only where the bytes come from. The canonical
+reference in the release stays the identity that names and owns the GCE image, so a
+mirror never makes an unchanged guest look new. The caller records the resulting image
+references in the deployment input bundle (``range-images.json``).
+
+Subprocess calls go through ``bootstrap_core.run_cmd`` so tests mock that boundary
+(ADR-019). Registry metadata reads go through the bounded ``gcp_oci.OciClient``.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import tempfile
 import uuid
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING, Protocol
 
 from bootstrap_core import (
     header,
@@ -34,25 +41,33 @@ from bootstrap_core import (
     success,
 )
 
+if TYPE_CHECKING:
+    from gcp_oci import ImageReference
+    from gcp_provenance import DsseVerifier
+
 __all__ = [
     "BASE_IMAGE_ROLES",
+    "GUEST_BUILD_REFS",
     "BaseImageError",
     "ImportedImage",
     "ResolvedArtifact",
-    "discover_and_import",
     "import_base_image",
-    "import_pinned",
+    "import_selection",
+    "newest_publications",
     "package_for_role",
     "range_images_from_imports",
+    "registry_credentials",
     "render_range_image_env",
-    "resolve_artifact",
-    "resolve_release_base_images",
+    "resolve_selection",
+    "transport_identity",
 ]
 
-# The minimum reusable base set the supported GCE tenant bootstrap needs.
+# The published guest roles that the supported GCE deployment needs.
 BASE_IMAGE_ROLES = ("kali", "ubuntu", "dc")
+# packer-gcp.yml publishes only from these branches (its ref guard and Environments).
+GUEST_BUILD_REFS = ("refs/heads/dev", "refs/heads/main")
 
-# OCI contract published by packer-gcp.yml to every configured base-image registry.
+# OCI contract published by packer-gcp.yml.
 GCE_IMAGE_ARTIFACT_TYPE = "application/vnd.shifter.gce-image.v1"
 GCE_IMAGE_MEDIA_TYPE = "application/vnd.shifter.gce-image.tar.gz"
 
@@ -67,34 +82,56 @@ _ROLE_TO_RANGE_ENV = {
 # Raw disk export/import does not retain image-level guest OS features. Every
 # runtime range guest uses Shielded VM Secure Boot, so all imported bases must
 # be marked UEFI compatible. Windows-family roles additionally need WINDOWS.
-# The premium Windows license is not carried by a raw disk export/import, so the
-# DC image imported from a published base package is verified for boot/licensing
-# in the #2309 proof-2 tenant run.
 _WINDOWS_ROLES = frozenset({"dc"})
 
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-_DISCOVERY_TAG_RE = re.compile(r"^gce-(\d+)$")
-_REVISION_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+_REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
+_SOURCE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::\d+)?(?:/[a-z0-9][a-z0-9._-]*)+$", re.ASCII)
+# github.run_number increases with each run of packer-gcp.yml; a re-run raises the attempt.
+_PUBLICATION_TAG_RE = re.compile(r"^run-(\d+)\.(\d+)$")
+_RANGE_ENV_TO_ROLE = {
+    "GCP_RANGE_LINUX_IMAGE": "linux",
+    "GCP_RANGE_KALI_IMAGE": "kali",
+    "GCP_RANGE_DC_IMAGE": "dc",
+}
 
 
 class BaseImageError(RuntimeError):
-    """A base-image artifact is missing, incompatible, or failed to import."""
+    """A guest image artifact is missing, incompatible, unverified, or failed to import."""
+
+
+class ManifestReader(Protocol):
+    """The part of ``gcp_oci.OciClient`` that reads a digest-verified manifest."""
+
+    def manifest(self, image: ImageReference) -> dict[str, object]:
+        """Return the parsed manifest of ``image``."""
+        ...
 
 
 @dataclass(frozen=True)
 class ResolvedArtifact:
-    """A validated, digest-pinned base-image artifact ready to import."""
+    """A verified, digest-pinned guest artifact ready to import."""
 
     role: str
-    package: str  # e.g. <registry prefix>/shifter-gce-kali
-    digest: str  # sha256:<64 hex>
-    disk_digest: str  # sha256:<64 hex> for the validated GCE disk layer
-    revision: str  # provenance: the protected build source revision
+    canonical: str  # exact <repository>@sha256 identity named by the release
+    transport: str  # exact <repository>@sha256 identity that the bytes come from
+    disk_digest: str  # sha256:<64 hex> of the validated GCE disk layer
+    revision: str  # the build revision that the verified provenance binds
+
+    @property
+    def digest(self) -> str:
+        """The release digest of the OCI manifest."""
+        return self.canonical.rsplit("@", 1)[1]
 
     @property
     def pinned_reference(self) -> str:
-        """Immutable ``oci://<package>@<digest>`` reference (never a tag)."""
-        return f"oci://{self.package}@{self.digest}"
+        """Immutable ``oci://<canonical identity>`` reference that owns the GCE image."""
+        return f"oci://{self.canonical}"
+
+    @property
+    def transport_repository(self) -> str:
+        """Repository path that the disk layer is fetched from."""
+        return self.transport.rsplit("@", 1)[0]
 
     @property
     def short_digest(self) -> str:
@@ -113,91 +150,84 @@ class ImportedImage:
     reused: bool
 
 
-_SOURCE_RE = re.compile(r"^[a-z0-9][a-z0-9.-]*(?::\d+)?(?:/[a-z0-9][a-z0-9._-]*)+$", re.ASCII)
-
-
-def validate_source(source: str) -> str:
-    """Return ``source`` when it is a registry prefix such as ``<host>/<project>/<repository>``."""
-    if not _SOURCE_RE.fullmatch(source):
-        raise BaseImageError("base-image source must be a registry prefix such as <host>/<project>/<repository>")
-    return source
-
-
-def package_for_role(role: str, source: str) -> str:
-    """Return the OCI package path for a base role under the explicit source prefix."""
-    if role not in BASE_IMAGE_ROLES:
-        raise BaseImageError(f"unsupported public base-image role {role!r}")
-    return f"{validate_source(source)}/shifter-gce-{role}"
-
-
 # --- Pure parsing / validation -----------------------------------------------
 
 
-def _newest_discovery_tag(tags: list[str]) -> str | None:
-    """Return the newest ``gce-<id>`` discovery tag, or None when there is none.
+def _registry_prefix(prefix: str) -> str:
+    """Return ``prefix`` when it is a registry prefix such as ``<host>/<path>``."""
+    if not _SOURCE_RE.fullmatch(prefix):
+        raise BaseImageError("a registry prefix must look like <host>/<path>")
+    return prefix
 
-    The ``<id>`` is the source GCE image's numeric ID. GCE assigns image IDs
-    monotonically increasing over time within a project, so the highest ID among
-    a package's tags is the most recently built artifact - a defined ordering,
-    not a guess. Every tag in a package comes from the one protected build.
-    """
-    numbered = []
+
+def package_for_role(role: str, registry: str) -> str:
+    """Return the OCI repository of one guest role under a release registry prefix."""
+    if role not in BASE_IMAGE_ROLES:
+        raise BaseImageError(f"unsupported guest image role {role!r}")
+    return f"{_registry_prefix(registry)}/gce-{role}"
+
+
+def transport_identity(role: str, canonical: str, release_source: str = "") -> str:
+    """Return where to read one release guest: the release identity, or ``<source>/gce-<role>@<digest>``."""
+    repository, _, digest = canonical.rpartition("@")
+    if not _DIGEST_RE.fullmatch(digest) or not repository.endswith(f"/gce-{role}"):
+        raise BaseImageError(f"release guest image {role} must be <registry>/gce-{role}@sha256:<digest>")
+    package_for_role(role, repository.removesuffix(f"/gce-{role}"))
+    if not release_source:
+        return canonical
+    return f"{package_for_role(role, release_source)}@{digest}"
+
+
+def _newest_publication_tag(tags: list[str]) -> str | None:
+    """Return the ``run-<number>.<attempt>`` tag of the newest publication, or None."""
+    published = []
     for tag in tags:
-        match = _DISCOVERY_TAG_RE.fullmatch(tag.strip())
+        match = _PUBLICATION_TAG_RE.fullmatch(tag.strip())
         if match:
-            numbered.append((int(match.group(1)), tag.strip()))
-    if not numbered:
-        return None
-    return max(numbered)[1]
+            published.append((int(match.group(1)), int(match.group(2)), tag.strip()))
+    return max(published)[2] if published else None
 
 
 def _disk_layer_digest(manifest: dict[str, object]) -> str:
     """Return the one validated, digest-pinned GCE disk layer."""
     layers = manifest.get("layers") or []
     if not isinstance(layers, list) or not all(isinstance(layer, dict) for layer in layers):
-        raise BaseImageError("base-image manifest layers must be an array of descriptors")
+        raise BaseImageError("guest image manifest layers must be an array of descriptors")
     disk_layers = [layer for layer in layers if layer.get("mediaType") == GCE_IMAGE_MEDIA_TYPE]
     if len(disk_layers) != 1:
         raise BaseImageError(f"expected exactly one {GCE_IMAGE_MEDIA_TYPE} layer, found {len(disk_layers)}")
     layer_digest = str(disk_layers[0].get("digest", "")).strip()
     if not _DIGEST_RE.fullmatch(layer_digest):
-        raise BaseImageError("base-image disk layer is missing a full sha256 digest")
+        raise BaseImageError("guest image disk layer is missing a full sha256 digest")
     return layer_digest
 
 
-def _validate_disk_layer(manifest: dict[str, object]) -> None:
-    """Require exactly one digest-pinned GCE disk layer."""
-    _disk_layer_digest(manifest)
-
-
 def _validate_annotations(manifest: dict[str, object], *, role: str) -> str:
-    """Require the requested role and a protected source revision."""
+    """Require the requested role and a full build revision, and return the revision."""
     annotations = manifest.get("annotations") or {}
     if not isinstance(annotations, dict):
-        raise BaseImageError("base-image manifest annotations must be an object")
+        raise BaseImageError("guest image manifest annotations must be an object")
     declared_role = str(annotations.get("com.shifter.image.role", "")).strip()
     if declared_role != role:
         raise BaseImageError(f"artifact role annotation {declared_role!r} does not match requested role {role!r}")
     revision = str(annotations.get("org.opencontainers.image.revision", "")).strip()
     if not _REVISION_RE.fullmatch(revision):
-        raise BaseImageError("artifact is missing a full protected-source revision (image.revision annotation)")
+        raise BaseImageError(f"guest image {role} has no full build revision annotation")
     return revision
 
 
-def validate_artifact_manifest(manifest: dict[str, object], *, role: str) -> str:
-    """Validate an OCI manifest against the GCE base-image contract.
+def validate_artifact_manifest(manifest: dict[str, object], *, role: str) -> tuple[str, str]:
+    """Validate an OCI manifest against the GCE guest artifact contract.
 
-    Returns the provenance source revision. Raises :class:`BaseImageError` when
-    the artifact type, layer media type, role annotation, or provenance is wrong
-    or missing, so an incompatible artifact is rejected before any GCE mutation.
+    Returns the disk layer digest and the build revision. The revision annotation is a
+    claim; the Sigstore bundle verified at that revision is the trust.
     """
     if not isinstance(manifest, dict):
-        raise BaseImageError("base-image manifest is not a JSON object")
+        raise BaseImageError("guest image manifest is not a JSON object")
     artifact_type = manifest.get("artifactType", "")
     if artifact_type != GCE_IMAGE_ARTIFACT_TYPE:
         raise BaseImageError(f"unexpected artifactType {artifact_type!r}; expected {GCE_IMAGE_ARTIFACT_TYPE}")
-    _validate_disk_layer(manifest)
-    return _validate_annotations(manifest, role=role)
+    return _disk_layer_digest(manifest), _validate_annotations(manifest, role=role)
 
 
 def image_name_for(role: str, short_digest: str) -> str:
@@ -208,6 +238,13 @@ def image_name_for(role: str, short_digest: str) -> str:
 def render_range_image_env(imported: dict[str, ImportedImage]) -> dict[str, str]:
     """Map imported base images to their ``GCP_RANGE_*_IMAGE`` runtime values."""
     return {_ROLE_TO_RANGE_ENV[role]: image.image_ref for role, image in imported.items() if role in _ROLE_TO_RANGE_ENV}
+
+
+def range_images_from_imports(range_image_env: dict[str, str]) -> dict[str, str]:
+    """Convert imported ``GCP_RANGE_*_IMAGE`` values to ``range-images.json`` roles."""
+    if set(range_image_env) != set(_RANGE_ENV_TO_ROLE):
+        raise BaseImageError("the guest image import did not return the complete range-image set")
+    return {_RANGE_ENV_TO_ROLE[key]: value for key, value in range_image_env.items()}
 
 
 def _required_guest_os_features(role: str) -> frozenset[str]:
@@ -230,7 +267,7 @@ def _guest_os_feature_types(metadata: dict[str, object]) -> frozenset[str]:
     )
 
 
-# --- Registry / GCE boundary (mocked in tests via bootstrap_core.run_cmd) -----
+# --- Registry boundary --------------------------------------------------------
 
 
 def _oras_json(cmd: list[str], *, what: str) -> dict[str, object]:
@@ -240,81 +277,97 @@ def _oras_json(cmd: list[str], *, what: str) -> dict[str, object]:
         stderr = (getattr(result, "stderr", "") or "").strip()
         raise BaseImageError(f"{what} failed: {stderr or 'oras returned a non-zero status'}")
     try:
-        return json.loads(result.stdout or "{}")
+        document = json.loads(result.stdout or "{}")
     except json.JSONDecodeError as exc:
         raise BaseImageError(f"{what} returned invalid JSON: {exc}") from exc
+    if not isinstance(document, dict):
+        raise BaseImageError(f"{what} returned no JSON object")
+    return document
 
 
-def _discover_newest_tag(package: str) -> str:
-    """List discovery tags for a package and return the newest, or fail clearly."""
+def _newest_tag(package: str) -> str:
+    """List the publication tags of a guest repository and return the newest."""
     result = run_cmd(["oras", "repo", "tags", package], check=False, capture=True)
     if result is None or result.returncode != 0:
         stderr = (getattr(result, "stderr", "") or "").strip()
         raise BaseImageError(
-            f"no base image found at {package}; publish it with packer-gcp.yml "
-            f"then re-run ({stderr or 'oras repo tags failed'})"
+            f"no guest image found at {package}; publish it with packer-gcp.yml ({stderr or 'oras repo tags failed'})"
         )
-    tags = [line for line in (result.stdout or "").splitlines() if line.strip()]
-    newest = _newest_discovery_tag(tags)
+    newest = _newest_publication_tag((result.stdout or "").splitlines())
     if newest is None:
-        raise BaseImageError(f"package {package} has no gce-<id> base-image tags to discover")
+        raise BaseImageError(f"{package} has no run-<number>.<attempt> publication tag")
     return newest
 
 
-def _fetch_digest(package: str, tag: str) -> str:
-    """Resolve a discovery tag to its immutable manifest digest."""
-    descriptor = _oras_json(
-        ["oras", "manifest", "fetch", "--descriptor", f"{package}:{tag}"],
-        what=f"resolving digest for {package}:{tag}",
-    )
-    digest = str(descriptor.get("digest", "")).strip()
-    if not _DIGEST_RE.fullmatch(digest):
-        raise BaseImageError(f"registry did not return a valid sha256 digest for {package}:{tag}")
-    return digest
+def newest_publications(registry: str) -> dict[str, str]:
+    """Return the exact identity of the newest publication of each guest role.
 
-
-def _fetch_manifest(package: str, digest: str) -> dict[str, object]:
-    """Fetch the manifest for a digest-pinned reference."""
-    return _oras_json(
-        ["oras", "manifest", "fetch", f"{package}@{digest}"],
-        what=f"fetching manifest for {package}@{digest}",
-    )
-
-
-def resolve_artifact(role: str, source: str) -> ResolvedArtifact:
-    """Discover, digest-pin, and validate the base-image artifact for a role."""
-    package = package_for_role(role, source)
-    digest = _fetch_digest(package, _discover_newest_tag(package))
-    manifest = _fetch_manifest(package, digest)
-    revision = validate_artifact_manifest(manifest, role=role)
-    return ResolvedArtifact(
-        role=role,
-        package=package,
-        digest=digest,
-        disk_digest=_disk_layer_digest(manifest),
-        revision=revision,
-    )
-
-
-def resolve_pinned_artifact(role: str, identity: str) -> ResolvedArtifact:
-    """Validate one exact ``<package>@sha256:<hex>`` base image that a release pins (#2679)."""
-    package, _, digest = identity.rpartition("@")
-    if not _DIGEST_RE.fullmatch(digest) or package != package_for_role(role, package.rsplit("/", 1)[0]):
-        raise BaseImageError(f"release base image for {role!r} must be <prefix>/shifter-gce-{role}@sha256:<digest>")
-    manifest = _fetch_manifest(package, digest)
-    revision = validate_artifact_manifest(manifest, role=role)
-    return ResolvedArtifact(
-        role=role, package=package, digest=digest, disk_digest=_disk_layer_digest(manifest), revision=revision
-    )
-
-
-def resolve_release_base_images(source: str) -> dict[str, str]:
-    """Return the newest validated ``<package>@<digest>`` of each role, for a release to pin."""
-    pinned: dict[str, str] = {}
+    The release workflow verifies the result with :func:`resolve_selection` before it
+    records the identities in the release manifest.
+    """
+    newest: dict[str, str] = {}
     for role in BASE_IMAGE_ROLES:
-        artifact = resolve_artifact(role, source)
-        pinned[role] = f"{artifact.package}@{artifact.digest}"
-    return pinned
+        package = package_for_role(role, registry)
+        tag = _newest_tag(package)
+        descriptor = _oras_json(
+            ["oras", "manifest", "fetch", "--descriptor", f"{package}:{tag}"],
+            what=f"resolving {package}:{tag}",
+        )
+        digest = str(descriptor.get("digest", "")).strip()
+        if not _DIGEST_RE.fullmatch(digest):
+            raise BaseImageError(f"the registry returned no sha256 digest for {package}:{tag}")
+        newest[role] = f"{package}@{digest}"
+    return newest
+
+
+def resolve_selection(
+    base_images: Mapping[str, str],
+    *,
+    repository_id: str,
+    owner_id: str,
+    oci: ManifestReader,
+    verifier: DsseVerifier,
+    release_source: str = "",
+) -> list[ResolvedArtifact]:
+    """Verify every guest of a release before any change and return the resolved artifacts.
+
+    A guest passes only when its digest-verified manifest meets the artifact contract and
+    one stored Sigstore bundle satisfies the trust anchor at its build revision, from a
+    protected build branch.
+    """
+    from gcp_oci import ImageReference, OciError
+    from gcp_provenance import ProvenanceError, ReleaseTrust, verify_image_provenance
+
+    if not base_images:
+        raise BaseImageError("the release names no guest images; use a release that names them")
+    if set(base_images) != set(BASE_IMAGE_ROLES):
+        raise BaseImageError("the release must name exactly the guest images: " + ", ".join(BASE_IMAGE_ROLES))
+    artifacts: list[ResolvedArtifact] = []
+    for role in BASE_IMAGE_ROLES:
+        canonical = base_images[role]
+        transport = transport_identity(role, canonical, release_source)
+        try:
+            manifest = oci.manifest(ImageReference.parse(transport))
+            disk_digest, revision = validate_artifact_manifest(manifest, role=role)
+            trust = ReleaseTrust(
+                repository_id=repository_id,
+                owner_id=owner_id,
+                source_revision=revision,
+                source_refs=GUEST_BUILD_REFS,
+            )
+            verify_image_provenance(transport, trust, oci=oci, verifier=verifier)  # type: ignore[arg-type]
+        except (OciError, ProvenanceError) as exc:
+            raise BaseImageError(f"guest image {role} failed verification: {exc}") from None
+        info(f"Verified guest '{role}' (build {revision[:12]})")
+        artifacts.append(
+            ResolvedArtifact(
+                role=role, canonical=canonical, transport=transport, disk_digest=disk_digest, revision=revision
+            )
+        )
+    return artifacts
+
+
+# --- GCE boundary (mocked in tests via bootstrap_core.run_cmd) -----------------
 
 
 def _existing_image_metadata(project: str, image_name: str) -> dict[str, object] | None:
@@ -389,7 +442,7 @@ def _pull_disk_tarball(artifact: ResolvedArtifact, destination: Path) -> Path:
             "fetch",
             "--output",
             str(tarball),
-            f"{artifact.package}@{artifact.disk_digest}",
+            f"{artifact.transport_repository}@{artifact.disk_digest}",
         ]
     )
     if not tarball.is_file():
@@ -503,6 +556,30 @@ def import_base_image(
     return ImportedImage(artifact.role, image_name, image_ref, artifact.digest, reused=False)
 
 
+@contextmanager
+def registry_credentials(*identities: str) -> Iterator[None]:
+    """Use the gcloud credential helper for Artifact Registry hosts, for this import only.
+
+    Any other registry is read anonymously with an empty, isolated client config, so no
+    unrelated credential reaches it.
+    """
+    from gcp_oci import is_artifact_registry_host
+
+    hosts = {identity.split("/", 1)[0] for identity in identities}
+    helpers = {host: "gcloud" for host in sorted(hosts) if is_artifact_registry_host(host)}
+    previous = os.environ.get("DOCKER_CONFIG")
+    with tempfile.TemporaryDirectory(prefix="bigrae-oras-") as directory:
+        Path(directory, "config.json").write_text(json.dumps({"credHelpers": helpers}), encoding="utf-8")
+        os.environ["DOCKER_CONFIG"] = directory
+        try:
+            yield
+        finally:
+            if previous is None:
+                os.environ.pop("DOCKER_CONFIG", None)
+            else:
+                os.environ["DOCKER_CONFIG"] = previous
+
+
 def _run_checked(cmd: list[str], *, failure: str) -> None:
     """Run a command while retaining domain-specific failure handling."""
     result = run_cmd(cmd, check=False, capture=True)
@@ -543,82 +620,39 @@ def _delete_transfer_bucket(project: str, bucket: str) -> None:
     )
 
 
-def discover_and_import(
+def _needs_import(artifact: ResolvedArtifact, project: str) -> bool:
+    """True unless an exact, reusable, code-owned image for ``artifact`` already exists."""
+    metadata = _existing_image_metadata(project, image_name_for(artifact.role, artifact.short_digest))
+    if metadata is None:
+        return True
+    return not _existing_image_is_reusable(artifact, metadata, image_name_for(artifact.role, artifact.short_digest))
+
+
+def import_selection(
+    artifacts: list[ResolvedArtifact],
     *,
     project: str,
-    source: str,
     region: str = "us-central1",
-    roles: tuple[str, ...] = BASE_IMAGE_ROLES,
     dry_run: bool = False,
 ) -> dict[str, ImportedImage]:
-    """Discover, validate, and import the reusable base set as native GCE images.
+    """Import or reuse every verified guest as a native GCE image.
 
-    Returns the imported/reused image for each role; :func:`render_range_image_env`
-    turns that into the ``GCP_RANGE_*_IMAGE`` values the runtime env consumes. A
-    missing or incompatible artifact raises :class:`BaseImageError` (no silent
-    Packer bake, no blind accept).
+    Returns the image for each role; :func:`render_range_image_env` turns that into the
+    ``GCP_RANGE_*_IMAGE`` values. A set where every image is reusable creates no
+    transfer bucket.
     """
-    header("Reusable GCE base images (registry -> native GCE)")
-    artifacts: list[ResolvedArtifact] = []
-    for role in roles:
-        artifact = resolve_artifact(role, source)
-        info(f"Resolved '{role}' -> {artifact.pinned_reference} (build {artifact.revision[:12]})")
-        artifacts.append(artifact)
-
-    if dry_run:
+    header("Release guest images (registry -> native GCE)")
+    if dry_run or not any(_needs_import(artifact, project) for artifact in artifacts):
         return {
-            artifact.role: import_base_image(
-                artifact,
-                project=project,
-                staging_bucket="",
-                dry_run=True,
-            )
+            artifact.role: import_base_image(artifact, project=project, staging_bucket="", dry_run=dry_run)
             for artifact in artifacts
         }
-
     bucket = _create_transfer_bucket(project, region)
     try:
-        return {
-            artifact.role: import_base_image(
-                artifact,
-                project=project,
-                staging_bucket=bucket,
-            )
-            for artifact in artifacts
-        }
+        with registry_credentials(*(artifact.transport for artifact in artifacts)):
+            return {
+                artifact.role: import_base_image(artifact, project=project, staging_bucket=bucket)
+                for artifact in artifacts
+            }
     finally:
         _delete_transfer_bucket(project, bucket)
-
-
-def import_pinned(*, project: str, region: str, base_images: dict[str, str]) -> dict[str, ImportedImage]:
-    """Import the release's exact base images as native GCE images (#2679).
-
-    The release manifest pins one digest for each role, so no discovery runs.
-    An unchanged digest reuses the existing image.
-    """
-    header("Release base images (registry -> native GCE)")
-    if set(base_images) != set(BASE_IMAGE_ROLES):
-        raise BaseImageError("the release must pin exactly the kali, ubuntu, and dc base images")
-    artifacts = [resolve_pinned_artifact(role, base_images[role]) for role in BASE_IMAGE_ROLES]
-    bucket = _create_transfer_bucket(project, region)
-    try:
-        return {
-            artifact.role: import_base_image(artifact, project=project, staging_bucket=bucket) for artifact in artifacts
-        }
-    finally:
-        _delete_transfer_bucket(project, bucket)
-
-
-_RANGE_IMAGE_ENV_KEYS = frozenset({"GCP_RANGE_LINUX_IMAGE", "GCP_RANGE_KALI_IMAGE", "GCP_RANGE_DC_IMAGE"})
-_RANGE_ENV_TO_ROLE = {
-    "GCP_RANGE_LINUX_IMAGE": "linux",
-    "GCP_RANGE_KALI_IMAGE": "kali",
-    "GCP_RANGE_DC_IMAGE": "dc",
-}
-
-
-def range_images_from_imports(range_image_env: dict[str, str]) -> dict[str, str]:
-    """Convert imported ``GCP_RANGE_*_IMAGE`` values to ``range-images.json`` roles."""
-    if set(range_image_env) != _RANGE_IMAGE_ENV_KEYS:
-        raise BaseImageError("public base-image import did not return the complete range-image set")
-    return {_RANGE_ENV_TO_ROLE[key]: value for key, value in range_image_env.items()}

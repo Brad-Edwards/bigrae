@@ -229,6 +229,20 @@ class TestProvenance:
         with pytest.raises(ProvenanceError):
             ReleaseTrust(repository_id="1", owner_id="1", source_revision="short")
 
+    def test_guest_policy_also_binds_the_protected_build_branch(self):
+        """#2668: a guest image verifies only when its build ran from dev or main."""
+        trust = ReleaseTrust(
+            repository_id="1234",
+            owner_id="5678",
+            source_revision=REVISION,
+            source_refs=("refs/heads/dev", "refs/heads/main"),
+        )
+        branch_rule = sigstore_policy(trust)._children[-1]
+        assert type(branch_rule).__name__ == "AnyOf"
+        assert [child._value for child in branch_rule._children] == ["refs/heads/dev", "refs/heads/main"]
+        with pytest.raises(ProvenanceError):
+            ReleaseTrust(repository_id="1", owner_id="1", source_revision=REVISION, source_refs=("refs/tags/v1",))
+
     def test_statement_checks(self):
         check_statement("application/vnd.in-toto+json", _statement(), DIGEST)
         for payload_type, payload in (

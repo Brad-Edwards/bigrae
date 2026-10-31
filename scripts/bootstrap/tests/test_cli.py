@@ -20,8 +20,11 @@ from unittest.mock import Mock, patch
 import pytest
 
 import deploy
-import gcp_base_images
 import gcp_base_images as gbi
+import gcp_inputs
+import gcp_oci
+import gcp_provenance
+from tests.gcp_test_support import write_manifest
 
 PINNED_IMAGE_TAG = "abc1234"
 
@@ -45,19 +48,8 @@ class _BaseImageImportProcess:
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         if cmd[:3] == ["gcloud", "auth", "list"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="operator@example.test\n", stderr="")
-        if cmd[:3] == ["oras", "repo", "tags"]:
-            return subprocess.CompletedProcess(cmd, 0, stdout="gce-1\n", stderr="")
-        if cmd[:3] == ["oras", "manifest", "fetch"]:
-            if "--descriptor" in cmd:
-                return subprocess.CompletedProcess(cmd, 0, stdout='{"digest":"sha256:' + ("a" * 64) + '"}', stderr="")
-            reference = next(token for token in cmd if "shifter-gce-" in token)
-            role = reference.split("shifter-gce-", 1)[1].split("@", 1)[0]
-            manifest = {
-                "artifactType": gbi.GCE_IMAGE_ARTIFACT_TYPE,
-                "layers": [{"mediaType": gbi.GCE_IMAGE_MEDIA_TYPE, "digest": "sha256:" + ("b" * 64)}],
-                "annotations": {"com.shifter.image.role": role, "org.opencontainers.image.revision": "c" * 40},
-            }
-            return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(manifest), stderr="")
+        if cmd[:4] == ["gcloud", "storage", "objects", "describe"] and cmd[-1] == "--format=value(generation)":
+            return subprocess.CompletedProcess(cmd, 0, stdout="1700000000000001\n", stderr="")
         if cmd[:3] == ["oras", "blob", "fetch"]:
             Path(cmd[cmd.index("--output") + 1]).write_bytes(b"rawdisk")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -69,6 +61,38 @@ class _BaseImageImportProcess:
             if "--format=value(name)" in cmd:
                 return subprocess.CompletedProcess(cmd, 0, stdout=f"{cmd[4]}\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+
+_GUEST_REGISTRY = "ghcr.io/example-org/example-repo"
+_GUEST_DIGEST = "sha256:" + "a" * 64
+_GUEST_REVISION = "c" * 40
+
+
+@pytest.fixture
+def guest_release(tmp_path, monkeypatch):
+    """A release whose guest images verify, with the trust anchor in the bundle."""
+    pins = {role: f"{_GUEST_REGISTRY}/gce-{role}@{_GUEST_DIGEST}" for role in gbi.BASE_IMAGE_ROLES}
+    checked: list[tuple[str, str, str, str]] = []
+
+    def manifest(self, image):
+        role = image.name.rsplit("gce-", 1)[1]
+        return {
+            "artifactType": gbi.GCE_IMAGE_ARTIFACT_TYPE,
+            "layers": [{"mediaType": gbi.GCE_IMAGE_MEDIA_TYPE, "digest": "sha256:" + ("b" * 64)}],
+            "annotations": {"com.shifter.image.role": role, "org.opencontainers.image.revision": _GUEST_REVISION},
+        }
+
+    def verify(identity, trust, *, oci, verifier):
+        checked.append((identity, trust.repository_id, trust.owner_id, trust.source_revision))
+
+    trust = type("Trust", (), {"github_repository_id": "111", "github_owner_id": "222"})()
+    inputs = type("Inputs", (), {"settings": type("Settings", (), {"release_trust": trust})()})()
+    monkeypatch.setattr(gcp_oci.OciClient, "manifest", manifest)
+    monkeypatch.setattr(gcp_provenance, "verify_image_provenance", verify)
+    monkeypatch.setattr(gcp_provenance, "default_verifier", object)
+    monkeypatch.setattr(gcp_inputs, "load_deployment_inputs", lambda *args, **kwargs: inputs)
+    release = write_manifest(tmp_path / "release.json", base_images=pins)
+    return type("GuestRelease", (), {"manifest": release, "pins": pins, "checked": checked})
 
 
 # =============================================================================
@@ -529,59 +553,100 @@ class TestMainCLI:
 
             assert mock_gdc_bootstrap.call_args[1]["dry_run"] is True
 
-    def test_gcp_images_imports_from_the_explicit_source_and_records_roles(self):
+    def test_gcp_images_verifies_then_imports_the_release_guests_under_the_lock(self, guest_release):
         runner = _BaseImageImportProcess()
-        source = "us-central1-docker.pkg.dev/example-release/bigrae-release"
         with patch("subprocess.run", side_effect=runner):
             images = deploy.gcp_base_images_import(
-                "example-proj", "us-east1", source=source, store="gs://example-proj-deployment-config"
+                "example-proj",
+                "us-east1",
+                store="gs://example-proj-deployment-config",
+                release_manifest=str(guest_release.manifest),
             )
         assert set(images) == {"linux", "kali", "dc"}
         assert all(ref.startswith("projects/example-proj/global/images/") for ref in images.values())
         # The references land in the deployment config bucket, not in a GitHub Environment.
         assert json.loads(runner.uploads["gs://example-proj-deployment-config/range-images.json"]) == images
-        # The source is explicit (#2571): no GitHub service and no repository-derived owner.
-        assert any(f"{source}/shifter-gce-kali" in token for call in runner.calls for token in call)
+        # Every role is verified at its build revision with the trust anchor of the bundle.
+        assert guest_release.checked == [
+            (f"{_GUEST_REGISTRY}/gce-{role}@{_GUEST_DIGEST}", "111", "222", _GUEST_REVISION)
+            for role in gbi.BASE_IMAGE_ROLES
+        ]
+        lock = next(index for index, call in enumerate(runner.calls) if "--if-generation-match=0" in call)
+        first_create = next(
+            index for index, call in enumerate(runner.calls) if call[:4] == ["gcloud", "compute", "images", "create"]
+        )
+        assert lock < first_create
         assert not any(call[0] == "gh" for call in runner.calls)
         assert "DOCKER_CONFIG" not in os.environ
 
-    def test_gcp_images_prints_refs_without_a_store_and_skips_writes_in_dry_run(self, capsys):
+    def test_gcp_images_prints_refs_without_a_store_and_skips_writes_in_dry_run(self, guest_release, capsys):
         runner = _BaseImageImportProcess()
+        trust = {"trust": ("111", "222")}
         with patch("subprocess.run", side_effect=runner):
-            images = deploy.gcp_base_images_import("proj", "us-east1", source="ghcr.io/example-org")
+            images = deploy.gcp_base_images_import(
+                "proj", "us-east1", release_manifest=str(guest_release.manifest), **trust
+            )
             printed = capsys.readouterr().out
             deploy.gcp_base_images_import(
-                "proj", "us-east1", source="ghcr.io/example-org", store="gs://b", dry_run=True
+                "proj", "us-east1", release_manifest=str(guest_release.manifest), dry_run=True, **trust
             )
         assert json.loads(printed[printed.index("{") :]) == images
         assert runner.uploads == {}
 
-    def test_gcp_images_parser_requires_an_explicit_source(self):
+    def test_gcp_images_refuses_a_release_without_guests_or_trust(self, guest_release, tmp_path):
+        empty = write_manifest(tmp_path / "empty.json")
+        with pytest.raises(gbi.BaseImageError, match="names no guest images"):
+            deploy.gcp_base_images_import("proj", "us-east1", release_manifest=str(empty), trust=("1", "2"))
+        with pytest.raises(gbi.BaseImageError, match="release_trust"):
+            deploy.gcp_base_images_import("proj", "us-east1", release_manifest=str(guest_release.manifest))
+        with (
+            patch("subprocess.run", side_effect=_BaseImageImportProcess()),
+            pytest.raises(gbi.BaseImageError, match="conflict"),
+        ):
+            deploy.gcp_base_images_import(
+                "proj",
+                "us-east1",
+                store="gs://b",
+                release_manifest=str(guest_release.manifest),
+                trust=("999", "222"),
+            )
+        assert guest_release.checked == []
+
+    def test_gcp_images_parser_takes_the_release_and_no_source_prefix(self):
         args = deploy._build_parser().parse_args(
-            ["gcp-images", "--project-id", "proj", "--source", "registry.example/x/y", "--region", "europe-west1"]
+            [
+                "gcp-images",
+                "--project-id",
+                "proj",
+                "--release-source",
+                "registry.example/x/y",
+                "--region",
+                "europe-west1",
+            ]
         )
-        assert (args.project_id, args.source, args.store, args.region) == (
+        assert (args.project_id, args.release_source, args.store, args.region, args.resolve) == (
             "proj",
             "registry.example/x/y",
             "",
             "europe-west1",
+            False,
         )
-        with pytest.raises(SystemExit):
-            deploy._build_parser().parse_args(["gcp-images", "--project-id", "proj"])
+        resolve = deploy._build_parser().parse_args(["gcp-images", "--resolve", "--registry", _GUEST_REGISTRY])
+        assert (resolve.resolve, resolve.registry) == (True, _GUEST_REGISTRY)
+        for retired in ("--source", "--base-images", "--verify-only"):
+            with pytest.raises(SystemExit):
+                deploy._build_parser().parse_args(["gcp-images", retired, "x"])
 
-    def test_range_images_from_imports_requires_the_complete_set(self):
-        complete = {
-            "GCP_RANGE_LINUX_IMAGE": "projects/p/global/images/l",
-            "GCP_RANGE_KALI_IMAGE": "projects/p/global/images/k",
-            "GCP_RANGE_DC_IMAGE": "projects/p/global/images/d",
-        }
-        assert gcp_base_images.range_images_from_imports(complete) == {
-            "linux": "projects/p/global/images/l",
-            "kali": "projects/p/global/images/k",
-            "dc": "projects/p/global/images/d",
-        }
-        with pytest.raises(gbi.BaseImageError):
-            gcp_base_images.range_images_from_imports({"GCP_RANGE_LINUX_IMAGE": "x"})
+    def test_registry_credentials_go_only_to_artifact_registry_hosts(self):
+        mirror = f"us-central1-docker.pkg.dev/example-mirror/bigrae/gce-dc@{_GUEST_DIGEST}"
+        public = f"{_GUEST_REGISTRY}/gce-kali@{_GUEST_DIGEST}"
+        with gbi.registry_credentials(mirror, public):
+            config = json.loads(Path(os.environ["DOCKER_CONFIG"], "config.json").read_text(encoding="utf-8"))
+        assert config == {"credHelpers": {"us-central1-docker.pkg.dev": "gcloud"}}
+        with gbi.registry_credentials("example.pkg.dev/x/y@" + _GUEST_DIGEST, public):
+            config = json.loads(Path(os.environ["DOCKER_CONFIG"], "config.json").read_text(encoding="utf-8"))
+        assert config == {"credHelpers": {}}
+        assert "DOCKER_CONFIG" not in os.environ
 
     def test_gcp_images_requires_an_active_gcloud_identity_before_mutation(self):
         def fake_run(cmd, **_kwargs):

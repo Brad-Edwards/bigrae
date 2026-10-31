@@ -29,7 +29,6 @@ import {
   PROTECTED_AMI_REFS,
   resolveProtectedAmiRef,
   GCE_IMAGE_TYPES,
-  PROMOTE_GCE_IMAGE_REF,
   buildGhWorkflowRunArgs,
   resolveGhToken,
   ghExec,
@@ -1262,23 +1261,11 @@ describe("BASE_AMI_TYPES", () => {
 });
 
 // ---------------------------------------------------------------------------
-// GCE image build/promote helpers (issue #505, PLAT-001.10)
+// GCE guest image build helpers (issue #505, PLAT-001.10)
 // ---------------------------------------------------------------------------
 describe("GCE_IMAGE_TYPES", () => {
   it("matches the packer-gcp.yml image_type choices", () => {
-    assert.deepEqual([...GCE_IMAGE_TYPES], [
-      "ubuntu",
-      "kali",
-      "windows",
-      "dc",
-      "dc-prebaked",
-    ]);
-  });
-});
-
-describe("PROMOTE_GCE_IMAGE_REF", () => {
-  it("pins prod GCE promotion to the protected integration branch", () => {
-    assert.equal(PROMOTE_GCE_IMAGE_REF, "dev");
+    assert.deepEqual([...GCE_IMAGE_TYPES], ["ubuntu", "kali", "dc-prebaked"]);
   });
 });
 

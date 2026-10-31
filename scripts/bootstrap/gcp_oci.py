@@ -193,6 +193,10 @@ class OciClient:
             raise OciError(f"registry returned content that does not match {digest[:19]}")
         return body
 
+    def manifest(self, image: ImageReference) -> dict[str, object]:
+        """Fetch the manifest of ``image`` by its digest, verify the digest, and parse it."""
+        return self._json(self.blob_bytes(image, image.digest, MANIFEST_MEDIA_TYPE), "image manifest")
+
     def referrer_payloads(self, image: ImageReference, artifact_type: str) -> list[bytes]:
         """Return the first-layer payload of every ``artifact_type`` referrer of ``image``."""
         payloads: list[bytes] = []

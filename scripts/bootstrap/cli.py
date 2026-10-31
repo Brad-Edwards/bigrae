@@ -7,8 +7,8 @@ import os
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from installation.loader import default_root_config_path
@@ -36,10 +36,11 @@ from bootstrap_core import (
 )
 from gcp_base_images import (
     BaseImageError,
-    discover_and_import,
+    import_selection,
+    newest_publications,
     range_images_from_imports,
     render_range_image_env,
-    resolve_release_base_images,
+    resolve_selection,
 )
 from gcp_cli import LIFECYCLE_COMMANDS, add_lifecycle_subparsers, dispatch_lifecycle
 from gcp_config_store import write_range_images
@@ -241,69 +242,134 @@ def gcp_runners_deployment(
     )
 
 
-def print_release_base_images(source: str) -> dict[str, str]:
-    """Print the exact base images that a release pins (#2679); it needs no GCP project.
+def _guest_base_images(release_manifest: str) -> dict[str, str]:
+    """Return the guest images that the release manifest names."""
+    from installation.errors import InstallationConfigError
+    from installation.gcp_release import load_release_manifest
 
-    Standard output carries only the JSON, so the release workflow can parse it;
-    the progress lines go to standard error.
+    selected = release_manifest or os.environ.get("BIGRAE_RELEASE_MANIFEST", "")
+    if not selected:
+        raise BaseImageError("a release manifest is required; pass --release-manifest or use the deployer image")
+    try:
+        return dict(load_release_manifest(Path(selected)).base_images)
+    except InstallationConfigError as exc:
+        raise BaseImageError(str(exc)) from None
+
+
+def _guest_trust(store_trust: object | None, repository_id: str, owner_id: str) -> tuple[str, str]:
+    """Resolve the signer trust from the flags or from ``settings.release_trust`` of the bundle."""
+    configured = (
+        (str(store_trust.github_repository_id), str(store_trust.github_owner_id))  # type: ignore[attr-defined]
+        if store_trust is not None
+        else ("", "")
+    )
+    if repository_id or owner_id:
+        if store_trust is not None and (repository_id, owner_id) != configured:
+            raise BaseImageError("the trusted repository flags conflict with settings.release_trust")
+        configured = (repository_id, owner_id)
+    if not all(configured):
+        raise BaseImageError(
+            "guest image verification needs settings.release_trust in the bundle, "
+            "or --trusted-repository-id and --trusted-owner-id"
+        )
+    return configured
+
+
+def _no_cloud_token() -> str:
+    """Refuse a cloud token: the public release registry is read anonymously."""
+    raise BaseImageError("the release registry must be readable without cloud credentials")
+
+
+def print_release_base_images(registry: str, repository_id: str, owner_id: str) -> dict[str, str]:
+    """Print the newest verified guest image of each role, for a release to record (#2679, #2668).
+
+    It needs no GCP project. Standard output carries only the JSON, so the release
+    workflow can parse it; the progress lines go to standard error.
     """
-    with _registry_credentials(source), contextlib.redirect_stdout(sys.stderr):
-        pinned = resolve_release_base_images(source)
-    print(json.dumps(pinned, indent=2, sort_keys=True))
-    return pinned
+    from gcp_oci import OciClient
+    from gcp_provenance import default_verifier
+
+    repository_id, owner_id = _guest_trust(None, repository_id, owner_id)
+    with contextlib.redirect_stdout(sys.stderr):
+        newest = newest_publications(registry)
+        resolve_selection(
+            newest,
+            repository_id=repository_id,
+            owner_id=owner_id,
+            oci=OciClient(_no_cloud_token),
+            verifier=default_verifier(),
+        )
+    print(json.dumps(newest, indent=2, sort_keys=True))
+    return newest
 
 
 def gcp_base_images_import(
     project_id: str,
     region: str,
     *,
-    source: str,
     store: str = "",
+    release_manifest: str = "",
+    release_source: str = "",
+    trust: tuple[str, str] = ("", ""),
     dry_run: bool = False,
 ) -> dict[str, str]:
-    """Import the reusable base images as native GCE images and record their references.
+    """Verify and import the guest images that a release names, and record their references.
 
-    Discovers Kali/Ubuntu/DC under the explicit ``source`` registry prefix, imports them
-    into ``project_id`` as native GCE images (reusing unchanged digests), and returns the
-    ``range-images.json`` roles. With ``store`` it writes the references to the deployment
-    config bucket (#2571); otherwise it prints them. No GitHub service is used.
+    ``trust`` holds the signing repository and owner IDs from the command flags; with
+    ``store`` they must match ``settings.release_trust`` of the bundle.
+
+    Every role is verified before any change: the digest-verified OCI manifest, the artifact
+    contract, and a Sigstore bundle that satisfies the trust anchor at the build revision,
+    from a protected build branch (#2668). The import holds the deployment lock of
+    ``store``, reuses unchanged images, and writes ``range-images.json`` after every role is
+    ready; without ``store`` it prints the references. No GitHub service is used.
     """
+    from gcp_inputs import load_deployment_inputs, private_workdir
+    from gcp_lock import acquire_lock, release_lock
+    from gcp_oci import OciClient
+    from gcp_prereqs import access_token
+    from gcp_process import ProcessRunner
+    from gcp_provenance import default_verifier
+
     if not project_id:
         error("gcp-images requires --project-id (the range project the images import into)")
         sys.exit(1)
-    _validate_base_image_auth()
-    with _registry_credentials(source):
-        imported = discover_and_import(project=project_id, source=source, region=region, dry_run=dry_run)
-    images = range_images_from_imports(render_range_image_env(imported))
-    if dry_run:
-        info("[DRY-RUN] Would record range images: " + ", ".join(sorted(images)))
-        return images
-    if store:
-        write_range_images(store, images)
-        success(f"Recorded {', '.join(sorted(images))} in {store}")
-    else:
-        print(json.dumps(images, indent=2, sort_keys=True))
-    return images
-
-
-@contextmanager
-def _registry_credentials(source: str) -> Iterator[None]:
-    """Use the gcloud credential helper for an Artifact Registry source, for this import only."""
-    host = source.split("/", 1)[0]
-    if not host.endswith(".pkg.dev"):
-        yield
-        return
-    previous = os.environ.get("DOCKER_CONFIG")
-    with tempfile.TemporaryDirectory(prefix="bigrae-oras-") as directory:
-        Path(directory, "config.json").write_text(json.dumps({"credHelpers": {host: "gcloud"}}), encoding="utf-8")
-        os.environ["DOCKER_CONFIG"] = directory
+    base_images = _guest_base_images(release_manifest)
+    runner = ProcessRunner()
+    with tempfile.TemporaryDirectory(prefix="bigrae-gcp-images-") as scratch:
+        workdir = private_workdir(Path(scratch))
+        store_trust = None
+        if store:
+            inputs = load_deployment_inputs(store, workdir, runner, {})
+            store_trust = inputs.settings.release_trust  # type: ignore[attr-defined]
+        repository_id, owner_id = _guest_trust(store_trust, *trust)
+        artifacts = resolve_selection(
+            base_images,
+            repository_id=repository_id,
+            owner_id=owner_id,
+            oci=OciClient(lambda: access_token(runner, {})),
+            verifier=default_verifier(),
+            release_source=release_source,
+        )
+        _validate_base_image_auth()
+        lock = None
+        if store and not dry_run:
+            lock = acquire_lock(runner, store, {}, command="gcp-images", run_id=uuid.uuid4().hex, workdir=workdir)
         try:
-            yield
-        finally:
-            if previous is None:
-                os.environ.pop("DOCKER_CONFIG", None)
+            imported = import_selection(artifacts, project=project_id, region=region, dry_run=dry_run)
+            images = range_images_from_imports(render_range_image_env(imported))
+            if dry_run:
+                info("[DRY-RUN] Would record range images: " + ", ".join(sorted(images)))
+                return images
+            if store:
+                write_range_images(store, images)
+                success(f"Recorded {', '.join(sorted(images))} in {store}")
             else:
-                os.environ["DOCKER_CONFIG"] = previous
+                print(json.dumps(images, indent=2, sort_keys=True))
+            return images
+        finally:
+            if lock is not None:
+                release_lock(runner, lock, {})
 
 
 def _validate_base_image_auth(*, command_runner: Callable[..., object] = run_cmd) -> None:
@@ -341,6 +407,9 @@ def _required_tools(command: str | None, cloud: str | None) -> set[str]:
         return {"gcloud", "terraform"}
     if command == "gcp-images":
         return {"gcloud", "oras"}
+    if command == "gcp-images-verify":
+        # Verification reads the registry and Sigstore in-process; it runs no tool.
+        return set()
     if command == "gdc-bootstrap":
         return {"gcloud", "ssh-keygen"}
     if command == "runners":
@@ -358,7 +427,7 @@ def _required_tools(command: str | None, cloud: str | None) -> set[str]:
 
 
 # GCP commands that never use GitHub (#2571); they get no gh recommendation.
-_GITHUB_FREE_COMMANDS = frozenset({"gcp-foundation", "gcp-images", "gdc-bootstrap"})
+_GITHUB_FREE_COMMANDS = frozenset({"gcp-foundation", "gcp-images", "gcp-images-verify", "gdc-bootstrap"})
 
 
 def check_dependencies(
@@ -466,32 +535,38 @@ def _add_gdc_bootstrap_subparser(subparsers: argparse._SubParsersAction) -> None
 
 
 def _add_gcp_images_subparser(subparsers: argparse._SubParsersAction) -> None:
-    """Wire `gcp-images`: import the reusable base images from an explicit source (#2309, #2571)."""
+    """Wire `gcp-images`: verify and import the guest images that a release selects (#2309, #2668)."""
     images_parser = subparsers.add_parser(
         "gcp-images",
-        help="Import the reusable Kali/Ubuntu/DC base images as native GCE images and record their references",
+        help="Verify and import the guest images that a release names as native GCE images, and record them",
+    )
+    images_parser.add_argument("--project-id", default="", help="GCP project the range guest images import into")
+    images_parser.add_argument(
+        "--release-manifest",
+        default="",
+        help="Release manifest (default: the deployer image's, from BIGRAE_RELEASE_MANIFEST)",
     )
     images_parser.add_argument(
-        "--project-id",
-        default=get_default_gdc_project_id(),
-        help="GCP project the range guest images import into (defaults to PANW_GCP_DEV or the repo-root env file)",
-    )
-    images_parser.add_argument(
-        "--source",
-        required=True,
-        help="Registry prefix of the shifter-gce-<role> packages, for example ghcr.io/<owner> or a mirror",
+        "--release-source",
+        default="",
+        help="Mirror registry prefix that holds <prefix>/gce-<role>@<release digest>",
     )
     images_parser.add_argument(
         "--store",
         default="",
-        help="Deployment config bucket prefix that receives range-images.json (gs://<bucket>[/<prefix>])",
+        help="Deployment config bucket prefix (gs://<bucket>[/<prefix>]): trust anchor, lock, and range-images.json",
     )
+    images_parser.add_argument("--trusted-repository-id", default="", help="Immutable ID of the signing repository")
+    images_parser.add_argument("--trusted-owner-id", default="", help="Immutable ID of the signing repository owner")
     images_parser.add_argument("--region", default="us-central1", help="Region for the temporary transfer bucket")
     images_parser.add_argument("--dry-run", action="store_true", help=HELP_DRY_RUN)
     images_parser.add_argument(
         "--resolve",
         action="store_true",
-        help="Print the newest validated <package>@<digest> of each role as JSON, for a release to pin; import nothing",
+        help="Print the newest verified guest image of each role as JSON, for a release; import nothing",
+    )
+    images_parser.add_argument(
+        "--registry", default="", help="With --resolve: the release registry prefix, ghcr.io/<owner>/<repository>"
     )
 
 
@@ -797,13 +872,15 @@ _COMMAND_HANDLERS = {
     "runners": _dispatch_runners,
     "gdc-bootstrap": _handle_gdc_bootstrap,
     "gcp-images": lambda args: (
-        print_release_base_images(args.source)
+        print_release_base_images(args.registry, args.trusted_repository_id, args.trusted_owner_id)
         if args.resolve
         else gcp_base_images_import(
             args.project_id,
             args.region,
-            source=args.source,
             store=args.store,
+            release_manifest=args.release_manifest,
+            release_source=args.release_source,
+            trust=(args.trusted_repository_id, args.trusted_owner_id),
             dry_run=args.dry_run,
         )
     ),
@@ -823,7 +900,8 @@ def main(
         return
     if getattr(args, "yes", False):
         set_assume_yes(True)
-    (dependency_checker or check_dependencies)(args.command, cloud=getattr(args, "cloud", None))
+    tools_for = "gcp-images-verify" if getattr(args, "verify_only", False) else args.command
+    (dependency_checker or check_dependencies)(tools_for, cloud=getattr(args, "cloud", None))
     if args.command in {"bootstrap", "terraform", "full"}:
         preflight_gate(Cloud.AWS, Mode.LOCAL, args.env, headless=args.headless)
     try:

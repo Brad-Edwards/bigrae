@@ -124,9 +124,6 @@ mcp_ops:
     - tool: promote_ami
       env: prod
       operation_kind: execute
-    - tool: promote_gce_image
-      env: prod
-      operation_kind: execute
     - class: db_arbitrary
       env: prod
       operation_kind: execute

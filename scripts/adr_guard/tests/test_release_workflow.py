@@ -28,6 +28,7 @@ def _load_adr_guard():
 ADR_GUARD = _load_adr_guard()
 RELEASE = importlib.import_module("_guard.checks.release_workflow")
 COMMON = importlib.import_module("_guard.checks._release_workflow_common")
+GUESTS = importlib.import_module("_guard.checks._release_workflow_guests")
 CHECK = RELEASE.check_release_workflow
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -100,6 +101,73 @@ RELEASE_COMMIT_STEP = """      - name: Find the release of this commit
 """
 
 
+GUEST_REF_GUARD = """      - name: Reject non-protected dispatch refs
+        run: |
+          case "${GITHUB_REF}" in
+            refs/heads/dev|refs/heads/main) ;;
+            *)
+              exit 1
+              ;;
+          esac
+"""
+GUEST_AUTH = f"""      - id: auth
+        uses: google-github-actions/auth@{SHA}
+        with:
+          workload_identity_provider: ${{{{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}}}
+"""
+GUEST_PUSH = """      - name: Push the guest image
+        id: push
+        run: |
+          oras push "ghcr.io/${GITHUB_REPOSITORY,,}/gce-kali:gce-1" "kali.tar.gz:application/octet-stream"
+"""
+GUEST_ATTEST = f"""      - uses: actions/attest-build-provenance@{SHA} # v4.1.1
+        with:
+          subject-name: ${{{{ steps.push.outputs.package }}}}
+          subject-digest: ${{{{ steps.push.outputs.digest }}}}
+          push-to-registry: true
+"""
+GUEST_VALIDATE_JOB = """  validate:
+    needs: build
+    uses: ./.github/workflows/packer-gcp-validate.yml
+    with:
+      source_image: ${{ needs.build.outputs.image_name }}
+"""
+
+
+def guest_build(
+    *,
+    inputs: str = "",
+    validate_job: str = GUEST_VALIDATE_JOB,
+    needs: str = "[build, validate]",
+    publish_environment: str = "gcp-image-build",
+    publish_steps: str = GUEST_REF_GUARD + GUEST_AUTH + GUEST_PUSH + GUEST_ATTEST,
+) -> str:
+    """Return a guest build workflow that passes the check unless a part is replaced."""
+    return (
+        "name: Packer GCE Image Build\n"
+        "on:\n  workflow_dispatch:\n    inputs:\n      image_type:\n        type: string\n"
+        f"{inputs}"
+        "jobs:\n"
+        "  build:\n    runs-on: ubuntu-latest\n    environment: gcp-image-build\n    steps:\n"
+        f"{GUEST_REF_GUARD}{GUEST_AUTH}"
+        f"{validate_job}"
+        f"  publish:\n    needs: {needs}\n    runs-on: ubuntu-latest\n"
+        f"    environment: {publish_environment}\n    steps:\n"
+        f"{publish_steps}"
+    )
+
+
+def guest_validate(*, on: str = "  workflow_call:\n", environment: str = "gcp-image-validate") -> str:
+    """Return a validation workflow that passes the check unless a part is replaced."""
+    return (
+        "name: Packer GCE Image Validate\n"
+        f"on:\n{on}"
+        "jobs:\n"
+        f"  validate:\n    runs-on: ubuntu-latest\n    environment: {environment}\n    steps:\n"
+        f"{GUEST_REF_GUARD}{GUEST_AUTH}"
+    )
+
+
 def release_please(
     *,
     on: str = "  push:\n    branches: [main]\n",
@@ -170,6 +238,9 @@ class ReleaseWorkflowProvenanceTests(unittest.TestCase):
         if text is not None:
             self.write(RELEASE.RELEASE_WORKFLOW_PATH, text)
         self.write(COMMON.RELEASE_PLEASE_WORKFLOW_PATH, caller if caller is not None else release_please())
+        if not (self.root / GUESTS.GUEST_WORKFLOW_PATH).exists():
+            self.write(GUESTS.GUEST_WORKFLOW_PATH, guest_build())
+            self.write(GUESTS.VALIDATE_WORKFLOW_PATH, guest_validate())
         return [(violation.rule_id, violation.message) for violation in CHECK(self.root, files)]
 
     def assert_one(self, text: str, rule_id: str, fragment: str, *, caller: str | None = None) -> None:
@@ -380,6 +451,94 @@ class ReleaseWorkflowProvenanceTests(unittest.TestCase):
         self.assertIs(ADR_GUARD.CHECKS["release-workflow-provenance"], CHECK)
         for level in ("fast", "ci", "all"):
             self.assertIn("release-workflow-provenance", ADR_GUARD.CHECK_LEVELS[level])
+
+
+class GuestPublicationTests(unittest.TestCase):
+    """#2668: a guest image publishes only after validation of the exact candidate."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+
+    def violations(self, build: str | None = None, validate: str | None = None) -> list[tuple[str, str, str]]:
+        for path, text in (
+            (GUESTS.GUEST_WORKFLOW_PATH, guest_build() if build is None else build),
+            (GUESTS.VALIDATE_WORKFLOW_PATH, guest_validate() if validate is None else validate),
+        ):
+            target = self.root / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
+        return [(v.rule_id, v.path, v.message) for v in GUESTS._guest_publication_violations(self.root)]
+
+    def assert_one(self, rule_id: str, fragment: str, **workflows: str) -> None:
+        found = self.violations(**workflows)
+        self.assertEqual(len(found), 1, found)
+        self.assertEqual(found[0][0], rule_id)
+        self.assertIn(fragment, found[0][2])
+
+    def test_conforming_guest_workflows_pass(self) -> None:
+        self.assertEqual(self.violations(), [])
+
+    def test_the_build_selects_no_tenant(self) -> None:
+        for name in ("environment", "publish_target"):
+            with self.subTest(name=name):
+                self.assert_one(
+                    "ADR-037-R9",
+                    f"remove the '{name}' input",
+                    build=guest_build(inputs=f"      {name}:\n        type: string\n"),
+                )
+
+    def test_publication_needs_the_validation_job(self) -> None:
+        self.assert_one("ADR-037-R9", "without needing the validation job", build=guest_build(needs="[build]"))
+        self.assert_one(
+            "ADR-037-R9", "without needing the validation job", build=guest_build(validate_job="", needs="[build]")
+        )
+
+    def test_validation_is_called_locally_without_secrets(self) -> None:
+        remote = GUEST_VALIDATE_JOB.replace(
+            "./.github/workflows/packer-gcp-validate.yml", "./.github/workflows/packer-gcp-validate.yml@main"
+        )
+        found = self.violations(build=guest_build(validate_job=remote))
+        self.assertIn("ADR-004-R23", {rule for rule, _, _ in found})
+        self.assert_one(
+            "ADR-004-R23",
+            "pass no secrets",
+            build=guest_build(validate_job=GUEST_VALIDATE_JOB + "    secrets: inherit\n"),
+        )
+
+    def test_the_pushed_digest_is_attested_to_the_registry(self) -> None:
+        unsigned = GUEST_REF_GUARD + GUEST_AUTH + GUEST_PUSH
+        self.assert_one("ADR-037-R5", "no attestation step signs", build=guest_build(publish_steps=unsigned))
+        local_only = GUEST_ATTEST.replace("push-to-registry: true", "push-to-registry: false")
+        self.assert_one(
+            "ADR-037-R5", "no attestation step signs", build=guest_build(publish_steps=unsigned + local_only)
+        )
+
+    def test_publishing_jobs_bind_their_environment_and_reject_other_refs_first(self) -> None:
+        self.assert_one(
+            "ADR-004-R23", "'gcp-image-build' Environment", build=guest_build(publish_environment="gcp-build-dev")
+        )
+        late = GUEST_AUTH + GUEST_REF_GUARD + GUEST_PUSH + GUEST_ATTEST
+        self.assert_one("ADR-037-R7", "rejects every ref", build=guest_build(publish_steps=late))
+        wide = GUEST_REF_GUARD.replace("refs/heads/dev|refs/heads/main", "refs/heads/dev|refs/heads/deploy-test")
+        self.assert_one(
+            "ADR-037-R7",
+            "rejects every ref",
+            build=guest_build(publish_steps=wide + GUEST_AUTH + GUEST_PUSH + GUEST_ATTEST),
+        )
+
+    def test_validation_is_reusable_only_and_binds_its_environment(self) -> None:
+        self.assert_one("ADR-004-R23", "only from workflow_call", validate=guest_validate(on="  workflow_dispatch:\n"))
+        self.assert_one(
+            "ADR-004-R23", "'gcp-image-validate' Environment", validate=guest_validate(environment="gcp-validate-dev")
+        )
+
+    def test_missing_workflows_fail_closed(self) -> None:
+        self.assertTrue(GUESTS._guest_publication_violations(self.root))
+
+    def test_the_real_guest_workflows_pass(self) -> None:
+        self.assertEqual(GUESTS._guest_publication_violations(_REPO_ROOT), [])
 
 
 if __name__ == "__main__":
