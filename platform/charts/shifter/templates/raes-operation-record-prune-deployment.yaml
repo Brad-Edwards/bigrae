@@ -31,7 +31,7 @@ spec:
           {{- include "shifter.containerSecurityContextApp" . | nindent 10 }}
           {{- include "shifter.tmpVolumeMount" . | nindent 10 }}
           args: ["python", "manage.py", "run_raes_operation_record_prune"]
-          {{- if or .Values.cloudSqlProxy.enabled .Values.openfga.enabled }}
+          {{- if or .Values.cloudSqlProxy.enabled .Values.openfga.enabled .Values.rdsIam.enabled }}
           env:
             {{- include "shifter.databaseUserEnv" (dict "root" . "role" "workers") | nindent 12 }}
           {{- end }}

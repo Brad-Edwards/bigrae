@@ -22,7 +22,8 @@ class PortalConfig(AppConfig):
         from config.model_access_sharing import refresh_model_launch_projections
         from config.openfga_authorization import configured_authorization_provider
         from config.organizer_authority import register_organizer_authority_signals
-        from config.service_identity import verify_service_credential
+        from config.service_identity import service_proof_profile, verify_service_credential
+        from config.session_credentials import register_session_assurance_signal
         from config.workspace_invitation_auth import register_workspace_invitation_login_signal
         from shared.audit import bind_audit_writer
         from shared.audit_adapter import audit_log_writer
@@ -35,6 +36,7 @@ class PortalConfig(AppConfig):
         )
         from shared.model_access.authority_port import bind_authority_invalidator
         from shared.model_access.projection_port import bind_projection_refresher
+        from shared.service_proof import bind_service_proof_profile
 
         # Bind the one concrete audit writer to the neutral port. A missing or
         # conflicting binding is a startup configuration error (#1523).
@@ -43,6 +45,7 @@ class PortalConfig(AppConfig):
         bind_projection_refresher(refresh_model_launch_projections)
         bind_authorization_provider_factory(configured_authorization_provider)
         bind_service_credential_verifier(verify_service_credential)
+        bind_service_proof_profile(service_proof_profile)
         bind_credential_scope_resolver(credential_target_scope)
         bind_credential_reference_resolver(
             resolve_credential_reference, local_resolver=resolve_local_credential_reference
@@ -53,3 +56,4 @@ class PortalConfig(AppConfig):
         register_model_access_authority_signals()
         register_organizer_authority_signals()
         register_workspace_invitation_login_signal()
+        register_session_assurance_signal()

@@ -200,7 +200,7 @@ class ServiceCredentialCollectionView(CredentialView):
 
     @extend_schema(request=CreateServiceCredentialSerializer, responses={201: ServiceCredentialSerializer})
     def post(self, request: Request) -> Response:
-        """Register a native Google service identity admission."""
+        """Register a native cloud service identity admission."""
         command = CreateServiceCredentialSerializer(data=request.data)
         command.is_valid(raise_exception=True)
         item = service_credentials.create_service_credential(

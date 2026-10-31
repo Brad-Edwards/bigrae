@@ -144,3 +144,13 @@ variable "apply_immediately" {
   description = "Apply ElastiCache modifications (node type, engine, params) during the deploy instead of queueing them for the maintenance window. Required input; environments choose explicitly."
   type        = bool
 }
+
+variable "lambda_code_signing" {
+  description = "The signing output of the portal root's lambda-code-signing module (#2313)."
+  type = object({
+    bucket                  = string
+    kms_key_arn             = string
+    signing_profile_name    = string
+    code_signing_config_arn = string
+  })
+}

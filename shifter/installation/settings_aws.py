@@ -24,7 +24,9 @@ separately for every backend.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .aws_model_broker import AwsModelBrokerSettings
 from .model_broker_runtime import ModelBrokerRuntimeSettings
@@ -55,6 +57,45 @@ AWS_REFERENCE_GRAMMAR = (
 )
 
 
+# An exact Secrets Manager secret ARN in one account and region, without a version.
+AWS_SECRETS_MANAGER_ARN_PATTERN = r"^arn:aws:secretsmanager:[a-z]{2}(?:-[a-z]+)+-\d+:\d{12}:secret:[A-Za-z0-9/_+=.@-]+$"
+AwsSecretArn = Annotated[
+    str,
+    Field(pattern=AWS_SECRETS_MANAGER_ARN_PATTERN, description="Exact Secrets Manager secret ARN without a version."),
+]
+
+
+class AwsOpenFgaSettings(BaseModel):
+    """Operator references for the private released policy service on AWS; no payloads (#2313).
+
+    The runtime and admin bundles each hold ``server-preshared-keys``, ``api-token``,
+    ``tls.crt`` and ``tls.key``; the CA bundle holds only ``ca.crt``. Datastore logins
+    are not operator settings: Terraform creates and rotates them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    store_id: str = Field(default="", pattern=r"^$|^[0-9A-HJKMNP-TV-Z]{26}$")
+    model_id: str = Field(default="", pattern=r"^$|^[0-9A-HJKMNP-TV-Z]{26}$")
+    runtime_secret_ref: AwsSecretArn | None = None
+    admin_secret_ref: AwsSecretArn | None = None
+    ca_secret_ref: AwsSecretArn | None = None
+
+    @model_validator(mode="after")
+    def validate_enabled_boundary(self) -> AwsOpenFgaSettings:
+        """Require three distinct secret references and paired store and model IDs when enabled."""
+        if self.enabled and (
+            not all((self.runtime_secret_ref, self.admin_secret_ref, self.ca_secret_ref))
+            or bool(self.store_id) != bool(self.model_id)
+            or self.runtime_secret_ref == self.admin_secret_ref
+            or self.ca_secret_ref in {self.runtime_secret_ref, self.admin_secret_ref}
+        ):
+            raise ValueError(
+                "OpenFGA requires distinct runtime, admin and CA references and either both store/model IDs or neither"
+            )
+        return self
+
+
 class AwsSettings(BaseModel):
     """Closed operator-intent settings for the AWS backend (PLAT-2006, GH #728).
 
@@ -75,3 +116,4 @@ class AwsSettings(BaseModel):
     region: str = Field(pattern=AWS_REGION_PATTERN)
     model_broker: AwsModelBrokerSettings = Field(default_factory=AwsModelBrokerSettings)
     model_broker_runtime: ModelBrokerRuntimeSettings | None = None
+    openfga: AwsOpenFgaSettings = Field(default_factory=AwsOpenFgaSettings)

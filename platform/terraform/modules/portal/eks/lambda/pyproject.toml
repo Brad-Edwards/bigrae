@@ -1,0 +1,12 @@
+# OpenFGA datastore rotation function dependencies (#2313). uv.lock pins them
+# with hashes; the deploy tooling exports that lock and installs it into the
+# Lambda package. Keep the psycopg version equal to the platform lock.
+[project]
+name = "openfga-rotation"
+version = "0.0.0"
+description = "OpenFGA datastore rotation Lambda function"
+requires-python = "==3.12.*"
+dependencies = ["psycopg[binary]==3.3.4"]
+
+[tool.uv]
+package = false

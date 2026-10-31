@@ -12,7 +12,7 @@ import dataclasses
 import functools
 import json
 import os
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -203,7 +203,12 @@ def infrastructure_stage(
 ) -> tuple[DeploymentInputs, InfrastructureResult]:
     """Prepare the project, apply the platform Terraform, and seed the first operator."""
     from gcp_control_plane import ensure_gcp_artifact_registry_service_identity
-    from gcp_prereqs import ensure_identity_platform, ensure_state_bucket, release_disabled_broker_load_balancer
+    from gcp_prereqs import (
+        ensure_identity_platform,
+        ensure_state_bucket,
+        release_disabled_broker_load_balancer,
+        remove_deleted_role_bindings,
+    )
     from gcp_runtime import gdc_config
     from gcp_terraform import (
         artifact_registry_kms_adoption,
@@ -238,6 +243,7 @@ def infrastructure_stage(
             inputs = apply_broker_overlay(runner, inputs, mode="ensure", context=context)
     bucket = state_bucket_name(inputs.project_id)
     ensure_state_bucket(runner, {}, bucket=bucket, project_id=inputs.project_id, region=inputs.region)
+    remove_deleted_role_bindings(runner, {}, project_id=inputs.project_id)
     ensure_gcp_artifact_registry_service_identity(gdc_config(inputs))
     ctx = terraform_context(inputs, inputs.workdir, {})
     terraform_init(runner, ctx, state_bucket=bucket, prefix=backend_prefix(inputs.environment))
@@ -398,13 +404,15 @@ def _finish_rollout(
     pool: object,
     pki_changed: bool,
     broker_enabled: bool,
+    documents: list[dict[str, object]],
 ) -> None:
     """Restart and wait for the workloads, roll the VPN pool, and record the running images."""
     from gcp_openvpn import roll_out_pool
-    from gcp_rollout import record_running_images, restart_workloads, wait_for_rollouts
+    from gcp_rollout import ReleasePins, record_running_images, restart_workloads, wait_for_rollouts
 
+    pins = ReleasePins.from_documents(documents)
     restart_workloads(runner, {}, model_broker_enabled=broker_enabled)
-    wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled)
+    wait_for_rollouts(runner, {}, model_broker_enabled=broker_enabled, policy_enabled=pins.policy is not None)
     if pool:
         roll_out_pool(
             runner,
@@ -421,7 +429,30 @@ def _finish_rollout(
         model_broker_enabled=broker_enabled,
         evidence=request.evidence,
         workdir=inputs.workdir,
+        pins=pins,
     )
+
+
+def _publish_before_probe(
+    runner: ProcessRunner,
+    request: RolloutRequest,
+    render: Callable[..., RenderedRelease],
+    release: RenderedRelease,
+    *,
+    binding: tuple[str, str] | None,
+    policy_enabled: bool,
+) -> tuple[tuple[str, str] | None, RenderedRelease]:
+    """Publish first on an existing installation and render with the published IDs (#2694).
+
+    The identity probe checks an activated cutover against the rendered
+    binding. A fresh install has no policy servers yet; it publishes later.
+    """
+    from gcp_policy import policy_admin_available, publish_policy_model, release_model
+
+    if not policy_enabled or binding is not None or not policy_admin_available(runner):
+        return binding, release
+    binding = publish_policy_model(runner, release.documents, release_model(request.authorization_model))
+    return binding, render(binding=binding)
 
 
 def rollout_stage(
@@ -431,7 +462,6 @@ def rollout_stage(
     request: RolloutRequest,
 ) -> bool:
     """Render, migrate, upgrade, verify, and wait. Return True when the certificate is Active."""
-    from gcp_catalog import initialize_catalog
     from gcp_control_plane import (
         ensure_gcp_control_plane_namespaces,
         run_gcp_database_migrations,
@@ -446,7 +476,6 @@ def rollout_stage(
     )
     from gcp_openvpn import ensure_pki, pool_output
     from gcp_policy import publish_policy_model, release_model
-    from gcp_rollout import wait_for_certificate, wait_for_ingress_address
     from gcp_runtime import compose_runtime_env, gdc_config
 
     header(f"Rollout: {inputs.environment}")
@@ -476,6 +505,9 @@ def rollout_stage(
         # Only prerequisite bindings change before a conclusive probe. Policy
         # rotation that makes the incumbent runtime unverifiable stops here.
         policy_enabled = sync_policy_credentials(runner, inputs, outputs)
+        binding, release = _publish_before_probe(
+            runner, request, render, release, binding=binding, policy_enabled=policy_enabled
+        )
         # The probe connects as a native login, which needs its SQL duty first (#2704).
         run_gcp_database_migrations(outputs, release.values_file, duties_only=True)
         with identity_cutover_boundary(
@@ -503,19 +535,45 @@ def rollout_stage(
             remove_retired_objects(runner, {})
             if policy_enabled and not cutover.required:
                 restart_policy_clients(runner)
-        _finish_rollout(runner, inputs, request, pool=pool, pki_changed=pki_changed, broker_enabled=broker_enabled)
-        wait_for_ingress_address(runner, {})
-        active = wait_for_certificate(
-            runner, {}, hostname=inputs.public_hostname, require_active=not request.first_install
-        )
-        initialize_catalog(
+        _finish_rollout(
             runner,
-            release.documents,
-            credential_file=request.catalog_credential_file,
-            bootstrap_facts=_catalog_bootstrap_facts(inputs, outputs, cutover, request.catalog_credential_file),
-            hostname=inputs.public_hostname,
+            inputs,
+            request,
+            pool=pool,
+            pki_changed=pki_changed,
+            broker_enabled=broker_enabled,
+            documents=release.documents,
         )
+        active = _open_access(runner, inputs, outputs, request, documents=release.documents, cutover=cutover)
     success("Rollout stage complete")
+    return active
+
+
+def _open_access(
+    runner: ProcessRunner,
+    inputs: DeploymentInputs,
+    outputs: Mapping[str, Mapping[str, object]],
+    request: RolloutRequest,
+    *,
+    documents: list[dict[str, object]],
+    cutover: object,
+) -> bool:
+    """Wait for the ingress and the certificate, then register the catalog.
+
+    Return True when the certificate is Active.
+    """
+    from gcp_catalog import initialize_catalog
+    from gcp_rollout import wait_for_certificate, wait_for_ingress_address
+
+    wait_for_ingress_address(runner, {})
+    active = wait_for_certificate(runner, {}, hostname=inputs.public_hostname, require_active=not request.first_install)
+    initialize_catalog(
+        runner,
+        documents,
+        credential_file=request.catalog_credential_file,
+        bootstrap_facts=_catalog_bootstrap_facts(inputs, outputs, cutover, request.catalog_credential_file),
+        hostname=inputs.public_hostname,
+    )
     return active
 
 

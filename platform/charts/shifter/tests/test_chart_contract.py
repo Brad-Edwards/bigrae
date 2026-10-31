@@ -327,6 +327,9 @@ class BackendNeutralChartContractTests(unittest.TestCase):
         self.assertIn(("PodDisruptionBudget", "guacd"), by_identity)
         self.assertEqual(by_identity[("BackendConfig", "portal-web")]["spec"]["timeoutSec"], 3600)
         self.assertEqual(by_identity[("BackendConfig", "guacamole-client")]["spec"]["timeoutSec"], 3600)
+        # The Guacamole backend checks the served application path, not the default "/" (#2692).
+        guacamole_check = by_identity[("BackendConfig", "guacamole-client")]["spec"]["healthCheck"]
+        self.assertEqual((guacamole_check["requestPath"], guacamole_check["port"]), ("/guacamole/", 8080))
 
     def test_aws_generated_projection_wires_edge_identity_and_secret_references(self) -> None:
         digest = "a" * 64

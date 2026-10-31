@@ -125,3 +125,13 @@ variable "permissions_boundary_arn" {
   description = "Permissions boundary ARN required on CI-created shifter-* roles"
   type        = string
 }
+
+variable "lambda_code_signing" {
+  description = "The signing output of the portal root's lambda-code-signing module (#2313)."
+  type = object({
+    bucket                  = string
+    kms_key_arn             = string
+    signing_profile_name    = string
+    code_signing_config_arn = string
+  })
+}

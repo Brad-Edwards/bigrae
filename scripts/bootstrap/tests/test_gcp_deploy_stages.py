@@ -58,7 +58,12 @@ def recorder(monkeypatch, chart):
 
     for module, names in {
         "gcp_catalog": ("initialize_catalog",),
-        "gcp_prereqs": ("ensure_identity_platform", "ensure_state_bucket", "release_disabled_broker_load_balancer"),
+        "gcp_prereqs": (
+            "ensure_identity_platform",
+            "ensure_state_bucket",
+            "release_disabled_broker_load_balancer",
+            "remove_deleted_role_bindings",
+        ),
         "gcp_control_plane": (
             "ensure_gcp_artifact_registry_service_identity",
             "ensure_gcp_control_plane_namespaces",
@@ -119,6 +124,7 @@ class TestInfrastructureStage:
         assert order == [
             "ensure_identity_platform",
             "ensure_state_bucket",
+            "remove_deleted_role_bindings",
             "ensure_gcp_artifact_registry_service_identity",
             "terraform_context",
             "terraform_init",
@@ -242,12 +248,14 @@ class TestRolloutStage:
             first_install=False,
         )
         infra = InfrastructureResult(outputs=outputs, kube={"KUBECONFIG": "/work/kubeconfig"})
-        assert rollout_stage(activated_runner(order), inputs, infra, request) is True
+        runner = activated_runner(order).on(["kubectl", "get", "deployment", "openfga-admin"], ProcessResult(0, "1"))
+        assert rollout_stage(runner, inputs, infra, request) is True
         # #2679: the deploy creates the OpenFGA credentials before the identity
-        # probe, publishes the release model after the migrations, re-renders
-        # with the published IDs, and registers the catalog as the bootstrap
-        # administrator after the certificate wait. #2704: the SQL duties are
-        # reconciled before the probe connects as a native login.
+        # probe and registers the catalog as the bootstrap administrator after
+        # the certificate wait. #2694: an existing installation publishes the
+        # release model and renders with its IDs before the probe checks them.
+        # #2704: the SQL duties are reconciled before the probe connects as a
+        # native login.
         assert order == [
             "compose_runtime_env",
             "build_values",
@@ -255,13 +263,13 @@ class TestRolloutStage:
             "render_chart",
             "ensure_gcp_control_plane_namespaces",
             "ensure_policy_secrets",
-            "reconcile_database_duties",
-            "verified_identity_probe",
-            "run_gcp_database_migrations",
             "publish_policy_model",
             "build_values",
             "write_values",
             "render_chart",
+            "reconcile_database_duties",
+            "verified_identity_probe",
+            "run_gcp_database_migrations",
             "sync_gcp_guacamole_runtime_secret",
             "adopt_objects",
             "helm_upgrade",
@@ -291,6 +299,8 @@ class TestRolloutStage:
         )
         rollout_stage(runner, inputs, InfrastructureResult(outputs=outputs, kube={}), request)
         assert "ensure_pki" in order and "roll_out_pool" in order
+        # Without a running admin server, the model publishes after the migrations (#2694).
+        assert order.index("run_gcp_database_migrations") < order.index("publish_policy_model")
         assert any("sync_openfga_secrets.py" in " ".join(call.argv) for call in runner.calls)
         assert runner.find("kubectl", "rollout", "restart", "deployment/openfga")
 

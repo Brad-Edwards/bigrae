@@ -52,7 +52,12 @@ spec:
           env:
             - name: OPENFGA_ENABLED
               value: "true"
-            {{- range $name := list "GUACAMOLE_CONTROL_URL" "GUACAMOLE_CONTROL_AUDIENCE" }}
+            {{- $controlEnv := list "GUACAMOLE_CONTROL_URL" "GUACAMOLE_CONTROL_AUDIENCE" }}
+            {{- if eq .Values.provider.name "aws" }}
+            {{- /* AWS (#2313): STS web identity selection and the SDK region. */}}
+            {{- $controlEnv = concat $controlEnv (list "GUACAMOLE_CONTROL_IDENTITY" "AWS_REGION") }}
+            {{- end }}
+            {{- range $name := $controlEnv }}
             - name: {{ $name }}
               valueFrom:
                 configMapKeyRef:

@@ -142,3 +142,52 @@ def test_attached_workload_uses_native_metadata_identity_endpoint(monkeypatch):
     assert client.request("GET", "/api/v1/bootstrap/").status_code == 200
     assert any("/identity?" in url for url in visited)
     client.close()
+
+
+def test_aws_transport_renews_web_identity_tokens_before_expiry(monkeypatch):
+    from shifter_client import ServiceClient
+
+    now = datetime.datetime(2026, 10, 29, 12, 0, tzinfo=datetime.UTC)
+    clock = {"now": now}
+    minted = []
+
+    class _Sts:
+        def get_web_identity_token(self, **kwargs):
+            minted.append(kwargs)
+            return {
+                "WebIdentityToken": f"synthetic-aws-token-{len(minted)}",
+                "Expiration": clock["now"] + datetime.timedelta(seconds=900),
+            }
+
+    class _Session:
+        def client(self, name, **kwargs):
+            assert name == "sts"
+            return _Sts()
+
+    sent = []
+
+    def request(self, method, url, **kwargs):
+        sent.append((method, url, dict(kwargs["headers"]) if kwargs.get("headers") else {}))
+        return Mock(status_code=200)
+
+    monkeypatch.setattr("requests.Session.request", request)
+    monkeypatch.setattr("shifter_client._utcnow", lambda: clock["now"])
+    session = _Session()
+    client = ServiceClient.from_aws("https://portal.example.test", session=session)
+    client.request("POST", "/api/v1/jobs/", json={"synthetic": True})
+    clock["now"] = now + datetime.timedelta(seconds=830)
+    client.request("GET", "/api/v1/jobs/")
+    clock["now"] = now + datetime.timedelta(seconds=850)
+    client.request("GET", "/api/v1/jobs/")
+    assert [item["Audience"] for item in minted] == [["https://portal.example.test"]] * 2
+    assert all(item["SigningAlgorithm"] == "ES384" and item["DurationSeconds"] == 900 for item in minted)
+    tokens = [headers["Authorization"] for _, _, headers in sent]
+    assert tokens == ["Bearer synthetic-aws-token-1", "Bearer synthetic-aws-token-1", "Bearer synthetic-aws-token-2"]
+    assert all(url.startswith("https://portal.example.test/api/v1/jobs/") for _, url, _ in sent)
+    assert client.cloud is session
+    assert "synthetic-aws-token" not in repr(client)
+    for audience in ("http://portal.example.test", "https://user:pw@portal.example.test", "https://x.test/?q=1"):
+        with pytest.raises(ValueError):
+            ServiceClient.from_aws(audience, session=session)
+    with pytest.raises(ValueError):
+        client.request("GET", "https://other.example.test/api/")
