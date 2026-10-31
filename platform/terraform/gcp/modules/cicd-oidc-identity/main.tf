@@ -650,6 +650,24 @@ resource "google_storage_bucket_iam_member" "destroy_state_bucket_reader" {
   member     = "serviceAccount:${local.service_account_emails.destroy}"
 }
 
+# The principals that may deploy also run this foundation, which creates and
+# configures the state bucket and keeps its state there. Each deploy removes the
+# broad project bindings from the state bucket, so these explicit grants give
+# the operators the access that projectOwner gave them (#2700).
+resource "google_storage_bucket_iam_member" "operator_state_object_admin" {
+  for_each = toset(lookup(var.impersonation_principals, "deploy", []))
+  bucket   = local.terraform_state_bucket_name
+  role     = "roles/storage.objectAdmin"
+  member   = each.value
+}
+
+resource "google_storage_bucket_iam_member" "operator_state_bucket_owner" {
+  for_each = toset(lookup(var.impersonation_principals, "deploy", []))
+  bucket   = local.terraform_state_bucket_name
+  role     = "roles/storage.legacyBucketOwner"
+  member   = each.value
+}
+
 # GitHub-less deployment inputs (ADR-070): bigrae.yaml, the Terraform values,
 # and generated references. The bucket holds no secret values; Secret Manager
 # holds them. It outlives platform-core like the state and evidence buckets.

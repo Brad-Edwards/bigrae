@@ -86,6 +86,15 @@ run "impersonation_only_foundation" {
   }
   assert {
     condition = (
+      google_storage_bucket_iam_member.operator_state_object_admin["group:operators@example.com"].bucket == "example-platform-state" &&
+      google_storage_bucket_iam_member.operator_state_object_admin["group:operators@example.com"].role == "roles/storage.objectAdmin" &&
+      google_storage_bucket_iam_member.operator_state_bucket_owner["group:operators@example.com"].role == "roles/storage.legacyBucketOwner" &&
+      length(google_storage_bucket_iam_member.operator_state_object_admin) == 1
+    )
+    error_message = "Deploy principals keep explicit access to the foundation state after a deploy removes the project bindings (#2700)."
+  }
+  assert {
+    condition = (
       toset(google_project_iam_custom_role.deploy_identity_platform[0].permissions) == toset(["firebase.projects.get", "firebase.projects.update"]) &&
       google_project_iam_member.deploy_identity_platform[0].member == "serviceAccount:custunseen-deploy@example-project.iam.gserviceaccount.com"
     )
