@@ -24,7 +24,7 @@ constraints = [
     { name = "cryptography", specifier = ">=48.0.1" },
     { name = "filelock", specifier = ">=4.2.1" },
     { name = "opentelemetry-api", specifier = ">=1.45.1" },
-    { name = "pyasn1", specifier = ">=0.6.4" },
+    { name = "pyasn1", specifier = ">=0.6.5" },
     { name = "pygments", specifier = ">=2.20.0" },
     { name = "pyjwt", specifier = ">=2.13.0" },
     { name = "pyopenssl", specifier = ">=26.0.0" },
