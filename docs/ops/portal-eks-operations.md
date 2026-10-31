@@ -24,17 +24,11 @@ transition, follow
 
 Prerequisites for the commands below:
 
-- An AWS profile or GitHub OIDC role with the environment's Terraform deploy
-  role. Never place access keys, session tokens, or passwords in command
-  arguments or in copied examples.
-- `kubectl` access acquired through the Terraform-output deploy role, for
-  example:
-
-  ```console
-  aws eks update-kubeconfig \
-    --region us-east-2 \
-    --name "$(terraform -chdir=platform/terraform/environments/prod/eks output -raw cluster_name)"
-  ```
+- The environment's deploy role. Operators assume it as a principal named in
+  `operator_principal_arns`; IAM users need MFA. Never place access keys,
+  session tokens, or passwords in command arguments or in copied examples.
+- `kubectl` access through the Session Manager tunnel to the private API
+  endpoint. Follow [operator access to the cluster](aws-native-identity.md#operator-access-to-the-cluster).
 
 - Terraform state is the only topology authority. Discover the cluster name,
   node group, ALB name, and resource identifiers from the environment's

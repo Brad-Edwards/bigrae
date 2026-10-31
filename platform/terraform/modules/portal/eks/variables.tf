@@ -192,7 +192,24 @@ variable "workload_identities" {
     # The trusted runtime-plugin node-pool labeler (#2526): ec2:DescribeInstances,
     # so it can verify each node's Auto Scaling group before applying the pool label.
     node_pool_labeler = optional(bool, false)
+    # Read the three OpenFGA datastore login secrets: only the provisioning Job,
+    # which creates the logins, and the weekly credential refresh (#2313).
+    openfga_datastore_secrets_read = optional(bool, false)
+    # Mint STS web identity tokens for exactly this audience, ES384 and at most
+    # 900 seconds (#2313). Empty grants nothing.
+    web_identity_audience = optional(string, "")
+    # cognito-idp:AdminGetUser on exactly cognito_user_pool_arn, for the portal
+    # session recheck (#2313).
+    cognito_admin_get_user = optional(bool, false)
   }))
+
+  validation {
+    condition = alltrue([
+      for identity in values(var.workload_identities) :
+      identity.web_identity_audience == "" || can(regex("^https://[^/?#@ ]+(/[^?#@ ]*)?$", identity.web_identity_audience))
+    ])
+    error_message = "web_identity_audience must be an exact HTTPS URL."
+  }
 
   validation {
     condition = alltrue([
@@ -267,4 +284,33 @@ variable "feature_artifact_prefix" {
   description = "Content-addressed delivery prefix (runtime RAES_CONTENT_DELIVERY_PREFIX) the acquisition Job may write."
   type        = string
   default     = "raes/content-delivery"
+}
+
+variable "openfga_rotation_package" {
+  description = "Path to the hash-pinned OpenFGA datastore rotation package that the deploy tooling builds (#2313). Required to create or update the rotation functions; teardown may omit it."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.openfga_rotation_package == null || fileexists(var.openfga_rotation_package)
+    error_message = "openfga_rotation_package must name an existing package file."
+  }
+}
+
+variable "openfga_rotation_schedule" {
+  description = "Create the OpenFGA datastore rotation schedules. The deploy sets true only after the provisioning Job has created the logins (#2313)."
+  type        = bool
+  default     = false
+}
+
+variable "cognito_user_pool_arn" {
+  description = "Exact Cognito user pool ARN for the portal session recheck. Empty grants no directory read."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.cognito_user_pool_arn == "" || can(regex("^arn:aws:cognito-idp:[a-z0-9-]+:[0-9]{12}:userpool/[a-z0-9-]+_[A-Za-z0-9]+$", var.cognito_user_pool_arn))
+    error_message = "cognito_user_pool_arn must be an exact Cognito user pool ARN."
+  }
 }

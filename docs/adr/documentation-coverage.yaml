@@ -70,6 +70,13 @@
       "technical_docs": ["technical/shifter_platform/content-range-authority.md"]
     },
     {
+      "id": "aws-native-identity",
+      "title": "AWS native identity, policy datastore rotation and operator access",
+      "requirement": "GEN-001",
+      "user_docs": ["ops/aws-native-identity.md"],
+      "technical_docs": ["technical/platform_infrastructure/aws-native-identity.md"]
+    },
+    {
       "id": "gcp-native-identity",
       "title": "GCP native SQL identity and private policy administration",
       "requirement": "GEN-001",

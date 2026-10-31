@@ -31,6 +31,7 @@ from gcp_inputs import load_deployment_inputs
 from gcp_openvpn import OpenVpnError, ensure_pki, pool_output, roll_out_pool
 from gcp_process import GcpCommandError, ProcessResult
 from gcp_rollout import (
+    ReleasePins,
     RolloutError,
     record_running_images,
     release_deployments,
@@ -259,6 +260,19 @@ class TestRolloutChecks:
         assert record.prefix == f"deployments/{REVISION}/r/1"
         verify = next(call.argv for call in runner.calls if "--expected-image" in call.argv)
         assert f"portal={_identities()['portal']}" in verify
+        assert "--support-image" not in verify
+        proxy = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:" + "4" * 64
+        record_running_images(
+            runner,
+            {},
+            identities=_identities(),
+            model_broker_enabled=False,
+            evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 2),
+            workdir=tmp_path,
+            pins=ReleasePins(support={"cloud-sql-proxy": proxy}),
+        )
+        verify = [call.argv for call in runner.calls if "--expected-image" in call.argv][-1]
+        assert verify[verify.index("--support-image") + 1] == f"cloud-sql-proxy={proxy}"
         failing = FakeRunner().on(["kubectl"], ProcessResult(0, "[]")).on([], ProcessResult(1))
         with pytest.raises(RolloutError, match="approved release"):
             record_running_images(
@@ -269,6 +283,61 @@ class TestRolloutChecks:
                 evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 1),
                 workdir=tmp_path,
             )
+
+    def test_support_images_come_from_the_rendered_release_deployments(self):
+        """#2698: one pinned proxy reference per release; a second one is an error."""
+        proxy = "gcr.io/cloud-sql-connectors/cloud-sql-proxy@sha256:" + "4" * 64
+
+        def deployment(name, image, namespace="shifter-platform"):
+            sidecar = {"name": "cloud-sql-proxy", "image": image, "restartPolicy": "Always"}
+            return {
+                "kind": "Deployment",
+                "metadata": {"name": name, "namespace": namespace},
+                "spec": {"template": {"spec": {"initContainers": [sidecar], "containers": [{"name": name}]}}},
+            }
+
+        documents = [deployment("portal-web", proxy), deployment("worker-cms", proxy), {"kind": "Service"}]
+        assert ReleasePins.from_documents(documents).support == {"cloud-sql-proxy": proxy}
+        assert ReleasePins.from_documents([{"kind": "Service", "metadata": {}}]) == ReleasePins()
+        # Another namespace is outside the verified release boundary.
+        assert ReleasePins.from_documents([deployment("x", proxy + "0", namespace="other"), *documents]).support == {
+            "cloud-sql-proxy": proxy
+        }
+        with pytest.raises(RolloutError, match="more than one image"):
+            ReleasePins.from_documents([*documents, deployment("worker-mc", proxy.replace("4", "5"))])
+
+    def test_policy_image_comes_from_the_rendered_policy_servers(self, tmp_path: Path):
+        """#2698: the OpenFGA servers join the running image check at their pinned image."""
+        image = "docker.io/openfga/openfga@sha256:" + "6" * 64
+
+        def server(name):
+            return {
+                "kind": "Deployment",
+                "metadata": {"name": name, "namespace": "shifter-platform"},
+                "spec": {"template": {"spec": {"containers": [{"name": "openfga", "image": image}]}}},
+            }
+
+        assert ReleasePins.from_documents([server("openfga"), server("openfga-admin")]).policy == image
+        assert ReleasePins.from_documents([{"kind": "Service", "metadata": {}}]).policy is None
+
+        def verifier(argv, env, stdin):
+            if "--output" in argv:
+                Path(argv[argv.index("--output") + 1]).write_text("{}\n")
+            return ProcessResult(0, "[]" if argv[:3] == ["kubectl", "get", "pods"] else "")
+
+        runner = FakeRunner().on([], verifier)
+        record_running_images(
+            runner,
+            {},
+            identities=_identities(),
+            model_broker_enabled=False,
+            evidence=EvidenceRun("acme-shifter-release-evidence", REVISION, "r", 3),
+            workdir=tmp_path,
+            pins=ReleasePins(policy=image),
+        )
+        verify = next(call.argv for call in runner.calls if "--expected-image" in call.argv)
+        assert verify[verify.index("--policy-enabled") + 1] == "true"
+        assert f"openfga={image}" in verify
 
     def test_ingress_and_certificate_waits(self):
         addresses = iter([ProcessResult(0, ""), ProcessResult(0, "34.1.2.3")])

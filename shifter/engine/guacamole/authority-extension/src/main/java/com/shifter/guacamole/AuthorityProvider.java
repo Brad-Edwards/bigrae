@@ -14,15 +14,21 @@ public final class AuthorityProvider extends AbstractAuthenticationProvider {
 
     public AuthorityProvider() {
         this(Boolean.parseBoolean(java.util.Objects.toString(System.getenv("OPENFGA_ENABLED"), "false").trim()),
-             configuredRenewals());
+             configuredRenewals(System.getenv("GUACAMOLE_CONTROL_URL"), System.getenv("GUACAMOLE_CONTROL_AUDIENCE"),
+                                System.getenv("GUACAMOLE_CONTROL_IDENTITY")));
     }
 
-    private static GatewayRenewals configuredRenewals() {
-        String endpoint = System.getenv("GUACAMOLE_CONTROL_URL");
-        String audience = System.getenv("GUACAMOLE_CONTROL_AUDIENCE");
+    /** Build renewals from deployment settings; incomplete or unknown settings leave sessions refused. */
+    static GatewayRenewals configuredRenewals(String endpoint, String audience, String kind) {
         if (endpoint == null || audience == null) return null;
-        return new GatewayRenewals(new GatewayControl(endpoint, audience), System::nanoTime,
-                                   Duration.ofSeconds(90), 512);
+        GatewayControl control;
+        try { control = new GatewayControl(endpoint, audience, kind); }
+        catch (IllegalArgumentException unsupported) { return null; }
+        try { return new GatewayRenewals(control, System::nanoTime, Duration.ofSeconds(90), 512); }
+        catch (IllegalArgumentException invalid) {
+            control.close();
+            return null;
+        }
     }
 
     AuthorityProvider(boolean enabled, GatewayRenewals renewals) {

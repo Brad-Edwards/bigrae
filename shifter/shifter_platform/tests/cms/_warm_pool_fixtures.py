@@ -9,7 +9,7 @@ def service_credential(settings, *, scopes=None):
     from management.models import Principal, ProviderBinding, ServiceCredentialAdmission
     from management.services import resolve_service_credential_reference
 
-    settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
+    settings.GCP_SERVICE_TOKEN_AUDIENCE = settings.AWS_SERVICE_TOKEN_AUDIENCE = "https://portal.example.test"
     principal = Principal.objects.create(kind="service", name="Synthetic warm worker")
     binding = ProviderBinding.objects.create(
         principal=principal, issuer="https://accounts.google.com", subject=str(uuid4())

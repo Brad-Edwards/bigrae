@@ -239,11 +239,12 @@ class TestRolloutStage:
             first_install=False,
         )
         infra = InfrastructureResult(outputs=outputs, kube={"KUBECONFIG": "/work/kubeconfig"})
-        assert rollout_stage(activated_runner(), inputs, infra, request) is True
+        runner = activated_runner(order).on(["kubectl", "get", "deployment", "openfga-admin"], ProcessResult(0, "1"))
+        assert rollout_stage(runner, inputs, infra, request) is True
         # #2679: the deploy creates the OpenFGA credentials before the identity
-        # probe, publishes the release model after the migrations, re-renders
-        # with the published IDs, and registers the catalog as the bootstrap
-        # administrator after the certificate wait.
+        # probe and registers the catalog as the bootstrap administrator after
+        # the certificate wait. #2694: an existing installation publishes the
+        # release model and renders with its IDs before the probe checks them.
         assert order == [
             "compose_runtime_env",
             "build_values",
@@ -251,11 +252,12 @@ class TestRolloutStage:
             "render_chart",
             "ensure_gcp_control_plane_namespaces",
             "ensure_policy_secrets",
-            "run_gcp_database_migrations",
             "publish_policy_model",
             "build_values",
             "write_values",
             "render_chart",
+            "verified_identity_probe",
+            "run_gcp_database_migrations",
             "sync_gcp_guacamole_runtime_secret",
             "adopt_objects",
             "helm_upgrade",
@@ -285,6 +287,8 @@ class TestRolloutStage:
         )
         rollout_stage(runner, inputs, InfrastructureResult(outputs=outputs, kube={}), request)
         assert "ensure_pki" in order and "roll_out_pool" in order
+        # Without a running admin server, the model publishes after the migrations (#2694).
+        assert order.index("run_gcp_database_migrations") < order.index("publish_policy_model")
         assert any("sync_openfga_secrets.py" in " ".join(call.argv) for call in runner.calls)
         assert runner.find("kubectl", "rollout", "restart", "deployment/openfga")
 

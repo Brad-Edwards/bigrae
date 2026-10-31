@@ -24,9 +24,34 @@ User = get_user_model()
 LOGOUT_URL = "/logout/"
 
 
+COGNITO_ISSUER = "https://cognito-idp.us-east-2.amazonaws.com/us-east-2_Synthetic1"
+
+
 @pytest.fixture
 def user(db):
     return User.objects.create_user(username="logout@example.com", email="logout@example.com")
+
+
+@pytest.fixture
+def oidc_login(settings):
+    """Sign in through the Cognito backend with the assurance a real login records."""
+    import time
+
+    from config.session_credentials import establish_identity_session
+    from management.services import bind_provider_identity
+
+    settings.OIDC_ISSUER_URL = COGNITO_ISSUER
+
+    def login(client, user):
+        bind_provider_identity(user, COGNITO_ISSUER, f"subject-{user.pk}")
+        client.force_login(user, backend="config.oidc.ShifterOIDCBackend")
+        session = client.session
+        establish_identity_session(
+            session, {"iss": COGNITO_ISSUER, "sub": f"subject-{user.pk}", "auth_time": int(time.time())}
+        )
+        session.save()
+
+    return login
 
 
 class TestLogoutView:
@@ -43,11 +68,11 @@ class TestLogoutView:
         # Real logout flushed the session.
         assert "_auth_user_id" not in client.session
 
-    def test_oidc_user_redirects_to_landing_without_op_logout(self, user):
+    def test_oidc_user_redirects_to_landing_without_op_logout(self, user, oidc_login):
         """An OIDC-backend user is logged out; with no Cognito logout method
         configured in test settings, the view falls back to the landing page."""
         client = Client()
-        client.force_login(user, backend="config.oidc.ShifterOIDCBackend")
+        oidc_login(client, user)
 
         response = client.post(LOGOUT_URL)
 
@@ -56,7 +81,7 @@ class TestLogoutView:
         assert "_auth_user_id" not in client.session
 
     @override_settings(OIDC_OP_LOGOUT_URL_METHOD="config.oidc.provider_logout_url")
-    def test_oidc_user_redirects_to_provider_logout_url(self, user, monkeypatch):
+    def test_oidc_user_redirects_to_provider_logout_url(self, user, monkeypatch, oidc_login):
         """With OIDC_OP_LOGOUT_URL_METHOD set, a user signed in through the
         deployed ``config.oidc.ShifterOIDCBackend`` is redirected to the identity
         provider's logout endpoint (not the local landing page).
@@ -70,7 +95,7 @@ class TestLogoutView:
         monkeypatch.setenv("OIDC_RP_CLIENT_ID", "client123")
 
         client = Client()
-        client.force_login(user, backend="config.oidc.ShifterOIDCBackend")
+        oidc_login(client, user)
 
         response = client.post(LOGOUT_URL)
 
@@ -95,13 +120,13 @@ class TestLogoutView:
 
         assert response.status_code == 405
 
-    def test_logout_writes_audit_row_with_email(self, user):
+    def test_logout_writes_audit_row_with_email(self, user, oidc_login):
         """A successful logout writes a LOGOUT audit row identifying the user.
 
         The identity is captured before Django ``logout`` flushes the session.
         """
         client = Client()
-        client.force_login(user, backend="config.oidc.ShifterOIDCBackend")
+        oidc_login(client, user)
 
         client.post(LOGOUT_URL)
 
@@ -114,9 +139,9 @@ class TestLogoutView:
 
         assert not AuditLog.objects.filter(action=AuditAction.LOGOUT).exists()
 
-    def test_logout_debug_log_does_not_retain_email(self, user, caplog):
+    def test_logout_debug_log_does_not_retain_email(self, user, caplog, oidc_login):
         client = Client()
-        client.force_login(user, backend="config.oidc.ShifterOIDCBackend")
+        oidc_login(client, user)
         view_logger = logging.getLogger("config.views")
         with caplog.at_level(logging.DEBUG, logger=view_logger.name):
             client.post(LOGOUT_URL)
@@ -124,9 +149,9 @@ class TestLogoutView:
         assert f"logout for user_id={user.pk}" in caplog.text
         assert user.email not in caplog.text
 
-    def test_dashboard_debug_log_does_not_retain_email(self, user, caplog):
+    def test_dashboard_debug_log_does_not_retain_email(self, user, caplog, oidc_login):
         client = Client()
-        client.force_login(user)
+        oidc_login(client, user)
         view_logger = logging.getLogger("config.views")
         with caplog.at_level(logging.DEBUG, logger=view_logger.name):
             response = client.get("/dashboard/")

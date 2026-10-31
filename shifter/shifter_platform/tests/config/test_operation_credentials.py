@@ -181,7 +181,7 @@ def test_service_reference_revalidates_admission_and_cannot_widen_queued_ceiling
         audience="https://example.test/shifter",
         scopes=["authorization:range.read", "authorization:range.manage"],
     )
-    settings.GCP_SERVICE_TOKEN_AUDIENCE = admission.audience
+    settings.GCP_SERVICE_TOKEN_AUDIENCE = settings.AWS_SERVICE_TOKEN_AUDIENCE = admission.audience
     current = resolve_service_credential(issuer=binding.issuer, subject=binding.subject, audience=admission.audience)
     target = TargetRef("range", uuid4())
     original = CredentialContext(
@@ -318,7 +318,7 @@ def test_service_socket_checks_its_original_native_admission(settings):
     binding = ProviderBinding.objects.create(
         principal=Principal.objects.get(uuid=principal.uuid), issuer="https://accounts.google.com", subject=str(uuid4())
     )
-    settings.GCP_SERVICE_TOKEN_AUDIENCE = "https://example.test/shifter"
+    settings.GCP_SERVICE_TOKEN_AUDIENCE = settings.AWS_SERVICE_TOKEN_AUDIENCE = "https://example.test/shifter"
     admission = ServiceCredentialAdmission.objects.create(
         binding=binding, audience=settings.GCP_SERVICE_TOKEN_AUDIENCE, scopes=["authorization:range.read"]
     )

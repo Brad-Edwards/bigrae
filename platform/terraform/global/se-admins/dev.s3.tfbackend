@@ -1,5 +1,0 @@
-bucket         = "REPLACE_AT_BOOTSTRAP"
-key            = "global/se-admins/terraform.tfstate"
-region         = "us-east-2"
-use_lockfile   = true
-encrypt        = true

@@ -2,13 +2,13 @@
 
 from dataclasses import replace
 
-from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
 
 from management.models import Principal, PrincipalSession, ProviderBinding, ServiceCredentialAdmission
 from management.session_backend import SessionStore
 from shared.api_tokens.scopes import KNOWN_SCOPES
 from shared.credentials import CredentialContext
+from shared.service_proof import service_proof_profile
 
 
 def persisted_credential(credential: CredentialContext) -> CredentialContext:
@@ -24,7 +24,7 @@ def persisted_credential(credential: CredentialContext) -> CredentialContext:
             uuid=credential.credential_uuid,
             defaults={
                 "binding": binding,
-                "audience": settings.GCP_SERVICE_TOKEN_AUDIENCE,
+                "audience": service_proof_profile().audience,
                 "scopes": sorted(KNOWN_SCOPES),
             },
         )

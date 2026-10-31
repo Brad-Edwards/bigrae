@@ -295,6 +295,24 @@ def publish_policy_model(
     return store_id, model_id
 
 
+def policy_admin_available(runner: ProcessRunner) -> bool:
+    """Return True when the OpenFGA admin server of an existing installation already serves (#2694)."""
+    result = runner.run(
+        [
+            "kubectl",
+            "get",
+            "deployment",
+            "openfga-admin",
+            "-n",
+            NAMESPACE,
+            "-o",
+            "jsonpath={.status.availableReplicas}",
+        ],
+        check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip() not in ("", "0")
+
+
 def release_model(manifest_model: object) -> dict[str, object]:
     """Require the release to carry its authorization model."""
     if not isinstance(manifest_model, Mapping) or not manifest_model.get("type_definitions"):

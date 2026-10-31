@@ -93,7 +93,7 @@ resource "aws_secretsmanager_secret_version" "db_credentials" {
     host     = aws_db_instance.this.address
     port     = aws_db_instance.this.port
     dbname   = var.db_name
-    engine   = "postgresql"
+    engine   = "postgres"
   })
 }
 

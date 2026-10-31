@@ -220,6 +220,39 @@ def test_unready_declared_sidecar_cannot_hide_by_omitting_its_status() -> None:
         module.build_evidence(pods, _EXPECTED, source_sha=_SHA)
 
 
+def test_pinned_support_sidecar_is_accepted_only_at_its_exact_release_identity() -> None:
+    """#2698: the native SQL Cloud SQL proxy runs beside release containers."""
+    module = _load_module()
+    proxy_root = "gcr.io/cloud-sql-connectors/cloud-sql-proxy"
+    proxy_digest = "sha256:" + "4" * 64
+    support = {"cloud-sql-proxy": {"root": proxy_root, "digest": proxy_digest}}
+
+    def with_proxy(digest: str) -> dict[str, object]:
+        pods = _valid_pods(module)
+        worker = _pod_for(pods, "ctf-communication-worker")
+        sidecar = _container("cloud-sql-proxy", proxy_root, digest)
+        worker["spec"]["initContainers"] = [{"name": sidecar["name"], "image": sidecar["image"]}]
+        worker["status"]["initContainerStatuses"] = [sidecar]
+        return pods
+
+    evidence = module.build_evidence(with_proxy(proxy_digest), _EXPECTED, source_sha=_SHA, support=support)
+    assert evidence["support_images"] == {"cloud-sql-proxy": f"{proxy_root}@{proxy_digest}"}
+    assert any(item["container"] == "cloud-sql-proxy" for item in evidence["running_containers"])
+    # Without the release reference, or at another digest, the sidecar is refused.
+    with pytest.raises(ValueError, match=r"unexpected declared containers.*cloud-sql-proxy"):
+        module.build_evidence(with_proxy(proxy_digest), _EXPECTED, source_sha=_SHA)
+    with pytest.raises(ValueError, match="exact approved image identity"):
+        module.build_evidence(with_proxy("sha256:" + "5" * 64), _EXPECTED, source_sha=_SHA, support=support)
+    # A support container never replaces a required release container.
+    pods = with_proxy(proxy_digest)
+    _pod_for(pods, "ctf-communication-worker")["spec"]["containers"] = []
+    with pytest.raises(ValueError, match="missing expected declared containers"):
+        module.build_evidence(pods, _EXPECTED, source_sha=_SHA, support=support)
+    with pytest.raises(ValueError, match="unknown support containers"):
+        module.parse_support_images([f"debug-shell={proxy_root}@{proxy_digest}"])
+    assert module.parse_support_images([]) == {}
+
+
 def test_unapproved_workload_cannot_enter_the_closed_namespace_inventory() -> None:
     module = _load_module()
     pods = _valid_pods(module)
@@ -362,3 +395,35 @@ def test_optional_broker_requires_explicit_release_enablement_and_both_component
     assert {"model-broker", "model-access-control", "model-provider-egress"} <= set(
         module.release_deployments(model_broker_enabled=True)
     )
+
+
+def test_policy_servers_are_required_at_their_pinned_image_when_the_release_renders_them():
+    """#2698: native identity adds the OpenFGA runtime and admin servers."""
+    module = _load_module()
+    pods = _valid_pods(module)
+    openfga = {"root": "docker.io/openfga/openfga", "digest": "sha256:" + "6" * 64}
+    for component in ("openfga", "openfga-admin"):
+        container = _container("openfga", openfga["root"], openfga["digest"])
+        pods["items"].append(
+            {
+                "metadata": {
+                    "name": component + "-123",
+                    "labels": {"app.kubernetes.io/part-of": "shifter", "app.kubernetes.io/component": component},
+                },
+                "spec": {"containers": [{"name": "openfga", "image": container["image"]}]},
+                "status": {"containerStatuses": [container]},
+            }
+        )
+    expected = {**_EXPECTED, "openfga": openfga}
+    with pytest.raises(ValueError, match="unexpected Shifter workload component: openfga"):
+        module.build_evidence(pods, _EXPECTED, source_sha=_SHA)
+    evidence = module.build_evidence(pods, expected, source_sha=_SHA, policy_enabled=True)
+    assert len(evidence["running_containers"]) == len(module._RELEASE_CONTAINERS) + 2
+    # The pinned image is part of the closed expected set.
+    with pytest.raises(ValueError, match="expected image set"):
+        module.build_evidence(pods, _EXPECTED, source_sha=_SHA, policy_enabled=True)
+    pods["items"].pop()
+    with pytest.raises(ValueError, match="missing release components"):
+        module.build_evidence(pods, expected, source_sha=_SHA, policy_enabled=True)
+    assert {"openfga", "openfga-admin"} <= set(module.release_deployments(policy_enabled=True))
+    assert "openfga" not in module.release_deployments()
