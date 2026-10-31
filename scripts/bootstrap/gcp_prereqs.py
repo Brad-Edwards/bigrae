@@ -129,6 +129,47 @@ def _bucket_policy(
     return policy if isinstance(policy, dict) else {}
 
 
+def remove_deleted_role_bindings(runner: ProcessRunner, env: Mapping[str, str | None], *, project_id: str) -> None:
+    """Remove project IAM bindings to the project's deleted custom roles (#2702).
+
+    Such a binding grants nothing, but GCP rejects each full project policy
+    write that keeps it, so no Terraform IAM change could apply. It remains
+    when one Terraform root deletes a principal before another root deletes
+    the custom role that grants to it.
+    """
+    listed = runner.run(
+        ["gcloud", "iam", "roles", "list", "--project", project_id, "--show-deleted", "--format=json(name,deleted)"],
+        env=env,
+    ).stdout
+    policy_text = ""
+    try:
+        deleted = {str(role["name"]) for role in json.loads(listed or "[]") if role.get("deleted")}
+        if not deleted:
+            return
+        policy_text = runner.run(["gcloud", "projects", "get-iam-policy", project_id, "--format=json"], env=env).stdout
+        bindings = json.loads(policy_text or "{}").get("bindings") or []
+    except (json.JSONDecodeError, AttributeError, KeyError, TypeError):
+        raise PrerequisiteError("the project custom roles or IAM policy are not readable") from None
+    for binding in bindings:
+        role = binding.get("role")
+        if role not in deleted:
+            continue
+        for member in binding.get("members") or []:
+            runner.run(
+                [
+                    "gcloud",
+                    "projects",
+                    "remove-iam-policy-binding",
+                    project_id,
+                    f"--member={member}",
+                    f"--role={role}",
+                    "--all",
+                ],
+                env=env,
+            )
+        info(f"Removed the bindings to the deleted custom role {role}")
+
+
 def ensure_state_bucket(
     runner: ProcessRunner, env: Mapping[str, str | None], *, bucket: str, project_id: str, region: str
 ) -> None:
