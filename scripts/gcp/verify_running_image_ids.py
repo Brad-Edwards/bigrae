@@ -74,14 +74,23 @@ _BROKER_CONTAINERS = {
 }
 
 
-def release_deployments(*, model_broker_enabled: bool = False) -> tuple[str, ...]:
+# The OpenFGA policy servers run the chart-pinned ``openfga`` image when the
+# release renders them, as every native identity release does (#2698).
+_POLICY_CONTAINERS = {
+    "openfga": {"openfga": "openfga"},
+    "openfga-admin": {"openfga": "openfga"},
+}
+
+
+def release_deployments(*, model_broker_enabled: bool = False, policy_enabled: bool = False) -> tuple[str, ...]:
     """Return every Deployment that must converge before evidence is sampled."""
     if set(_RELEASE_DEPLOYMENTS) != set(_RELEASE_CONTAINERS):
         raise ValueError("release deployment and container component maps disagree")
     deployments = tuple(sorted(_RELEASE_DEPLOYMENTS.values()))
     if len(deployments) != len(set(deployments)):
         raise ValueError("release deployment map contains duplicate controllers")
-    return tuple(sorted((*deployments, *_BROKER_CONTAINERS))) if model_broker_enabled else deployments
+    optional = [*(_BROKER_CONTAINERS if model_broker_enabled else ()), *(_POLICY_CONTAINERS if policy_enabled else ())]
+    return tuple(sorted((*deployments, *optional)))
 
 
 def parse_expected_images(values: list[str]) -> dict[str, dict[str, str]]:
@@ -242,13 +251,18 @@ def build_evidence(
     source_sha: str,
     model_broker_enabled: bool = False,
     support: dict[str, dict[str, str]] | None = None,
+    policy_enabled: bool = False,
 ) -> dict[str, object]:
     """Return evidence only for the exact closed release workload/image map."""
     support = support or {}
     if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
         raise ValueError("source SHA must be 40 lowercase hexadecimal characters")
 
-    containers = {**_RELEASE_CONTAINERS, **(_BROKER_CONTAINERS if model_broker_enabled else {})}
+    containers = {
+        **_RELEASE_CONTAINERS,
+        **(_BROKER_CONTAINERS if model_broker_enabled else {}),
+        **(_POLICY_CONTAINERS if policy_enabled else {}),
+    }
     referenced_images = {image_name for containers in containers.values() for image_name in containers.values()}
     if set(expected) != referenced_images:
         raise ValueError("expected image set does not match the closed release workload map")
@@ -299,6 +313,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-deployments", action="store_true")
     parser.add_argument("--model-broker-enabled", choices=("true", "false"), default="false")
+    parser.add_argument("--policy-enabled", choices=("true", "false"), default="false")
     parser.add_argument("--pods-json", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--source-sha")
@@ -310,7 +325,9 @@ def main() -> int:
         if args.list_deployments:
             if args.pods_json or args.output or args.source_sha or args.expected_image or args.support_image:
                 parser.error("--list-deployments cannot be combined with evidence arguments")
-            for deployment in release_deployments(model_broker_enabled=args.model_broker_enabled == "true"):
+            for deployment in release_deployments(
+                model_broker_enabled=args.model_broker_enabled == "true", policy_enabled=args.policy_enabled == "true"
+            ):
                 print(deployment)
             return 0
         if not args.pods_json or not args.output or not args.source_sha:
@@ -323,6 +340,7 @@ def main() -> int:
             source_sha=args.source_sha,
             model_broker_enabled=args.model_broker_enabled == "true",
             support=parse_support_images(args.support_image),
+            policy_enabled=args.policy_enabled == "true",
         )
         _write_private_json(args.output, evidence)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
