@@ -59,13 +59,13 @@ The release images and their provenance stay those of the release. Use this
 only for a fix that is already in a pull request, and release again after it
 merges to `deploy-test`.
 
-## Base images must exist under the release owner
+## Guest images must exist in the release registry
 
-`release-gcp.yml` pins the newest base range images from
-`ghcr.io/<owner>/shifter-gce-<role>`, where `<owner>` is the repository owner.
-The release stops when a role is missing. After a repository transfer, copy the
-base packages to the new owner by digest, or publish them again with
-`packer-gcp.yml`, and make them public.
+`release-gcp.yml` takes the newest guest image of each role from
+`ghcr.io/<owner>/<repository>/gce-<role>`. The release stops when a role is
+missing or its provenance does not verify against this repository. After a
+repository transfer, publish the guests again with `packer-gcp.yml` from the
+new repository, and make the packages public.
 
 ## Make new release packages public
 

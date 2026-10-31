@@ -39,7 +39,6 @@ locals {
   name_prefix = "shifter-${var.environment}"
   # Deterministic emails of the purpose identities created in the foundational
   # global/cicd-oidc root. This root references them without importing state.
-  build_service_account_email        = "${replace("shifter-${var.environment}", "-", "")}-packer@${var.project_id}.iam.gserviceaccount.com"
   release_scan_service_account_email = "${replace("shifter-${var.environment}", "-", "")}-scan@${var.project_id}.iam.gserviceaccount.com"
   deploy_service_account_email       = "${replace("shifter-${var.environment}", "-", "")}-deploy@${var.project_id}.iam.gserviceaccount.com"
   labels = {
@@ -47,36 +46,6 @@ locals {
     managed_by  = "terraform"
     project     = "shifter"
   }
-}
-
-# Image-build infrastructure for the GCE image bakes (.github/workflows/packer-gcp.yml):
-# the dedicated builder subnet, the IAP-scoped ingress firewall, and the image
-# buckets. Only a maintainer image-build environment opts in; a tenant install
-# never builds images and imports the release's pinned base images instead
-# (#2679). The build service account lives in the foundational root
-# platform/terraform/gcp/global/cicd-oidc; this root references it by its
-# deterministic email.
-module "packer_build_infra" {
-  count  = var.enable_image_build_infra ? 1 : 0
-  source = "../../modules/packer-build-infra"
-
-  project_id                   = var.project_id
-  name_prefix                  = local.name_prefix
-  region                       = var.region
-  platform_network             = module.platform_core.network_name
-  packer_service_account_email = local.build_service_account_email
-  access_log_bucket_name       = module.platform_core.audit_logs_bucket_name
-  # baremetal-gcr (GDC substrate SA) is absent on the default GCE backend; empty
-  # unless a GDC deployment sets it (ADR: GDC plumbing must not be selected by
-  # default). See the gdc_vm_runtime_image_readers variable.
-  image_reader_service_accounts = var.gdc_vm_runtime_image_readers
-}
-
-# Existing image-build environments keep their resources at the counted address;
-# a tenant without image builds removes them on its next deploy (#2679).
-moved {
-  from = module.packer_build_infra
-  to   = module.packer_build_infra[0]
 }
 
 module "platform_core" {

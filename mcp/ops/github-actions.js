@@ -39,7 +39,7 @@ export function triggerAmiWorkflow(
   );
 }
 
-// GCE image build/promote (issue #505, PLAT-001.10). Parallel to
+// GCE guest image builds (issue #505, PLAT-001.10). Parallel to
 // triggerAmiWorkflow but passes the GCP-scoped `image_type` workflow input
 // (the GCE workflows never use the AWS `ami_type` input name). The dispatch
 // `--ref` is the single source of truth for the built branch and is restricted
@@ -63,9 +63,8 @@ export function triggerGceImageWorkflow({
     }),
     ghOptions,
   );
-  const releaseIdentity = inputs.image_type ?? inputs.source_image;
   return (
-    `Triggered ${workflow} for ${releaseIdentity} on ref ${branch}. ` +
+    `Triggered ${workflow} for ${inputs.image_type} on ref ${branch}. ` +
     `View at: https://github.com/${repo}/actions/workflows/${actionsPath}`
   );
 }

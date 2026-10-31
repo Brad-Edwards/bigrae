@@ -188,13 +188,20 @@ For a CI deployment, copy `gcp-foundation.example.tfvars.json` to an
 operator-owned file outside the repository. Supply the project ID and number,
 numeric GitHub repository and owner IDs, bucket names, and exact purpose
 Environment/branch/workflow tuples. Obtain IDs with `gcloud projects describe`
-and `gh api repos/<owner>/<repo>`; bootstrap verifies them before writes. Keep
-image build and validation on protected `dev`/`main` refs. Deploy uses the
-selected tenant branch. Destroy must bind protected `refs/heads/dev` or
-`refs/heads/main`, because `gcp-dev-destroy.yml` rejects every other dispatch
-ref before authentication; bootstrap rejects any other destroy tuple before
-writes. Configure the `<environment>-destroy` GitHub Environment branch policy
-to allow that same protected branch. No secret payload belongs in this file.
+and `gh api repos/<owner>/<repo>`; bootstrap verifies them before writes.
+Deploy uses the selected tenant branch. A destroy tuple must bind protected
+`refs/heads/dev` or `refs/heads/main`; bootstrap rejects any other destroy tuple
+before writes. No GitHub workflow uses a destroy identity after #2668. No secret
+payload belongs in this file.
+
+For a developer build project (#2668), copy
+`gcp-image-builder.example.tfvars.json` to an operator-owned file outside the
+repository. It has only the `build` and `validate` contexts. Each context names
+the `gcp-image-build` or `gcp-image-validate` Environment, protected
+`refs/heads/dev` or `refs/heads/main`, and the `packer-gcp.yml` workflow ref.
+Bootstrap rejects any other image context before writes. After the apply, it
+writes the two Environments of the GitHub repository with their branch
+policies, secrets, and variables. See `docs/architecture/gcp-guest-images.md`.
 
 ```bash
 ./scripts/bootstrap/deploy.py gcp-foundation --inputs /path/to/foundation.tfvars.json --dry-run
@@ -207,11 +214,13 @@ operator credentials. Without GitHub, the root creates no Workload Identity pool
 or provider, and it creates the deployment config bucket. The evidence bucket
 has an irreversible 90-day retention lock. `enable_image_build_network=true` creates a foundation-owned custom VPC,
 private subnet, Cloud NAT, and IAP-only build/validation ingress before any
-platform deployment. It has no peering to runner or runtime networks. Publish
-its network/subnet outputs as `GCP_PACKER_NETWORK` / `GCP_PACKER_SUBNETWORK` in
-the build and validate Environments, and set `GCP_PACKER_USE_INTERNAL_IP=true`
-in the build Environment. Existing foundations keep this network disabled by
-default; their state addresses and existing image network remain unchanged.
+platform deployment. It has no peering to runner or runtime networks. For a
+developer build project, bootstrap writes its network and subnet outputs to the
+image Environments as `GCP_PACKER_NETWORK` and `GCP_PACKER_SUBNETWORK`, and sets
+`GCP_PACKER_USE_INTERNAL_IP=true` in the build Environment.
+`enable_image_export_storage=true` creates the export storage that the build
+workflow uses. Existing foundations keep this network disabled by default; their
+state addresses and existing image network remain unchanged.
 
 The image-build network's Terraform resources live in
 `platform/terraform/gcp/modules/image-build-network`, instantiated by the
@@ -235,6 +244,9 @@ foundation identity changes.
 
 The CI path:
 
+No tenant uses the CI path after #2668. `deploy.yml` offers no GCP environment
+until a tenant is wired in, and #2672 decides the future of this path.
+
 1. Create the GCP project and enable the required APIs.
 2. Apply the foundational OIDC/WIF identity root
    (`platform/terraform/gcp/global/cicd-oidc`) to create the GitHub Actions
@@ -242,7 +254,7 @@ The CI path:
    selected deployment values in each project. Each project keeps its own state bucket/prefix. Then set each
    purpose Environment's explicit service-account secret and
    `GCP_WORKLOAD_IDENTITY_PROVIDER` from the applicable profile outputs. This root has its own state prefix, separate from the
-   platform root, so a `gcp-dev-destroy` never removes the credentials CI
+   platform root, so a platform destroy never removes the credentials CI
    authenticates as (it mirrors the `global/github-runner` containment):
 
    ```bash
@@ -250,27 +262,18 @@ The CI path:
    REPO="$(gh repo set-default --view)"   # Empty: run gh repo set-default <owner>/<repo> first.
    mapfile -t GITHUB_IDS < <(gh api "repos/$REPO" --jq '.id, .owner.id')
    terraform init -backend-config="bucket=<project-id>-terraform-state" -backend-config="prefix=cicd-oidc"
-   terraform apply -var="project_id=<dev-project-id>" -var="project_number=<dev-project-number>" \
-     -var="environment=gcp-dev" -var="name_prefix=<name-prefix>" \
+   terraform apply -var="project_id=<project-id>" -var="project_number=<project-number>" \
+     -var="environment=<environment>" -var="name_prefix=<name-prefix>" \
      -var="github_org=${REPO%/*}" -var="github_repo=${REPO#*/}" \
      -var="github_repository_id=${GITHUB_IDS[0]}" -var="github_owner_id=${GITHUB_IDS[1]}" \
      -var="terraform_state_bucket_name=<project-id>-terraform-state" \
      -var="release_evidence_bucket_name=<release-evidence-bucket>" \
      -var-file=/path/to/purpose-contexts.tfvars.json \
-     -var='build_read_bucket_names=["<platform-image-input-bucket>"]' \
      -var='platform_external_bucket_names=["<raes-package-bucket>","<ctf-content-bucket>"]'
    terraform output -raw workload_identity_provider          # GCP_WORKLOAD_IDENTITY_PROVIDER
-   terraform output -raw packer_build_service_account_email     # GCP_PACKER_BUILD_SERVICE_ACCOUNT
-   terraform output -raw packer_validate_service_account_email  # GCP_PACKER_VALIDATE_SERVICE_ACCOUNT
    terraform output -raw release_scan_service_account_email     # GCP_RELEASE_SCAN_SERVICE_ACCOUNT
    terraform output -raw deploy_service_account_email           # GCP_DEPLOY_SERVICE_ACCOUNT
-   terraform output -raw destroy_service_account_email          # GCP_DESTROY_SERVICE_ACCOUNT
    terraform output -raw release_evidence_bucket_name           # private raw evidence store
-
-   # In the prod project's separately initialized root/state, use the same
-   # variables with the prod project values and environment=prod:
-   terraform apply -var="project_id=<prod-project-id>" -var="environment=prod" ...
-   terraform output -raw packer_promote_service_account_email   # GCP_PACKER_PROMOTE_SERVICE_ACCOUNT
    ```
    `purpose-contexts.tfvars.json` holds only the `purpose_contexts` key, in
    the shape of `gcp-foundation.example.tfvars.json`.
@@ -284,30 +287,31 @@ The CI path:
 3. Configure the GCP deployment secrets and variables in
    `docs/dev/deploy-secrets.md` (the `gcp-dev` section), including
    `SHIFTER_CONFIG_GCP_DEV` and the GCE range-cell variables.
-4. Import the range guest images from an explicit registry and print their
-   exact references:
+4. Import the guest images that the release selects and print their exact
+   references:
 
    ```bash
    ./scripts/bootstrap/deploy.py gcp-images \
-     --project-id <project> --source <registry prefix> --region <region>
+     --project-id <project> --region <region> \
+     --release-manifest <release.json> --trusted-repository-id <id> --trusted-owner-id <id>
    ```
 
    Set the printed references as the `GCP_RANGE_LINUX_IMAGE`,
    `GCP_RANGE_KALI_IMAGE`, and `GCP_RANGE_DC_IMAGE` variables. A deployment
-   without GitHub passes `--store gs://<bucket>` instead, and the command writes
-   `range-images.json`. The command first discovers and validates the complete
-   Kali, Ubuntu, and DC base set. It imports missing digests through a private
-   per-run bucket in the selected project and region, removes that bucket and
-   every transfer object on success or failure, and requires all three native
-   GCE images to be `READY`. A retry reuses matching `READY` images; it never
-   dispatches Packer or falls back to a tenant bake. Add `--dry-run` to perform
-   discovery, manifest validation, auth validation, and existing-image
-   inspection without pulling disk payloads or mutating GCP.
+   without GitHub passes `--store gs://<bucket>` instead. The command then reads
+   the trust from the store and writes `range-images.json`. Without
+   `--release-manifest`, it reads the release manifest of the deployer image. The
+   command verifies the signed build provenance of all three images before it
+   changes anything. It imports a missing image through a private per-run bucket
+   in the selected project and region, removes that bucket and every transfer
+   object on success or failure, and requires all three native GCE images to be
+   `READY`. A retry reuses matching `READY` images and creates no bucket when no
+   import is necessary. Add `--dry-run` to verify and inspect without pulling
+   disk payloads or mutating GCP.
 
-   Publishing the base set is the protected `packer-gcp.yml` workflow's job
-   (`publish_target=ghcr`). Separate candidate
-   qualification (`packer-gcp-validate.yml`) remains optional and off by
-   default. See `docs/dev/gcp-range-cell-deploy.md` and
+   A developer build of `packer-gcp.yml` publishes a guest image only after
+   `packer-gcp-validate.yml` passes for the exact candidate. See
+   `docs/dev/gcp-range-cell-deploy.md` and
    `docs/architecture/gcp-guest-images.md`.
 5. Run the first deploy through CI as a manual dispatch with
    `gcp_require_active_certificate=false`:
@@ -438,16 +442,16 @@ environment root, including teardown.
 
 # GCP (issue #1546): GCE runner into the target GCP project, over IAP (no SSM).
 # Uses the operator's default gcloud/ADC identity (no --profile).
-./scripts/bootstrap/deploy.py runners --cloud gcp --env gcp-dev --project-id <gcp-project>
+./scripts/bootstrap/deploy.py runners --cloud gcp --env <environment> --project-id <gcp-project>
 # --region / --zone      : GCP region/zone (default us-central1 / us-central1-a)
-# --labels               : custom runner label(s) (default: the env name, e.g. gcp-dev)
+# --labels               : custom runner label(s) (default: the env name)
 ```
 Provisions the runner fleet (dedicated runner VPC by default) and registers each
 runner end-to-end. Registration tokens are minted per runner and never persisted
 to Terraform state, instance metadata/user data, a secret store, or logs
 (issue #1433 for AWS/SSM; issue #1546 for GCP, where the token is delivered over
-the `gcloud compute ssh` stdin stream and the runner registers with a `gcp-dev`
-label so it never joins the AWS `self-hosted` pool). The GCP path fails closed
+the `gcloud compute ssh` stdin stream and the runner registers with its
+environment label so it never joins the AWS `self-hosted` pool). The GCP path fails closed
 unless each runner is online with the expected label.
 
 ### Full Deployment (bootstrap + terraform)

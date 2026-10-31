@@ -1,8 +1,8 @@
 # GitHub Actions Self-Hosted Runners
 
 Self-hosted runners for GitHub Actions workflows. The AWS fleet (below) serves
-the shared `self-hosted` label; a GCP dev tenant runs its own runner under the
-`gcp-dev` label so it does not borrow the AWS fleet (see
+the shared `self-hosted` label; a CI-deployed GCP tenant runs its own runner
+under its deployment label so it does not borrow the AWS fleet (see
 [GCP-native runners](#gcp-native-runners-dev-tenant-containment)).
 
 ## Scheduling policy
@@ -122,11 +122,11 @@ deployer image of a published release (ADR-070, see the
 
 | Parameter | Value |
 |-----------|-------|
-| **Terraform root** | `platform/terraform/gcp/global/github-runner/` (dedicated GCS state prefix, separate from the gcp-dev platform root) |
+| **Terraform root** | `platform/terraform/gcp/global/github-runner/` (dedicated GCS state prefix, separate from the platform root) |
 | **Network module** | `platform/terraform/gcp/modules/github-runner-network/` |
 | **Instance** | private-only Shielded VM (no external IP), OS Login, dedicated least-privilege service account |
 | **Network** | dedicated custom VPC, private subnet with flow logs, Cloud NAT egress, SSH ingress from Google's IAP range (`35.235.240.0/20`) only |
-| **Label** | Deployment name, such as `gcp-dev` or `orthanc` (registered with `--no-default-labels`, so it never matches bare `runs-on: self-hosted`) |
+| **Label** | Deployment name (registered with `--no-default-labels`, so it never matches bare `runs-on: self-hosted`) |
 
 ### Provisioning + registration
 
@@ -134,7 +134,7 @@ Runners are provisioned and registered by the bootstrap CLI, using the
 operator's default gcloud/ADC identity (no service account key):
 
 ```bash
-./scripts/bootstrap/deploy.py runners --cloud gcp --env gcp-dev --project-id <gcp-project>
+./scripts/bootstrap/deploy.py runners --cloud gcp --env <environment> --project-id <gcp-project>
 ```
 
 The flow applies the Terraform root, then for each runner mints a single-use
@@ -158,9 +158,8 @@ out-of-band IAP path.
 
 - Each GCP deployment label keeps its CI off the AWS `self-hosted` pool and
   every other tenant's runner. `_gcp-dev.yml` selects the allowlisted deployment
-  input as `runs-on`; `gcp-dev-destroy.yml` is parameterized over the tenant and
-  runs on `ubuntu-latest` (teardown deletes resources through the GCP APIs over
-  WIF and needs no in-VPC or self-hosted runner access).
+  input as `runs-on`. No CI-deployed GCP tenant exists after #2668, so no
+  deployment label is in use.
 - The ADR-003-R5 exposure checker treats the dynamic GCP deployment selector as
   self-hosted-class, so the cut-over jobs keep their pull-request-reachability
   gate (no fork PR can reach a self-hosted runner). New dynamic self-hosted

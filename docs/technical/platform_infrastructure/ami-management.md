@@ -172,22 +172,23 @@ stored in AWS SSM `/shifter/ami/*`.
 - Templates: `shifter/packer/gcp/*.pkr.hcl` (`googlecompute` builders), a
   separate Packer configuration from the AWS `amazon-ebs` templates one
   directory up—`packer` invoked in either directory never sees the other.
-- **Version pointer = image family.** Each build publishes image
-  `shifter-<type>-<timestamp>` into image family `shifter-<type>`; consumers
-  resolve the newest non-deprecated image in the family (the GCP-native analog
-  of the AWS SSM parameter—there is no SSM equivalent).
+- **Version pointer = the release manifest.** Each build creates image
+  `shifter-<type>-<timestamp>` in the developer build project. Each release
+  names the newest verified publication of each role, and the deploy imports
+  those images into the range project (the GCP analog of the AWS SSM
+  parameter).
 - Build: `.github/workflows/packer-gcp.yml` (`workflow_dispatch`,
-  `ubuntu-latest` + purpose-scoped Workload Identity Federation). Validate the
-  exact candidate with `.github/workflows/packer-gcp-validate.yml`. Promote
-  dev→prod with `.github/workflows/packer-gcp-promote.yml`, which verifies the
-  candidate's numeric image ID and exact protected run-attempt/artifact before
-  copying; it attaches the prod family only after READY/source-ID verification.
-- Image types: `ubuntu`, `kali`, `windows`, `dc`. **Kali** has no
+  `ubuntu-latest` + purpose-scoped Workload Identity Federation into the
+  developer build project). It calls `.github/workflows/packer-gcp-validate.yml`
+  for the exact candidate. Only after validation passes, it publishes the image
+  to the release registry with signed build provenance (#2668). No promotion
+  step exists.
+- Image types: `ubuntu`, `kali`, `dc-prebaked` (published as `dc`). **Kali** has no
   public GCP image and the official genericcloud disk is not GCE-bootable, so
   its builder converts Google's `debian-12` base into Kali Rolling in its first
   provisioning script; see `shifter/packer/gcp/README.md`.
-- Agent triggers: the `build_gce_image` / `promote_gce_image` MCP ops tools
-  (`infra_mutation`), parallel to `build_ami` / `promote_ami`.
+- Agent trigger: the `build_gce_image` MCP ops tool (`infra_mutation`),
+  parallel to `build_ami`.
 
 > Guest specialization that is AWS-specific in the shared provisioning scripts
 > (the SSM agent; Claude Code's Bedrock binding) is a guest-runtime / range

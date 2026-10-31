@@ -61,7 +61,7 @@ Kustomize, and it built images on the operator workstation.
 | Release trigger | `.github/workflows/release-please.yml` | Calls the release workflow for each release that Release Please creates on `main` (#2660). |
 | Release registry | `ghcr.io/<owner>/<repository>` | Public registry for release artifacts (#2659). The release workflow writes it with the workflow `GITHUB_TOKEN`. Every deployment reads it, or reads an operator mirror of the same digests. |
 | Deployer image | `platform/deployer/gcp/Dockerfile` | The bootstrap CLI, the installation package, the GCP scripts, the Terraform roots and modules, a Terraform provider mirror, the Helm chart, the smoke script, and pinned tools. It embeds the release manifest. |
-| Release manifest | `/opt/bigrae/release.json` in the deployer image, or a file | Schema `bigrae.gcp-release.v1`: version, source revision, exact image identities, and chart version. |
+| Release manifest | `/opt/bigrae/release.json` in the deployer image, or a file | Schema `bigrae.gcp-release.v1`: version, source revision, exact image identities, chart version, the guest images (`base_images`, #2679, #2668), and the OpenFGA authorization model. |
 | Deployment input bundle | The deployment config bucket (`deployment_config_bucket_name`, for example `gs://<project>-deployment-config/`) or a local directory | `bigrae.yaml`, `terraform.tfvars` or `terraform.tfvars.json` or both, generated `range-images.json`, and optional inputs. |
 | Purpose identities | `platform/terraform/gcp/global/cicd-oidc` (`cicd-oidc-identity` module) | Deploy, release-scan, and destroy service accounts, with impersonation grants to named principals, the deployment config bucket, and optional GitHub federation. |
 | Deploy commands | `scripts/bootstrap/gcp_deploy.py` and its focused modules | `gcp-deploy`, `gcp-release-scan`, `gcp-smoke`, `gcp-destroy`, and `gcp-config`. |
@@ -352,12 +352,15 @@ equals that revision: the deployer image or a clean checkout.
 
 ### Base guest images
 
-`packer-gcp.yml` publishes each base image artifact to the public GHCR package
-`shifter-gce-<role>`. Each release pins the newest validated digest of each
-role in its manifest, and `gcp-deploy` imports the pinned images as the operator
-when the bundle has none (#2679). `gcp-images` takes an explicit `--source` registry prefix. It no longer
-derives a source from the GitHub repository owner. It keeps the digest pins and the OCI contract checks.
-It writes the imported references to `range-images.json` in the input bundle.
+Issues #2679 and #2668 changed this section. A developer build of
+`packer-gcp.yml` publishes each validated guest image to the release registry
+as `gce-<role>`, with signed build provenance. Each release names the newest
+verified publication of each role in its manifest. `gcp-deploy` imports those
+images as the operator when the bundle has none, and `gcp-images` imports them
+on request. Both verify the digest, the OCI contract, and the provenance of
+every role before any change, and both reuse unchanged images. The imported
+references go to `range-images.json` in the input bundle. See
+[GCP Guest Images](gcp-guest-images.md).
 
 ### CI
 
@@ -372,8 +375,8 @@ variables with the CI adapter. Each job calls the commands:
 | `deploy` | `gcp-deploy --stage rollout`, with the trust anchor from the workflow context |
 | `post-deploy-smoke` | `gcp-smoke`, then the failure issue (CI only). The CI smoke requires `SMOKE_TEST_USER_EMAIL`. |
 
-`gcp-dev-destroy.yml` renders the bundle with `--purpose destroy` and calls
-`gcp-destroy`. CI builds push their attestations to the registry, so the
+No GitHub workflow calls `gcp-destroy` after #2668, and no tenant uses the CI
+path (#2672 decides its future). CI builds push their attestations to the registry, so the
 rollout verifies CI-built and release images the same way. The CI jobs pin
 Terraform 1.17.1, Helm v3.22.1, and Trivy 0.76.1, the same versions as the
 deployer image. The `gcp-deployer-image` job of `_quality.yml` builds the
@@ -525,8 +528,7 @@ sequenceDiagram
 ## Policy as code
 
 - Workflow tests (`scripts/adr_guard/tests/test_deploy_workflow.py`) check
-  that `gcp-dev-destroy.yml` calls `gcp-destroy` with `--confirm`, that the
-  mutating jobs bind their Environments, and that the input bundle stays
+  that the mutating jobs bind their Environments, and that the input bundle stays
   outside the checkout. They also check that the operator password never
   reaches argv.
 - The `release-workflow-provenance` adr-guard check reads `release-gcp.yml`:

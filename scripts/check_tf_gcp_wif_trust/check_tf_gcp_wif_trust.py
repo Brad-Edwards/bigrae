@@ -17,7 +17,8 @@ if __package__:
 else:
     from _resolved_plan import check_resolved_plan as check_resolved_plan
 
-PURPOSES = ("build", "validate", "promote", "release_scan", "deploy", "destroy")
+# The promote purpose is retired with packer-gcp-promote.yml (#2668).
+PURPOSES = ("build", "validate", "release_scan", "deploy", "destroy")
 # Purposes that operators may impersonate without GitHub (ADR-070).
 IMPERSONATION_PURPOSES = ("release_scan", "deploy", "destroy")
 # Purpose identities that must hold no project-wide IAM role.
@@ -28,7 +29,7 @@ DOUBLE_QUOTED_RE = re.compile(r'"([^\"]+)"')
 OUTPUT_RE = re.compile(r'^\s*output\s+"([^\"]+)"\s*\{', re.MULTILINE)
 REQUIRED_OUTPUTS = frozenset({
     "workload_identity_provider", "packer_build_service_account_email",
-    "packer_validate_service_account_email", "packer_promote_service_account_email",
+    "packer_validate_service_account_email",
     "release_scan_service_account_email", "deploy_service_account_email", "destroy_service_account_email",
 })
 # The variables that keep the static CKV_GCP_125 grammar check meaningful. A
@@ -81,7 +82,7 @@ def check_generic_source(path: Path, text: str) -> list[Violation]:
     subject_prefix = 'subject_prefix = var.github_subject_format == "immutable" ? "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" : "repo:${var.github_org}/${var.github_repo}"'
     if _compact(subject_prefix) not in _compact(clean):
         errors.append("Subject prefix must derive from the reviewed format and immutable repository IDs")
-    subject_map = '''for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy"] :
+    subject_map = '''for purpose in ["build", "validate", "release_scan", "deploy", "destroy"] :
     purpose => distinct([for context in lookup(var.purpose_contexts, purpose, []) : "${local.subject_prefix}:environment:${context.environment}"])'''
     if _compact(subject_map) not in _compact(clean):
         errors.append("All purpose subjects must derive from the validated context mapping")
@@ -336,19 +337,6 @@ def check_role_boundaries(path: Path, lines: list[str]) -> list[Violation]:
                     path,
                     1,
                     f"validate permission set crosses image-build/promotion authority {sorted(overlap)} (#1699)",
-                )
-            )
-
-    promote_permissions = _variable_values(stripped_lines, "promote_permissions")
-    if promote_permissions is not None:
-        forbidden_prefixes = ("compute.instances.", "storage.", "cloudbuild.", "iam.")
-        overlap = sorted(value for value in promote_permissions if value.startswith(forbidden_prefixes))
-        if overlap:
-            violations.append(
-                Violation(
-                    path,
-                    1,
-                    f"promote permission set crosses instance/storage/build/IAM authority {overlap} (#1699)",
                 )
             )
 

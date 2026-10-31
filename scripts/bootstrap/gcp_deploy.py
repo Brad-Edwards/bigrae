@@ -311,27 +311,45 @@ def _verify(runner: ProcessRunner, identities: Mapping[str, str], trust: Release
 
 
 def import_release_base_images(
-    options: DeployOptions, inputs: DeploymentInputs, manifest: GcpReleaseManifest | None
+    runner: ProcessRunner,
+    options: DeployOptions,
+    inputs: DeploymentInputs,
+    manifest: GcpReleaseManifest | None,
+    trust: ReleaseTrust | None,
 ) -> DeploymentInputs:
-    """Import the release's pinned base range images when the bundle has none yet (#2679).
+    """Import the release's guest images when the bundle has none yet (#2679, #2668).
 
-    The import runs as the operator: the deploy identity holds no image
-    administration (ADR-004-R23). An unchanged digest reuses the existing image,
-    and the references go to ``range-images.json`` in the store.
+    Every guest is verified before any change: its artifact contract and a Sigstore
+    bundle that satisfies the trust anchor at its build revision, from a protected build
+    branch. The import runs as the operator under the deployment lock: the deploy
+    identity holds no image administration (ADR-004-R23). An unchanged digest reuses the
+    existing image, and the references go to ``range-images.json`` in the store.
     """
     if (
         manifest is None
+        or trust is None
         or not manifest.base_images
         or inputs.settings.range_cells.backend != "gce"  # type: ignore[attr-defined]
         or {"linux", "kali", "dc"} <= set(inputs.range_images)
     ):
         return inputs
-    from gcp_base_images import import_pinned, range_images_from_imports, render_range_image_env
+    from gcp_base_images import import_selection, range_images_from_imports, render_range_image_env, resolve_selection
+    from gcp_oci import OciClient
+    from gcp_prereqs import access_token
+    from gcp_provenance import default_verifier
 
-    imported = import_pinned(
+    artifacts = resolve_selection(
+        dict(manifest.base_images),
+        repository_id=trust.repository_id,
+        owner_id=trust.owner_id,
+        oci=OciClient(lambda: access_token(runner, {})),
+        verifier=default_verifier(),
+        release_source=options.release_source,
+    )
+    imported = import_selection(
+        artifacts,
         project=inputs.project_id,
         region=str(inputs.settings.region),  # type: ignore[attr-defined]
-        base_images=dict(manifest.base_images),
     )
     images = range_images_from_imports(render_range_image_env(imported))
     if options.source.startswith("gs://"):
@@ -448,8 +466,9 @@ def run_deploy(options: DeployOptions, *, runner: ProcessRunner | None = None) -
             # the release revision and that the release images verify against the
             # deployment trust anchor (ADR-070-R6).
             _operator_gates(runner, *_required_release(manifest, trust), deploy_env, options.release_source)
-            inputs = import_release_base_images(options, inputs, manifest)
         lock = acquire_deploy_lock(runner, options, inputs, deploy_env, "gcp-deploy", run_id)
+        if operator_mode(options.identity_mode):
+            inputs = import_release_base_images(runner, options, inputs, manifest, trust)
         with scoped_environment(deploy_env):
             inputs, infrastructure = _infrastructure(runner, options, inputs)
             if options.stage == "infrastructure":

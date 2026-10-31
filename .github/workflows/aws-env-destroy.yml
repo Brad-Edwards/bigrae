@@ -2,7 +2,7 @@ name: AWS Env Destroy
 
 # Manually-dispatched teardown of an AWS Shifter environment (issue #1287).
 #
-# The AWS analogue of gcp-dev-destroy.yml. It runs on GitHub-hosted compute
+# It runs on GitHub-hosted compute
 # (never the target env's own self-hosted runner, which this teardown destroys)
 # and delegates the ordered, safety-contracted teardown to
 # scripts/bootstrap/aws_env_destroy.py, which encodes the validated manual

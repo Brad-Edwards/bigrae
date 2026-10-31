@@ -218,7 +218,8 @@ class TestManualDeployDispatch(unittest.TestCase):
     environment). push and pull_request run validation only, and no branch name
     selects a deployment target."""
 
-    ENV_OPTIONS: ClassVar[set[str]] = {"aws-dev", "gcp-dev", "orthanc", "sauron", "balrog"}
+    # No GitHub-deployed GCP tenant exists (#2668).
+    ENV_OPTIONS: ClassVar[set[str]] = {"aws-dev"}
 
     @classmethod
     def setUpClass(cls):
@@ -242,7 +243,7 @@ class TestManualDeployDispatch(unittest.TestCase):
                 self.assertEqual(out[key], "false", f"{ref}:{key}")
 
     def test_pull_request_never_deploys(self):
-        for base in ("dev", "main", "aws-dev", "gcp-dev"):
+        for base in ("dev", "main", "aws-dev"):
             out = self.env("pull_request", base_ref=base)
             for key in ("run_aws", "run_gcp", "apply_aws", "deploy_gcp"):
                 self.assertEqual(out[key], "false", f"{base}:{key}")
@@ -258,7 +259,7 @@ class TestManualDeployDispatch(unittest.TestCase):
             ADR_GUARD._dw_evaluate_env(
                 malicious,
                 "workflow_dispatch",
-                environment_input="gcp-dev",
+                environment_input="aws-dev",
             )
 
     def test_aws_platform_uses_the_explicit_eks_bundle_entrypoint(self):
@@ -280,7 +281,7 @@ class TestManualDeployDispatch(unittest.TestCase):
         self.assertEqual(env_input["type"], "choice")
         self.assertEqual(set(env_input["options"]), self.ENV_OPTIONS)
 
-    def test_gcp_dispatches_route_to_their_terraform_and_github_environments(self):
+    def test_no_dispatch_selects_a_retired_gcp_tenant(self):
         for environment in ("gcp-dev", "orthanc", "sauron", "balrog"):
             with self.subTest(environment=environment):
                 out = self.env(
@@ -288,16 +289,10 @@ class TestManualDeployDispatch(unittest.TestCase):
                     ref=f"refs/heads/{environment}",
                     environment_input=environment,
                 )
-
-                self.assertEqual(out["gcp_environment"], environment)
-                self.assertEqual(out["gcp_github_environment"], environment)
-                expected_scan_environment = f"gcp-release-scan-{environment.removeprefix('gcp-')}"
-                self.assertEqual(
-                    out["gcp_release_scan_github_environment"],
-                    expected_scan_environment,
-                )
-                self.assertEqual(out["run_gcp"], "true")
-                self.assertEqual(out["deploy_gcp"], "true")
+                self.assertEqual(out["run_gcp"], "false")
+                self.assertEqual(out["deploy_gcp"], "false")
+                self.assertEqual(out["gcp_environment"], "")
+                self.assertEqual(out["gcp_github_environment"], "")
 
     def test_gcp_reusable_workflow_uses_selected_scanner_environment(self):
         call = self.deploy["jobs"]["gcp-dev"]["with"]
@@ -734,23 +729,20 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         build = (REPO_ROOT / ".github/workflows/packer-gcp.yml").read_text(encoding="utf-8")
 
         self.assertIn("packages: write", build)
-        self.assertIn("Publish GCE base image to GHCR", build)
-        self.assertIn("inputs.publish_target == 'ghcr'", build)
+        self.assertIn("Push the guest image to the release registry", build)
+        self.assertNotIn("publish_target", build)
         # The reusable DC base is the pre-promoted dc-prebaked image (the generic
         # sysprepped 'dc' needs runtime promotion, which is disabled), published
         # under the 'dc' role.
-        self.assertIn(
-            "inputs.image_type == 'kali' || inputs.image_type == 'ubuntu' || inputs.image_type == 'dc-prebaked'",
-            build,
-        )
+        self.assertIn('dc-prebaked) ROLE="dc" ;;', build)
         self.assertIn("oras-project/setup-oras@", build)
         self.assertIn("application/vnd.shifter.gce-image.tar.gz", build)
         self.assertIn("application/vnd.shifter.gce-image.v1", build)
         # ORAS rejects absolute file paths: the disk is pushed by relative name.
         self.assertIn('cd "${DISK_DIR}"', build)
         self.assertIn('"${DISK_FILE}:application/vnd.shifter.gce-image.tar.gz"', build)
-        self.assertIn("ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/shifter-gce-${IMAGE_TYPE}", build)
-        self.assertIn("oci://${PACKAGE}@${DIGEST}", build)
+        self.assertIn("ghcr.io/${GITHUB_REPOSITORY,,}/gce-${ROLE}", build)
+        self.assertIn("${PACKAGE}@${DIGEST}", build)
         # Provenance annotations bind the artifact to its protected build.
         self.assertIn("org.opencontainers.image.revision=${GITHUB_SHA}", build)
         # F2: the export object is keyed on BUILT_IMAGE_ID (exported to GITHUB_ENV),
@@ -758,6 +750,7 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         # names the object (dc-prebaked maps to the 'dc' role).
         self.assertIn("${ROLE}-${BUILT_IMAGE_ID}.tar.gz", build)
         self.assertNotIn("${IMAGE_TYPE}-${IMAGE_ID}.tar.gz", build)
+        self.assertIn('"${VALIDATED_IMAGE_ID}" != "${BUILT_IMAGE_ID}"', build)
         # The retired GDC VM Runtime qcow2 publish contract is gone.
         self.assertNotIn("application/vnd.shifter.vm-disk", build)
         self.assertNotIn("shifter-vm-${IMAGE_TYPE}", build)
@@ -771,7 +764,6 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
             "validate_evidence_writer": ("objectCreator", "packer-validation"),
             "release_scan_evidence_writer": ("objectCreator", "release-scans"),
             "deploy_evidence_writer": ("objectCreator", "deployments"),
-            "promotion_evidence_reader": ("objectViewer", "packer-validation"),
         }
         for resource_name, (role, prefix) in expected_resources.items():
             marker = f'resource "google_storage_bucket_iam_member" "{resource_name}"'
@@ -850,32 +842,22 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         self.assertIn('get("deletionTimestamp")', rollout)
         self.assertLess(stages.index("wait_for_rollouts("), stages.index("record_running_images("))
 
-    def test_gcp_promotion_authenticates_redacted_verdict_before_private_evidence(self):
+    def test_gcp_guest_publication_needs_the_validation_of_the_same_run(self):
+        """#2668: publication replaces promotion and needs the exact validated candidate."""
         validate = (REPO_ROOT / ".github/workflows/packer-gcp-validate.yml").read_text(encoding="utf-8")
-        promote = (REPO_ROOT / ".github/workflows/packer-gcp-promote.yml").read_text(encoding="utf-8")
-        verifier = (REPO_ROOT / "shifter/packer/gcp/scripts/validate/verify-promotion-evidence.sh").read_text(
-            encoding="utf-8"
-        )
+        build = _load("packer-gcp.yml")
         self.assertIn("candidate_binding_sha256", validate)
         self.assertIn("steps.upload_verdict.outputs.artifact-id", validate)
         self.assertIn("validated-verdict-id", validate)
-        self.assertIn("actions/artifacts/${VALIDATED_VERDICT_ID}", promote)
-        self.assertLess(
-            promote.index("actions/artifacts/${VALIDATED_VERDICT_ID}"),
-            promote.index("gcloud storage cp --quiet"),
-        )
-        for marker in (
-            "VERDICT_FILE",
-            "ARTIFACT_FILE",
-            "candidate_binding_sha",
-            "validation verdict artifact run",
-            "verdict evidence digest",
-        ):
-            self.assertIn(marker, verifier)
+        jobs = ADR_GUARD._dw_jobs(build, "packer-gcp.yml")
+        self.assertEqual(jobs["publish"]["needs"], ["build", "validate"])
+        self.assertEqual(jobs["validate"]["uses"], "./.github/workflows/packer-gcp-validate.yml")
+        self.assertNotIn("secrets", jobs["validate"])
+        self.assertFalse((REPO_ROOT / ".github/workflows/packer-gcp-promote.yml").exists())
 
     def test_gcp_workflows_keep_sensitive_tfvars_out_of_the_checkout(self):
         """#2084, #2571: secret-bearing deploy inputs stay private and outside the checkout."""
-        for name in ("_gcp-dev.yml", "gcp-dev-destroy.yml"):
+        for name in ("_gcp-dev.yml",):
             workflow = (REPO_ROOT / f".github/workflows/{name}").read_text(encoding="utf-8")
             self.assertNotIn("${TF_DIR}/local.auto.tfvars", workflow)
             self.assertIn('inputs="${RUNNER_TEMP}/deployment-inputs"', workflow)
@@ -888,22 +870,6 @@ class TestGcpReleaseSecurityClosure(unittest.TestCase):
         terraform = (REPO_ROOT / "scripts/bootstrap/gcp_terraform.py").read_text(encoding="utf-8")
         self.assertIn("private_workdir", terraform)
         self.assertIn("-var-file=", (REPO_ROOT / "scripts/bootstrap/gcp_terraform.py").read_text(encoding="utf-8"))
-
-        destroy = yaml.safe_load((REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(encoding="utf-8"))
-        destroy_env = destroy["jobs"]["destroy"]["env"]
-        # The teardown workflow is parameterized over the GCP tenant: the state
-        # prefix and destroy Environment derive from the dispatch input.
-        self.assertEqual(destroy_env["GCP_ENVIRONMENT"], "${{ inputs.environment }}")
-        self.assertEqual(destroy["jobs"]["destroy"]["environment"], "${{ inputs.environment }}-destroy")
-        destroy_text = (REPO_ROOT / ".github/workflows/gcp-dev-destroy.yml").read_text(encoding="utf-8")
-        self.assertIn("deploy.py gcp-destroy", destroy_text)
-        self.assertIn('--confirm "${GCP_ENVIRONMENT}"', destroy_text)
-        self.assertIn("refs/heads/dev|refs/heads/main) ;;", destroy_text)
-        # A single upfront preflight fails with the full list of any secrets
-        # missing from the selected <environment>-destroy Environment before
-        # checkout/auth, rather than one render step at a time.
-        self.assertIn("Preflight - required destroy secrets present", destroy_text)
-        self.assertIn("-destroy' Environment is missing required secret(s)", destroy_text)
 
     def test_gcp_bootstrap_secrets_never_reach_process_argv(self):
         """The operator password reaches the command by variable name; Secrets go through stdin."""
@@ -997,7 +963,7 @@ class TestGcpDeployPreflightInputs(unittest.TestCase):
 
     def test_non_secret_overlay_reaches_every_ephemeral_config_consumer(self):
         """Every CI adapter run receives the overlay variable, and the adapter applies it."""
-        for name in ("_gcp-dev.yml", "gcp-dev-destroy.yml"):
+        for name in ("_gcp-dev.yml",):
             workflow = (REPO_ROOT / f".github/workflows/{name}").read_text(encoding="utf-8")
             renders = workflow.count("python scripts/gcp/render_ci_deployment_inputs.py")
             self.assertGreater(renders, 0)

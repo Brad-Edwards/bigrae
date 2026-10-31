@@ -1,71 +1,55 @@
 name: Packer GCE Image Build
 
-# Builds a Shifter guest image on Google Compute Engine, parallel to the AWS
-# packer.yml flow (issue #505, PLAT-001.10). Runs on a GitHub-hosted runner
-# (the self-hosted pool is AWS-only and cannot reach a GCE builder VM) and
-# authenticates with Workload Identity Federation — no long-lived SA keys.
+# Builds, validates, and publishes one BigRAE guest image (#505, #2668, ADR-070
+# decision 8, ADR-037-R8 and R9). It runs in a developer build project:
+# deploy.py gcp-foundation creates the project and writes the gcp-image-build
+# and gcp-image-validate Environments of this repository. Every job runs on a
+# GitHub-hosted runner and authenticates with Workload Identity Federation; no
+# long-lived service-account key exists.
 #
-# The published image is the contract: each build writes image
-# `${image_prefix}-<type>-<timestamp>` into image family `${image_prefix}-<type>`.
-# Consumers resolve the newest non-deprecated image in the family (the GCP-native
-# analog of the AWS /shifter/ami/* SSM parameter — there is no SSM equivalent).
+#   build    -> one GCE image shifter-<type>-<timestamp>, with private build evidence
+#   validate -> packer-gcp-validate.yml boots the exact image name and numeric ID
+#   publish  -> recheck the validated ID, export disk.raw, push the OCI artifact to
+#               ghcr.io/<owner>/<repository>/gce-<role>, and attest its digest
+#
+# A guest image publishes only after its validation passes in the same run. A
+# release never builds a guest: release-gcp.yml names the newest verified
+# publication of each role, so a guest changes only when this workflow runs again.
 
 on:
   workflow_dispatch:
     inputs:
       image_type:
-        description: 'GCE image to build'
+        description: 'Guest image to build, validate, and publish (dc-prebaked publishes as the dc role)'
         required: true
         type: choice
         options:
           - ubuntu
           - kali
-          - windows
-          - dc
           - dc-prebaked
-      environment:
-        description: 'GCP environment to build in'
-        required: true
-        type: choice
-        options:
-          - gcp-dev
-          - orthanc
-          - sauron
-          - balrog
-        default: gcp-dev
       dc_profile:
         description: 'Pre-promoted DC profile (dc-profiles/<name>.pkrvars.hcl); only used when image_type=dc-prebaked'
         required: false
         type: string
         default: ''
-      publish_target:
-        description: 'Reusable base image destination: ghcr (cross-tenant registry) or tenant (native image stays in the build project only)'
-        required: false
-        type: choice
-        options:
-          - ghcr
-          - tenant
-        default: ghcr
 
 permissions:
   contents: read
 
+# Queue builds of one role. A running build is never cancelled, because it owns
+# cloud resources in flight.
+concurrency:
+  group: packer-gcp-${{ inputs.image_type }}
+  cancel-in-progress: false
+
 jobs:
   build:
-    name: Build ${{ inputs.image_type }} GCE image in ${{ inputs.environment }}
+    name: Build ${{ inputs.image_type }} GCE image
     runs-on: ubuntu-latest
-    # The gcp-dev tenant's purpose Environments keep their historical short
-    # suffix (gcp-build-dev), so map the gcp-dev tenant name back to `dev` here;
-    # every other tenant uses its own name verbatim (gcp-build-<tenant>).
-    environment: gcp-build-${{ inputs.environment == 'gcp-dev' && 'dev' || inputs.environment }}
+    environment: gcp-image-build
     outputs:
-      gce_image_id: ${{ steps.build_gce_image.outputs.image_id }}
-      # Object name only: the bucket name embeds the project ID, a secret, and
-      # Actions drops any job output that may contain a secret. The publish job
-      # rebuilds the URI from the same environment's bucket variable.
-      gce_base_disk_object: ${{ steps.export_gce_base_disk.outputs.object }}
-      gce_base_disk_role: ${{ steps.export_gce_base_disk.outputs.role }}
-      gce_base_disk_published: ${{ steps.export_gce_base_disk.outputs.published }}
+      image_name: ${{ steps.build_gce_image.outputs.image_name }}
+      image_id: ${{ steps.build_gce_image.outputs.image_id }}
     permissions:
       contents: read
       id-token: write
@@ -236,6 +220,10 @@ jobs:
             --project="${GCP_PROJECT_ID}" --format='value(family)')"
           IMAGE_SOURCE_REVISION="$(gcloud compute images describe "${IMAGE_NAME}" \
             --project="${GCP_PROJECT_ID}" --format='value(labels.source-revision)')"
+          if ! printf '%s' "${IMAGE_NAME}" | grep -qE '^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$'; then
+            echo "::error::Built image name is not a valid GCE image resource name."
+            exit 1
+          fi
           if ! printf '%s' "${IMAGE_ID}" | grep -qE '^[0-9]+$'; then
             echo "::error::Built image has no valid server-assigned numeric ID."
             exit 1
@@ -249,15 +237,17 @@ jobs:
             echo "BUILT_IMAGE_ID=${IMAGE_ID}"
             echo "BUILT_IMAGE_FAMILY=${IMAGE_FAMILY}"
           } >> "${GITHUB_ENV}"
-          echo "image_id=${IMAGE_ID}" >> "$GITHUB_OUTPUT"
           {
-            echo "## ${{ inputs.environment }} GCE Image Build Complete"
+            echo "image_id=${IMAGE_ID}"
+            echo "image_name=${IMAGE_NAME}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "## GCE Image Build Complete"
             echo "- **Type:** ${IMAGE_TYPE}"
-            echo "- **Environment:** ${{ inputs.environment }}"
             echo "- **Image:** \`${IMAGE_NAME}\` (ID \`${IMAGE_ID}\`)"
-            echo "- **Family:** \`${IMAGE_FAMILY}\` (consumers resolve newest in family)"
+            echo "- **Family:** \`${IMAGE_FAMILY}\`"
             echo ""
-            echo "**Next step:** Verify in ${{ inputs.environment }} before promoting to prod."
+            echo "**Next step:** the validate job boots this exact candidate; the publish job runs only after it passes."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Store immutable build-source evidence
@@ -277,7 +267,7 @@ jobs:
             --argjson image_id "${BUILT_IMAGE_ID}" \
             --arg image_family "${BUILT_IMAGE_FAMILY}" \
             --arg image_type "${IMAGE_TYPE}" \
-            --arg environment "${{ inputs.environment }}" \
+            --arg environment "gcp-image-build" \
             --argjson build_run "${GITHUB_RUN_ID}" \
             --argjson build_run_attempt "${GITHUB_RUN_ATTEMPT}" \
             '{
@@ -301,81 +291,6 @@ jobs:
             exit 1
           fi
 
-      # A packer build publishes a native GCE image (the AWS-AMI analog) into
-      # family shifter-<type>. For cross-tenant reuse (publish_target=ghcr),
-      # export that image to GCS as a GCE-native disk tarball: the default
-      # `gcloud compute images export` output is a .tar.gz of disk.raw, the exact
-      # artifact `gcloud compute images create --source-uri` re-imports with no
-      # conversion. The publish job then pushes that tarball to GHCR so a fresh
-      # tenant bootstrap imports it instead of re-baking (issue #2309). The
-      # reusable minimum base set is kali, ubuntu, and DC. With
-      # publish_target=tenant the native image already lives in the build
-      # project's family, so no export or GHCR publish runs.
-      - name: Export image to GCS as a reusable GCE base disk
-        id: export_gce_base_disk
-        if: inputs.publish_target == 'ghcr' && (inputs.image_type == 'kali' || inputs.image_type == 'ubuntu' || inputs.image_type == 'dc-prebaked')
-        working-directory: shifter/packer/gcp
-        env:
-          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-          GCP_GCE_BASE_IMAGE_BUCKET: ${{ vars.GCP_GCE_BASE_IMAGE_BUCKET }}
-          GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
-          GCP_PACKER_ZONE: ${{ vars.GCP_PACKER_ZONE }}
-          GCP_PACKER_SUBNETWORK: ${{ vars.GCP_PACKER_SUBNETWORK }}
-          GCP_PACKER_BUILD_SERVICE_ACCOUNT: ${{ secrets.GCP_PACKER_BUILD_SERVICE_ACCOUNT }}
-        run: |
-          if [ -z "${GCP_GCE_BASE_IMAGE_BUCKET}" ]; then
-            echo "::error::Required variable GCP_GCE_BASE_IMAGE_BUCKET (the reusable GCE base-image staging bucket) is not set. See docs/dev/deploy-secrets.md."
-            exit 1
-          fi
-          IMAGE_NAME=$(jq -r '.builds[-1].artifact_id' "${IMAGE_TYPE}-manifest.json")
-          ZONE="${GCP_PACKER_ZONE:-${GCP_REGION}-a}"
-          # The reusable DC base is the pre-promoted dc-prebaked image - the only
-          # DC the GCE range backend can boot (the generic 'dc' needs first-boot
-          # promotion, disabled at runtime). Publish it under the 'dc' role so the
-          # bootstrap consumer wires it into GCP_RANGE_DC_IMAGE.
-          ROLE="${IMAGE_TYPE}"
-          [ "${IMAGE_TYPE}" = "dc-prebaked" ] && ROLE="dc"
-          # Immutable-by-name object keyed on the numeric image ID; the publish
-          # job consumes only this object. Use BUILT_IMAGE_ID (exported to
-          # GITHUB_ENV by the build step) - IMAGE_ID is local to that step and
-          # would expand empty here, overwriting one <role>.tar.gz per build.
-          # GCE-native tarball (disk.raw in a .tar.gz), not qcow2 - re-imported
-          # directly by `gcloud compute images create --source-uri`, no conversion.
-          OBJECT="${ROLE}-${BUILT_IMAGE_ID}.tar.gz"
-          DEST="gs://${GCP_GCE_BASE_IMAGE_BUCKET}/${OBJECT}"
-          # The export runs as a Cloud Build job that spins up a daisy worker VM.
-          # Pin BOTH identities to the build SA: --cloudbuild-service-account so
-          # the build itself runs as our least-priv SA (this project's builds
-          # otherwise default to the Compute Engine default SA, which the build
-          # SA has no actAs on), and --compute-service-account so the worker VM
-          # runs as the same SA. Pin the worker to the internal-IP builder subnet
-          # so it complies with the compute.vmExternalIpAccess org policy.
-          BUILD_SA="${GCP_PACKER_BUILD_SERVICE_ACCOUNT}"
-          # A user-managed Cloud Build SA can't write to the default
-          # gs://<projnum>.cloudbuild-logs bucket, so --log-location is required
-          # alongside --cloudbuild-service-account. Point it at the image bucket,
-          # where the build SA already holds storage.objectAdmin.
-          gcloud compute images export \
-            --image="${IMAGE_NAME}" \
-            --destination-uri="${DEST}" \
-            --project="${GCP_PROJECT_ID}" \
-            --zone="${ZONE}" \
-            ${GCP_PACKER_SUBNETWORK:+--subnet="${GCP_PACKER_SUBNETWORK}"} \
-            --cloudbuild-service-account="${BUILD_SA}" \
-            --compute-service-account="${BUILD_SA}" \
-            --log-location="gs://${GCP_GCE_BASE_IMAGE_BUCKET}/export-logs"
-          {
-            echo "object=${OBJECT}"
-            echo "role=${ROLE}"
-            echo "published=true"
-          } >> "$GITHUB_OUTPUT"
-          {
-            echo "## Reusable GCE base disk exported"
-            echo "- **Image:** \`${IMAGE_NAME}\`"
-            echo "- **Exported disk:** \`${DEST}\` (GCE-native disk.raw tarball)"
-            echo "- **Next:** published to GHCR for cross-tenant bootstrap reuse (see docs/architecture/gcp-guest-images.md)"
-          } >> "$GITHUB_STEP_SUMMARY"
-
       - name: Upload manifest
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -386,93 +301,220 @@ jobs:
         if: always()
         run: rm -f "${RUNNER_TEMP}/gce-build-evidence.json"
 
-  publish-gce-base-image:
-    name: Publish ${{ inputs.image_type }} GCE base image to GHCR
+  validate:
+    name: Validate ${{ inputs.image_type }} candidate
     needs: build
-    # Publish the reusable GCE-native base image (kali, ubuntu, DC) so a fresh
-    # tenant bootstrap imports it instead of re-baking with Packer (issue #2309).
-    # GitHub-less deployments import the same public packages (#2659).
-    # Runs only for publish_target=ghcr; publish_target=tenant leaves the native
-    # image in the build project's family with no registry copy.
-    if: >-
-      inputs.publish_target == 'ghcr' &&
-      needs.build.outputs.gce_base_disk_published == 'true' &&
-      (inputs.image_type == 'kali' || inputs.image_type == 'ubuntu' || inputs.image_type == 'dc-prebaked')
-    runs-on: ubuntu-latest
-    environment: gcp-build-${{ inputs.environment == 'gcp-dev' && 'dev' || inputs.environment }}
     permissions:
       contents: read
       id-token: write
+    uses: ./.github/workflows/packer-gcp-validate.yml
+    with:
+      image_type: ${{ inputs.image_type }}
+      dc_profile: ${{ inputs.dc_profile }}
+      source_image: ${{ needs.build.outputs.image_name }}
+
+  publish:
+    name: Publish ${{ inputs.image_type }} guest image
+    # Runs only when the build and the validation of this exact candidate both
+    # succeeded in this run (ADR-037-R8). A failed, skipped, or cancelled
+    # validation stops it before any export.
+    needs: [build, validate]
+    runs-on: ubuntu-latest
+    environment: gcp-image-build
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
       packages: write
+    env:
+      IMAGE_TYPE: ${{ inputs.image_type }}
+      BUILT_IMAGE_NAME: ${{ needs.build.outputs.image_name }}
+      BUILT_IMAGE_ID: ${{ needs.build.outputs.image_id }}
+      VALIDATED_IMAGE_ID: ${{ needs.validate.outputs.image_id }}
     steps:
-      - name: Authenticate to GCP for the exported disk
+      - name: Reject non-protected dispatch refs
+        run: |
+          case "${GITHUB_REF}" in
+            refs/heads/dev|refs/heads/main) ;;
+            *)
+              echo "::error::Guest image publication requires refs/heads/dev or refs/heads/main, not '${GITHUB_REF}'."
+              exit 1
+              ;;
+          esac
+
+      - name: Check the validated candidate
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "${BUILT_IMAGE_ID}" | grep -qE '^[0-9]+$' \
+            || [ "${VALIDATED_IMAGE_ID}" != "${BUILT_IMAGE_ID}" ]; then
+            echo "::error::The validated image is not the image that this run built."
+            exit 1
+          fi
+          if ! printf '%s' "${BUILT_IMAGE_NAME}" | grep -qE '^[a-z]([-a-z0-9]{0,61}[a-z0-9])?$'; then
+            echo "::error::The built image name is not a valid GCE image resource name."
+            exit 1
+          fi
+          # dc-prebaked is the only DC that the GCE range backend boots; it
+          # publishes under the dc role.
+          case "${IMAGE_TYPE}" in
+            ubuntu|kali) ROLE="${IMAGE_TYPE}" ;;
+            dc-prebaked) ROLE="dc" ;;
+            *) echo "::error::No published role for image type ${IMAGE_TYPE}."; exit 1 ;;
+          esac
+          echo "ROLE=${ROLE}" >> "${GITHUB_ENV}"
+
+      - name: Ensure GCP build auth is configured
+        env:
+          GCP_PACKER_BUILD_SERVICE_ACCOUNT: ${{ secrets.GCP_PACKER_BUILD_SERVICE_ACCOUNT }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_GCE_BASE_IMAGE_BUCKET: ${{ vars.GCP_GCE_BASE_IMAGE_BUCKET }}
+        run: |
+          if [ -z "${GCP_PACKER_BUILD_SERVICE_ACCOUNT}" ] || [ -z "${GCP_WORKLOAD_IDENTITY_PROVIDER}" ] \
+            || [ -z "${GCP_GCE_BASE_IMAGE_BUCKET}" ]; then
+            echo "::error::The gcp-image-build Environment is incomplete. Run deploy.py gcp-foundation for the build project."
+            exit 1
+          fi
+
+      - id: auth
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_PACKER_BUILD_SERVICE_ACCOUNT }}
 
-      - name: Install gcloud
-        uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db
         with:
           version: ">= 416.0.0"
+
+      # Names can be reused after a deletion; numeric IDs cannot. The labels are
+      # locators that the validation job wrote; the needs gate above is the authority.
+      - name: Recheck the validated candidate in the build project
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          describe() {
+            gcloud compute images describe "${BUILT_IMAGE_NAME}" --project="${GCP_PROJECT_ID}" --format="value($1)"
+          }
+          if [ "$(describe id)" != "${BUILT_IMAGE_ID}" ] \
+            || [ "$(describe labels.validated)" != "passed" ] \
+            || [ "$(describe labels.validated-image-id)" != "${BUILT_IMAGE_ID}" ] \
+            || [ "$(describe labels.validated-run)" != "${GITHUB_RUN_ID}" ] \
+            || [ "$(describe labels.source-revision)" != "${GITHUB_SHA}" ]; then
+            echo "::error::The candidate does not carry the validation of this run."
+            exit 1
+          fi
+
+      # The export writes a GCE-native disk.raw tarball: the default output of
+      # `gcloud compute images export`, which `gcloud compute images create
+      # --source-uri` imports with no conversion. It runs as a Cloud Build job
+      # that starts a Daisy worker VM. Both identities are pinned to the build
+      # identity, and the worker is pinned to the internal-IP builder subnet for
+      # the compute.vmExternalIpAccess org policy.
+      - name: Export the validated image as a GCE disk tarball
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCP_GCE_BASE_IMAGE_BUCKET: ${{ vars.GCP_GCE_BASE_IMAGE_BUCKET }}
+          GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+          GCP_PACKER_ZONE: ${{ vars.GCP_PACKER_ZONE }}
+          GCP_PACKER_SUBNETWORK: ${{ vars.GCP_PACKER_SUBNETWORK }}
+          GCP_PACKER_BUILD_SERVICE_ACCOUNT: ${{ secrets.GCP_PACKER_BUILD_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          ZONE="${GCP_PACKER_ZONE:-${GCP_REGION}-a}"
+          # The object is keyed on the numeric image ID.
+          OBJECT="${ROLE}-${BUILT_IMAGE_ID}.tar.gz"
+          echo "EXPORT_OBJECT=${OBJECT}" >> "${GITHUB_ENV}"
+          gcloud compute images export \
+            --image="${BUILT_IMAGE_NAME}" \
+            --destination-uri="gs://${GCP_GCE_BASE_IMAGE_BUCKET}/${OBJECT}" \
+            --project="${GCP_PROJECT_ID}" \
+            --zone="${ZONE}" \
+            ${GCP_PACKER_SUBNETWORK:+--subnet="${GCP_PACKER_SUBNETWORK}"} \
+            --cloudbuild-service-account="${GCP_PACKER_BUILD_SERVICE_ACCOUNT}" \
+            --compute-service-account="${GCP_PACKER_BUILD_SERVICE_ACCOUNT}" \
+            --log-location="gs://${GCP_GCE_BASE_IMAGE_BUCKET}/export-logs"
+
+      - name: Login to the release registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install ORAS
         uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1
 
-      - name: Publish GCE base image to GHCR
+      # The artifact goes to the release registry ghcr.io/<owner>/<repository>
+      # in lower case, as the application images do. The annotations describe
+      # the build; the attestation below is the trust. The tag
+      # run-<run number>.<attempt> orders publications: release-gcp.yml takes
+      # the highest one (#2668). github.run_number increases with each run.
+      - name: Push the guest image to the release registry
+        id: push
         env:
-          GCE_BASE_DISK_URI: gs://${{ vars.GCP_GCE_BASE_IMAGE_BUCKET }}/${{ needs.build.outputs.gce_base_disk_object }}
-          GCE_IMAGE_ID: ${{ needs.build.outputs.gce_image_id }}
-          IMAGE_TYPE: ${{ needs.build.outputs.gce_base_disk_role }}
-          GH_TOKEN: ${{ github.token }}
+          GCP_GCE_BASE_IMAGE_BUCKET: ${{ vars.GCP_GCE_BASE_IMAGE_BUCKET }}
         run: |
           set -euo pipefail
-          case "${GITHUB_REF}" in
-            refs/heads/dev|refs/heads/main) ;;
-            *)
-              echo "::error::GHCR base-image publication requires a protected dispatch ref."
-              exit 1
-              ;;
-          esac
-          case "${IMAGE_TYPE}" in kali|ubuntu|dc) ;; *) exit 1 ;; esac
-          case "${GCE_BASE_DISK_URI}" in gs://?*/?*.tar.gz) ;; *)
-            echo "::error::Expected a GCS GCE-native disk tarball export, got an invalid disk URI."
-            exit 1
-            ;;
-          esac
-          PACKAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/shifter-gce-${IMAGE_TYPE}"
-          TAG="gce-${GCE_IMAGE_ID}"
+          PACKAGE="ghcr.io/${GITHUB_REPOSITORY,,}/gce-${ROLE}"
           DISK_DIR="$(mktemp -d "${RUNNER_TEMP}/gce-disk.XXXXXX")"
-          DISK_FILE="${IMAGE_TYPE}.tar.gz"
+          DISK_FILE="${ROLE}.tar.gz"
           trap 'rm -f "${DISK_DIR}/${DISK_FILE}"; rmdir "${DISK_DIR}"' EXIT
-          # ORAS hashes a file before upload. Keep the disk out of the checkout
-          # and clean it even when the registry upload fails.
-          gcloud storage cp --quiet "${GCE_BASE_DISK_URI}" "${DISK_DIR}/${DISK_FILE}"
-          printf '%s' "${GH_TOKEN}" | oras login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
-          # Provenance annotations bind the artifact to its protected build so the
-          # tenant bootstrap can validate it before importing (issue #2309). The
-          # digest-pinned reference (never the mutable tag) is the deploy input.
+          # ORAS hashes a file before upload. Keep the disk out of the checkout.
+          gcloud storage cp --quiet "gs://${GCP_GCE_BASE_IMAGE_BUCKET}/${EXPORT_OBJECT}" "${DISK_DIR}/${DISK_FILE}"
           # ORAS rejects absolute file paths, so push the file by its relative
           # name from its own directory.
           cd "${DISK_DIR}"
           DIGEST="$(oras push --format json \
             --artifact-type application/vnd.shifter.gce-image.v1 \
             --annotation "org.opencontainers.image.revision=${GITHUB_SHA}" \
-            --annotation "com.shifter.image.role=${IMAGE_TYPE}" \
-            --annotation "com.shifter.image.gce-image-id=${GCE_IMAGE_ID}" \
+            --annotation "com.shifter.image.role=${ROLE}" \
+            --annotation "com.shifter.image.gce-image-id=${BUILT_IMAGE_ID}" \
             --annotation "com.shifter.build.run-id=${GITHUB_RUN_ID}" \
             --annotation "com.shifter.build.repository=${GITHUB_REPOSITORY}" \
-            "${PACKAGE}:${TAG}" "${DISK_FILE}:application/vnd.shifter.gce-image.tar.gz" | jq -er '.digest')"
-          case "${DIGEST}" in sha256:[0-9a-f][0-9a-f]*) ;; *)
+            "${PACKAGE}:run-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}" \
+            "${DISK_FILE}:application/vnd.shifter.gce-image.tar.gz" | jq -er '.digest')"
+          if ! printf '%s' "${DIGEST}" | grep -qE '^sha256:[0-9a-f]{64}$'; then
             echo "::error::ORAS did not return an OCI manifest digest."
             exit 1
-            ;;
-          esac
+          fi
           {
-            echo "## GHCR GCE base image published"
-            echo "- **Package:** \`${PACKAGE}\`"
-            echo "- **Version tag:** \`${TAG}\` (discovery only)"
-            echo "- **Immutable source:** \`oci://${PACKAGE}@${DIGEST}\`"
-            echo "- **Payload:** GCE-native disk.raw tarball; the tenant bootstrap imports it as a native GCE image."
-            echo "- **Note:** set this package public once so bootstrap pulls it credential-free (private-package support: issue #2312)."
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "package=${PACKAGE}"
+            echo "digest=${DIGEST}"
+          } >> "${GITHUB_OUTPUT}"
+
+      # Sign the build provenance of the exact manifest digest and push the
+      # Sigstore bundle to the registry as an OCI referrer (ADR-037-R5). gcp-images
+      # verifies this bundle against settings.release_trust and the build revision.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-name: ${{ steps.push.outputs.package }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Summarize the publication
+        env:
+          PACKAGE: ${{ steps.push.outputs.package }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          {
+            echo "## Guest image published"
+            echo "- **Role:** ${ROLE}"
+            echo "- **Image:** \`${PACKAGE}@${DIGEST}\`"
+            echo "- **Tag:** \`run-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}\`"
+            echo "- **Build revision:** \`${GITHUB_SHA}\`"
+            echo ""
+            echo "The next release names this image for the ${ROLE} role."
+            echo "After the first publication of this package, make the package public in the GitHub package settings."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Remove the exported disk
+        if: always()
+        env:
+          GCP_GCE_BASE_IMAGE_BUCKET: ${{ vars.GCP_GCE_BASE_IMAGE_BUCKET }}
+        run: |
+          if [ -n "${EXPORT_OBJECT:-}" ]; then
+            gcloud storage rm --quiet "gs://${GCP_GCE_BASE_IMAGE_BUCKET}/${EXPORT_OBJECT}" \
+              || echo "::warning::The exported disk stays until the bucket lifecycle deletes it."
+          fi

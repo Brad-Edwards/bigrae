@@ -1,18 +1,13 @@
-// GitHub Actions image build/promote tools for the shifter-ops MCP
-// server: AMI (issue #411) and GCE guest images (issue #505,
-// PLAT-001.10). The workflow-dispatch mechanics live in
+// GitHub Actions image tools for the shifter-ops MCP server: AMI build and
+// promotion (issue #411) and GCE guest image builds (issue #505,
+// PLAT-001.10; #2668). The workflow-dispatch mechanics live in
 // github-actions.js (injected via deps).
 
 import { z } from "zod";
 import { registerTool } from "../policy.js";
 import { ok, err } from "../respond.js";
-import { PROMOTE_AMI_REF, PROMOTE_GCE_IMAGE_REF } from "../lib.js";
-import {
-  AmiTypeSchema,
-  GceImageNameSchema,
-  GceImageTypeSchema,
-  SafePath,
-} from "../schemas.js";
+import { PROMOTE_AMI_REF } from "../lib.js";
+import { AmiTypeSchema, GceImageTypeSchema, SafePath } from "../schemas.js";
 
 function registerBuildAmi(ctx, { triggerAmiWorkflow }) {
   registerTool(ctx, {
@@ -77,7 +72,7 @@ function registerBuildGceImage(ctx, { triggerGceImageWorkflow }) {
     name: "build_gce_image",
     klass: "infra_mutation",
     description:
-      "Trigger packer-gcp.yml to build a GCE guest image in dev (the GCP analog of build_ami). Requires GH_TOKEN or GITHUB_TOKEN.",
+      "Trigger packer-gcp.yml to build, validate, and publish a GCE guest image (the GCP analog of build_ami). Requires GH_TOKEN or GITHUB_TOKEN.",
     schema: {
       image_type: GceImageTypeSchema,
       ref: SafePath.optional().describe(
@@ -101,40 +96,8 @@ function registerBuildGceImage(ctx, { triggerGceImageWorkflow }) {
   });
 }
 
-function registerPromoteGceImage(ctx, { triggerGceImageWorkflow }) {
-  registerTool(ctx, {
-    name: "promote_gce_image",
-    klass: "infra_mutation",
-    description:
-      "Trigger packer-gcp-promote.yml to promote an exact validated GCE candidate to prod. Requires GH_TOKEN or GITHUB_TOKEN.",
-    schema: {
-      env: z
-        .literal("prod")
-        .describe("Must be prod — promotion updates production GCE images."),
-      source_image: GceImageNameSchema.describe(
-        "Exact validated candidate image name from packer-gcp-validate.yml",
-      ),
-    },
-    handler: async ({ source_image }) => {
-      try {
-        return ok(
-          triggerGceImageWorkflow({
-            workflow: "packer-gcp-promote.yml",
-            inputs: { source_image },
-            ref: PROMOTE_GCE_IMAGE_REF,
-            actionsPath: "packer-gcp-promote.yml",
-          }),
-        );
-      } catch (e) {
-        return err(e);
-      }
-    },
-  });
-}
-
 export function registerImagesTools(ctx, deps) {
   registerBuildAmi(ctx, deps);
   registerPromoteAmi(ctx, deps);
   registerBuildGceImage(ctx, deps);
-  registerPromoteGceImage(ctx, deps);
 }

@@ -36,12 +36,6 @@ variable "github_repo" {
   default = "bigrae"
 }
 
-variable "promotion_reader_service_account_email" {
-  description = "Prod promote SA email granted read-only access to images when this is the source-project root."
-  type        = string
-  default     = ""
-}
-
 variable "build_read_bucket_names" {
   description = "Existing GCS input buckets readable by the Packer build identity."
   type        = set(string)

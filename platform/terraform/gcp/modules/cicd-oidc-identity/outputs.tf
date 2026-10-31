@@ -13,11 +13,6 @@ output "packer_validate_service_account_email" {
   value       = try(google_service_account.validate[0].email, null)
 }
 
-output "packer_promote_service_account_email" {
-  description = "Packer promotion identity (GCP_PACKER_PROMOTE_SERVICE_ACCOUNT); null when promotion is disabled."
-  value       = try(google_service_account.promote[0].email, null)
-}
-
 output "deploy_service_account_email" {
   description = "Platform deploy identity (GCP_DEPLOY_SERVICE_ACCOUNT); null when this purpose is disabled."
   value       = try(google_service_account.deploy[0].email, null)

@@ -267,6 +267,13 @@ and `openvpn`). The release workflow and the CI deploy write it; the GCP deploy
 command reads it. The command opens no output file. Use a shell redirect to
 write the manifest to a file.
 
+Each `--base-image ROLE=REPOSITORY@sha256:DIGEST` adds the exact guest image
+that tenants import for one role (`kali`, `ubuntu`, `dc`). The manifest names
+all three roles or none. `--authorization-model-stdin` reads the OpenFGA
+authorization model from standard input. The release workflow takes the newest
+published guest images and verifies their build provenance before it writes the
+manifest (#2668).
+
 ```bash
 uv run --project shifter/installation shifter-config gcp-release-manifest \
   --version 1.2.3 --source-revision <40-hex revision> --chart-version <chart version> \
@@ -275,6 +282,9 @@ uv run --project shifter/installation shifter-config gcp-release-manifest \
   --image guacd=<registry>/guacd@sha256:<digest> \
   --image guacamole-client=<registry>/guacamole-client@sha256:<digest> \
   --image openvpn=<registry>/openvpn@sha256:<digest> \
+  --base-image kali=<registry>/gce-kali@sha256:<digest> \
+  --base-image ubuntu=<registry>/gce-ubuntu@sha256:<digest> \
+  --base-image dc=<registry>/gce-dc@sha256:<digest> \
   > release.json
 ```
 

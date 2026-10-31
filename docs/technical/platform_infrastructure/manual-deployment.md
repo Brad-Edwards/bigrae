@@ -135,8 +135,8 @@ commands for each step:
 5. **Deployment inputs** - Write `bigrae.yaml` and the Terraform values. Leave
    `gke_master_authorized_cidrs = []` for Connect Gateway, or use connected
    RFC1918 networks only. Publish the inputs with `gcp-config publish`.
-6. **Range images** - Import the base guest images with `gcp-images --source
-   <release registry> --store gs://<deployment config bucket>`.
+6. **Range images** - Import the guest images that the release selects with
+   `gcp-images --store gs://<deployment config bucket>`.
 7. **First install** - Run `gcp-deploy --store gs://<deployment config bucket>
    --first-install` from the deployer image of the release.
 8. **DNS** - Point the public hostname at the reserved ingress IP if DNS is

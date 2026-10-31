@@ -9,7 +9,6 @@ template set so the AWS `packer build .` / `-only='*.<type>'` flow never sees a
 Run with: pytest shifter/packer/tests/test_packer_gcp.py -v
 """
 
-import hashlib
 import json
 import os
 import re
@@ -274,27 +273,8 @@ class TestGcpBuildEvidenceBinding:
         assert result.returncode != 0
 
 
-class TestGcpPromotionEvidenceBinding:
-    """Promotion verifies trusted run evidence instead of trusting a mutable label."""
-
-    @pytest.fixture
-    def promote(self):
-        return (WORKFLOWS_DIR / "packer-gcp-promote.yml").read_text()
-
-    def test_workflow_reads_validation_run_and_revision_labels(self, promote):
-        assert "labels.validated-run" in promote
-        assert "labels.validated-revision" in promote
-        assert "labels.validated-verdict-id" in promote
-
-    def test_workflow_downloads_and_verifies_validation_evidence(self, promote):
-        assert "actions: read" in promote
-        assert '"${SRC_PROJECT}-release-evidence"' in promote
-        assert "gcloud storage cp --quiet" in promote
-        assert "actions/artifacts/${VALIDATED_VERDICT_ID}" in promote
-        assert "ARTIFACT_FILE" in promote
-        assert "VERDICT_FILE" in promote
-        assert "gh run download" not in promote
-        assert "verify-promotion-evidence.sh" in promote
+class TestGcpValidationEvidenceBinding:
+    """Validation binds versioned evidence and an externally collected SBOM to the exact candidate."""
 
     def test_validation_publishes_versioned_image_id_and_private_evidence_digest(self):
         validate = (WORKFLOWS_DIR / "packer-gcp-validate.yml").read_text()
@@ -453,252 +433,6 @@ class TestGcpPromotionEvidenceBinding:
         assert "validated_at_utc: $validated_at_utc" in validate
         assert "validated-at=${VALIDATED_AT}" not in validate
 
-    def test_promotion_commits_family_only_after_source_and_ready_checks(self, promote):
-        create = promote.index('gcloud compute images create "${NEW_PROD_IMAGE}"')
-        ready = promote.index('NEW_STATUS="$(gcloud compute images describe')
-        source = promote.index("value(sourceImageId)")
-        family = promote.index('gcloud compute images update "${NEW_PROD_IMAGE}"')
-        assert "--family=" not in promote[create:ready]
-        assert create < ready < source < family
-
-    def test_promotion_serializes_channel_updates_and_validates_image_name(self, promote):
-        assert "group: gcp-image-promotion-prod" in promote
-        assert "cancel-in-progress: false" in promote
-        assert "Source image name must be a valid GCE image resource name" in promote
-
-    def test_verifier_script_exists(self):
-        assert (GCP_SCRIPTS_DIR / "validate" / "verify-promotion-evidence.sh").exists()
-
-    def _run_verifier(
-        self,
-        tmp_path,
-        *,
-        evidence_updates=None,
-        run_updates=None,
-        verdict_updates=None,
-        artifact_updates=None,
-        omit_file=None,
-        unset_env=None,
-        env_updates=None,
-    ):
-        guest_sbom_file = tmp_path / "guest-sbom.spdx.json"
-        guest_sbom_file.write_text('{"spdxVersion":"SPDX-2.3","packages":[{"name":"base"}]}')
-        guest_sbom_sha256 = hashlib.sha256(guest_sbom_file.read_bytes()).hexdigest()
-        evidence = {
-            "schema_version": 3,
-            "repository": "example-org/example-repo",
-            "workflow": ".github/workflows/packer-gcp-validate.yml",
-            "source_ref": "refs/heads/dev",
-            "candidate_image": "shifter-example-stack-123",
-            "candidate_image_id": "987654321",
-            "project": "dev-project",
-            "environment": "dev",
-            "image_family": "shifter-example-stack",
-            "image_type": "example-stack",
-            "source_revision": "a" * 40,
-            "validation_run": "12345",
-            "validation_run_attempt": 2,
-            "validated_at_utc": "20260906T120000",
-            "phases": ["first_boot_health", "reboot_health"],
-            "guest_sbom_file": "guest-sbom.spdx.json",
-            "guest_sbom_sha256": guest_sbom_sha256,
-            "guest_sbom_format": "spdx-json",
-            "guest_sbom_tool": "syft/1.51.1",
-            "guest_sbom_collection": "external-read-only-disk",
-            "guest_sbom_source_image_id": "987654321",
-            "guest_sbom_scanner_image": "ubuntu-2204-jammy-v20260901",
-            "guest_sbom_scanner_image_id": "1122334455",
-            "result": "passed",
-        }
-        run = {
-            "id": 12345,
-            "run_attempt": 2,
-            "name": "Packer GCE Image Validate",
-            "path": ".github/workflows/packer-gcp-validate.yml",
-            "event": "workflow_dispatch",
-            "head_branch": "dev",
-            "head_sha": "a" * 40,
-            "conclusion": "success",
-            "repository": {"full_name": "example-org/example-repo"},
-        }
-        evidence.update(evidence_updates or {})
-        run.update(run_updates or {})
-        evidence_file = tmp_path / "validation-evidence.json"
-        run_file = tmp_path / "validation-run.json"
-        evidence_file.write_text(json.dumps(evidence))
-        run_file.write_text(json.dumps(run))
-        evidence_sha = hashlib.sha256(evidence_file.read_bytes()).hexdigest()
-        evidence_prefix = "packer-validation/987654321/12345/2"
-        binding = {
-            "candidate_project": "dev-project",
-            "candidate_image": "shifter-example-stack-123",
-            "candidate_image_id": "987654321",
-            "image_family": "shifter-example-stack",
-            "image_type": "example-stack",
-            "source_revision": "a" * 40,
-            "evidence_sha256": evidence_sha,
-        }
-        binding_bytes = (json.dumps(binding, sort_keys=True, separators=(",", ":")) + "\n").encode()
-        verdict = {
-            "schema_version": 2,
-            "source_sha": "a" * 40,
-            "image_type": "example-stack",
-            "result": "passed",
-            "evidence_locator": hashlib.sha256(evidence_prefix.encode()).hexdigest(),
-            "evidence_sha256": evidence_sha,
-            "candidate_binding_sha256": hashlib.sha256(binding_bytes).hexdigest(),
-        }
-        artifact = {
-            "id": 67890,
-            "name": "example-stack-gce-validation-verdict",
-            "expired": False,
-            "workflow_run": {"id": 12345},
-        }
-        verdict.update(verdict_updates or {})
-        artifact.update(artifact_updates or {})
-        verdict_file = tmp_path / "validation-verdict.json"
-        artifact_file = tmp_path / "validation-verdict-artifact.json"
-        verdict_file.write_text(json.dumps(verdict))
-        artifact_file.write_text(json.dumps(artifact))
-        files = {
-            "evidence": evidence_file,
-            "guest_sbom": guest_sbom_file,
-            "run": run_file,
-            "verdict": verdict_file,
-            "artifact": artifact_file,
-        }
-        if omit_file is not None:
-            files[omit_file].unlink()
-        env = dict(os.environ)
-        env.update(
-            {
-                "SRC_IMAGE": "shifter-example-stack-123",
-                "SRC_PROJECT": "dev-project",
-                "IMAGE_FAMILY": "shifter-example-stack",
-                "IMAGE_TYPE": "example-stack",
-                "SRC_IMAGE_ID": "987654321",
-                "VALIDATED_RUN": "12345",
-                "VALIDATED_RUN_ATTEMPT": "2",
-                "VALIDATED_VERDICT_ID": "67890",
-                "VALIDATED_EVIDENCE_SHA": evidence_sha[:63],
-                "VALIDATED_REVISION": "a" * 40,
-                "EXPECTED_REPOSITORY": "example-org/example-repo",
-                "EVIDENCE_FILE": str(evidence_file),
-                "GUEST_SBOM_FILE": str(guest_sbom_file),
-                "VERDICT_FILE": str(verdict_file),
-                "RUN_FILE": str(run_file),
-                "ARTIFACT_FILE": str(artifact_file),
-            }
-        )
-        env.update(env_updates or {})
-        if unset_env is not None:
-            env.pop(unset_env, None)
-        bash_path = shutil.which("bash")
-        assert bash_path is not None
-        return subprocess.run(  # noqa: S603
-            [bash_path, str(GCP_SCRIPTS_DIR / "validate" / "verify-promotion-evidence.sh")],
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-
-    def test_verifier_accepts_exact_successful_protected_run_evidence(self, tmp_path):
-        result = self._run_verifier(tmp_path)
-        assert result.returncode == 0, result.stderr
-
-    @pytest.mark.parametrize(
-        ("evidence_updates", "run_updates"),
-        [
-            ({"candidate_image": "other-image"}, None),
-            ({"project": "other-project"}, None),
-            ({"result": "failed"}, None),
-            ({"schema_version": 2}, None),
-            ({"candidate_image_id": "123"}, None),
-            ({"validation_run_attempt": 1}, None),
-            ({"source_ref": "refs/heads/feature"}, None),
-            ({"environment": "proof"}, None),
-            ({"image_family": "other-family"}, None),
-            ({"image_type": "other-type"}, None),
-            ({"phases": ["first_boot_health"]}, None),
-            ({"guest_sbom_sha256": "0" * 64}, None),
-            ({"guest_sbom_format": "unknown"}, None),
-            ({"guest_sbom_collection": "in-guest"}, None),
-            ({"guest_sbom_source_image_id": "123"}, None),
-            ({"guest_sbom_scanner_image_id": "not-numeric"}, None),
-            ({"validated_at_utc": "2026-09-06T12:00:00Z"}, None),
-            ({"workflow": ".github/workflows/other.yml"}, None),
-            ({"repository": "other/repository"}, None),
-            (None, {"id": 99999}),
-            (None, {"run_attempt": 3}),
-            (None, {"name": "Other workflow"}),
-            (None, {"head_branch": "feature"}),
-            (None, {"head_sha": "b" * 40}),
-            (None, {"conclusion": "failure"}),
-            (None, {"path": ".github/workflows/other.yml"}),
-        ],
-    )
-    def test_verifier_rejects_mismatched_or_untrusted_evidence(self, tmp_path, evidence_updates, run_updates):
-        result = self._run_verifier(tmp_path, evidence_updates=evidence_updates, run_updates=run_updates)
-        assert result.returncode != 0
-
-    def test_verifier_rejects_wrong_private_evidence_digest(self, tmp_path):
-        result = self._run_verifier(tmp_path, env_updates={"VALIDATED_EVIDENCE_SHA": "0" * 63})
-        assert result.returncode != 0
-
-    @pytest.mark.parametrize(
-        "verdict_updates",
-        [
-            {"schema_version": 1},
-            {"source_sha": "b" * 40},
-            {"image_type": "other-type"},
-            {"result": "failed"},
-            {"evidence_locator": "0" * 64},
-            {"evidence_sha256": "0" * 64},
-            {"candidate_binding_sha256": "0" * 64},
-        ],
-    )
-    def test_verifier_rejects_forged_or_reused_verdict(self, tmp_path, verdict_updates):
-        result = self._run_verifier(tmp_path, verdict_updates=verdict_updates)
-        assert result.returncode != 0
-
-    @pytest.mark.parametrize(
-        "artifact_updates",
-        [
-            {"id": 99999},
-            {"name": "other-artifact"},
-            {"expired": True},
-            {"workflow_run": {"id": 99999}},
-        ],
-    )
-    def test_verifier_rejects_untrusted_verdict_artifact(self, tmp_path, artifact_updates):
-        result = self._run_verifier(tmp_path, artifact_updates=artifact_updates)
-        assert result.returncode != 0
-
-    @pytest.mark.parametrize("omit_file", ["evidence", "guest_sbom", "run", "verdict", "artifact"])
-    def test_verifier_rejects_missing_input_files(self, tmp_path, omit_file):
-        result = self._run_verifier(tmp_path, omit_file=omit_file)
-        assert result.returncode != 0
-
-    def test_verifier_rejects_unset_required_environment_value(self, tmp_path):
-        result = self._run_verifier(tmp_path, unset_env="SRC_IMAGE")
-        assert result.returncode != 0
-        assert "SRC_IMAGE is required" in result.stderr
-
-    @pytest.mark.parametrize(
-        ("name", "value"),
-        [
-            ("SRC_IMAGE_ID", "not-numeric"),
-            ("VALIDATED_RUN", "run-123"),
-            ("VALIDATED_RUN_ATTEMPT", "attempt-2"),
-            ("VALIDATED_VERDICT_ID", "artifact-67890"),
-            ("VALIDATED_EVIDENCE_SHA", "not-a-digest"),
-            ("VALIDATED_REVISION", "ABC123"),
-        ],
-    )
-    def test_verifier_rejects_malformed_required_identifiers(self, tmp_path, name, value):
-        result = self._run_verifier(tmp_path, env_updates={name: value})
-        assert result.returncode != 0
-
 
 class TestGcpPurposeIdentityWorkflows:
     """Every credentialed GCP caller selects one literal purpose identity."""
@@ -706,13 +440,8 @@ class TestGcpPurposeIdentityWorkflows:
     @pytest.mark.parametrize(
         ("workflow_name", "environment_marker", "secret_name"),
         [
-            ("packer-gcp.yml", "gcp-build-", "GCP_PACKER_BUILD_SERVICE_ACCOUNT"),
-            ("packer-gcp-validate.yml", "gcp-validate-", "GCP_PACKER_VALIDATE_SERVICE_ACCOUNT"),
-            ("packer-gcp-promote.yml", "gcp-promote-prod", "GCP_PACKER_PROMOTE_SERVICE_ACCOUNT"),
-            # The destroy workflow is parameterized over the tenant, so its
-            # purpose Environment is the per-tenant `<environment>-destroy`
-            # (resolved from the dispatch input), not a single literal.
-            ("gcp-dev-destroy.yml", "${{ inputs.environment }}-destroy", "GCP_DESTROY_SERVICE_ACCOUNT"),
+            ("packer-gcp.yml", "environment: gcp-image-build", "GCP_PACKER_BUILD_SERVICE_ACCOUNT"),
+            ("packer-gcp-validate.yml", "environment: gcp-image-validate", "GCP_PACKER_VALIDATE_SERVICE_ACCOUNT"),
         ],
     )
     def test_direct_workflow_uses_purpose_environment_and_secret(self, workflow_name, environment_marker, secret_name):
@@ -750,13 +479,6 @@ class TestGcpPurposeIdentityWorkflows:
         assert "GCP_PACKER_SERVICE_ACCOUNT" not in build
         assert "GCP_SERVICE_ACCOUNT" not in build
 
-    def test_destroy_rejects_unprotected_ref_before_auth(self):
-        destroy = (WORKFLOWS_DIR / "gcp-dev-destroy.yml").read_text()
-        guard = destroy.index("Reject non-protected dispatch refs")
-        auth = destroy.index("google-github-actions/auth@")
-        assert "refs/heads/dev|refs/heads/main" in destroy
-        assert guard < auth
-
     def test_identity_split_preserves_existing_state_addresses(self):
         module = (REPO_ROOT / "platform/terraform/gcp/modules/cicd-oidc-identity/main.tf").read_text()
         assert 'resource "google_iam_workload_identity_pool_provider" "github"' in module
@@ -774,12 +496,12 @@ class TestGcpPurposeIdentityWorkflows:
 
     def test_no_sa_validator_has_dedicated_iap_firewall_target(self):
         workflow = (WORKFLOWS_DIR / "packer-gcp-validate.yml").read_text()
-        infrastructure = (REPO_ROOT / "platform/terraform/gcp/modules/packer-build-infra/main.tf").read_text()
+        infrastructure = (REPO_ROOT / "platform/terraform/gcp/modules/image-build-network/main.tf").read_text()
         assert "--no-service-account --no-scopes" in workflow
         assert "--tags=shifter-validation" in workflow
-        assert 'resource "google_compute_firewall" "validation_iap_ingress"' in infrastructure
-        assert "target_tags   = [var.validation_network_tag]" in infrastructure
-        assert 'source_ranges = ["35.235.240.0/20"]' in infrastructure
+        assert 'resource "google_compute_firewall" "image_validate_iap"' in infrastructure
+        assert 'target_tags   = ["shifter-validation"]' in infrastructure
+        assert '"35.235.240.0/20"' in infrastructure
 
     def test_bucket_access_is_terraform_owned(self):
         identity = (REPO_ROOT / "platform/terraform/gcp/modules/cicd-oidc-identity/main.tf").read_text()
@@ -831,9 +553,9 @@ class TestGcpValidationWorkflow:
         assert "validated=passed" in workflow
 
     def test_validation_pins_exact_candidate(self, workflow):
-        # The candidate is resolved once and pinned; downstream uses the exact
-        # name, and an explicit source_image input skips family resolution.
-        assert "source_image" in workflow
+        # The caller names the exact candidate; a family is never resolved here.
+        assert 'CANDIDATE="${SOURCE_IMAGE_INPUT}"' in workflow
+        assert 'CANDIDATE="$(gcloud compute images describe-from-family' not in workflow
 
     def test_binds_candidate_family_to_selected_profile(self, workflow):
         # The candidate's own family must equal the family for the requested
@@ -841,11 +563,14 @@ class TestGcpValidationWorkflow:
         assert '"${IMG_FAMILY}" != "${FAMILY}"' in workflow
 
     def test_matrix_excludes_first_boot_dc_and_sysprepped_windows(self, workflow):
-        # Only image types with a matching validator are selectable; the
-        # sysprepped `windows` and first-boot-promotion `dc` images are excluded.
-        assert "\n          - windows\n" not in workflow
-        assert "\n          - dc\n" not in workflow
-        assert "\n          - dc-prebaked\n" in workflow
+        # Only image types with a matching validator are accepted, and only those
+        # are buildable for publication; the sysprepped `windows` and the
+        # first-boot-promotion `dc` images are excluded from both workflows.
+        assert "ubuntu|kali|dc-prebaked) ;;" in workflow
+        build = (WORKFLOWS_DIR / "packer-gcp.yml").read_text()
+        assert "\n          - windows\n" not in build
+        assert "\n          - dc\n" not in build
+        assert "\n          - dc-prebaked\n" in build
 
     def test_validation_vm_has_no_guest_service_account(self, workflow):
         # The VM boots candidate code, so it must have no cloud identity — guest
@@ -906,42 +631,6 @@ class TestGcpValidationWorkflow:
         dc_section = g.split("# Linux: SSH-execute", 1)[0]
         assert "rc=$?" not in dc_section
         assert "rc=1" in dc_section
-
-
-class TestGcpPromoteEvidenceDriven:
-    """Promotion copies the exact validated candidate, not newest-in-family (#1343 gaps 3/4)."""
-
-    @pytest.fixture
-    def promote(self):
-        return (WORKFLOWS_DIR / "packer-gcp-promote.yml").read_text()
-
-    def test_requires_exact_source_image_input(self, promote):
-        assert "source_image:" in promote
-        assert "SRC_IMAGE: ${{ inputs.source_image }}" in promote
-
-    def test_verifies_validation_label_before_promotion(self, promote):
-        assert "labels.validated" in promote
-        assert '"${VALIDATED}" != "passed"' in promote
-
-    def test_copies_the_exact_candidate(self, promote):
-        assert '--source-image="${SRC_IMAGE}"' in promote
-
-    def test_does_not_resolve_source_from_family(self, promote):
-        # The dev-side source must be the pinned candidate, never re-resolved to
-        # newest-in-family at promotion time (the TOCTOU gap).
-        assert "SRC_IMAGE=$(gcloud compute images describe-from-family" not in promote
-        assert 'SRC_IMAGE="$(gcloud compute images describe-from-family' not in promote
-        # describe-from-family survives ONLY to read the prod head for deprecation.
-        assert 'PREV_PROD_IMAGE="$(gcloud compute images describe-from-family' in promote
-
-    def test_verifies_new_prod_image_before_deprecating_old_head(self, promote):
-        assert "NEW_STATUS" in promote
-        assert "deprecate" in promote
-
-    def test_derives_family_from_image_for_example_and_dc(self, promote):
-        # Family comes from the image's own family attribute, so example-stack and
-        # purpose-scoped <purpose>-dc families need no per-name logic.
-        assert "value(family)" in promote
 
 
 class TestGcpDcPrebakedCredentialHygiene:
@@ -1029,3 +718,45 @@ class TestLinuxCandidateValidation:
         )
         assert (result.returncode == 0) is accepted
         assert ("PASS" in result.stdout) is accepted
+
+
+class TestGcpGuestPublication:
+    """A guest image publishes only after validation of the exact candidate (#2668, ADR-037-R8/R9)."""
+
+    @pytest.fixture
+    def build(self):
+        return (WORKFLOWS_DIR / "packer-gcp.yml").read_text()
+
+    def test_no_tenant_environment_input_or_publish_target(self, build):
+        assert "inputs.environment" not in build
+        assert "publish_target" not in build
+        assert "gcp-build-" not in build
+
+    def test_publish_needs_build_and_validation_of_the_exact_candidate(self, build):
+        assert "needs: [build, validate]" in build
+        assert "uses: ./.github/workflows/packer-gcp-validate.yml" in build
+        assert "source_image: ${{ needs.build.outputs.image_name }}" in build
+        assert "VALIDATED_IMAGE_ID: ${{ needs.validate.outputs.image_id }}" in build
+        assert '[ "${VALIDATED_IMAGE_ID}" != "${BUILT_IMAGE_ID}" ]' in build
+        assert "secrets: inherit" not in build
+
+    def test_publish_rechecks_the_validation_labels_before_export(self, build):
+        recheck = build.index("Recheck the validated candidate in the build project")
+        export = build.index("gcloud compute images export")
+        assert recheck < export
+        for label in ("labels.validated)", "labels.validated-image-id)", "labels.validated-run)"):
+            assert label in build
+
+    def test_publish_rejects_unprotected_refs_before_authentication(self, build):
+        publish = build[build.index("\n  publish:") :]
+        assert publish.index("refs/heads/dev|refs/heads/main) ;;") < publish.index("google-github-actions/auth@")
+
+    def test_publish_pushes_to_the_release_registry_and_attests_the_digest(self, build):
+        assert 'PACKAGE="ghcr.io/${GITHUB_REPOSITORY,,}/gce-${ROLE}"' in build
+        assert "application/vnd.shifter.gce-image.v1" in build
+        assert '"${DISK_FILE}:application/vnd.shifter.gce-image.tar.gz"' in build
+        assert "actions/attest-build-provenance@" in build
+        assert "subject-digest: ${{ steps.push.outputs.digest }}" in build
+        assert "push-to-registry: true" in build
+        # release-gcp.yml takes the highest run-<number>.<attempt> tag of each role.
+        assert '"${PACKAGE}:run-${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}"' in build

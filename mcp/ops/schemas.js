@@ -47,15 +47,7 @@ export const AmiTypeSchema = z
   .describe("AMI type (kali, ubuntu, windows, dc)");
 export const GceImageTypeSchema = z
   .enum(GCE_IMAGE_TYPES)
-  .describe(
-    "GCE image type (ubuntu, kali, windows, dc, dc-prebaked)"
-  );
-export const GceImageNameSchema = z
-  .string()
-  .regex(
-    /^[a-z]$|^[a-z][-a-z0-9]{0,61}[a-z0-9]$/,
-    "Must be an exact GCE image name",
-  );
+  .describe("GCE image type (ubuntu, kali, dc-prebaked)");
 export const SecretIdSchema = z
   .string()
   .regex(/^[\w/+=.@-]+$/, MSG_INVALID_CHARACTERS);

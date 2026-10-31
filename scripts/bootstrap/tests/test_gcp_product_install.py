@@ -24,7 +24,7 @@ from tests.test_gcp_identity_cutover import chart
 
 __all__ = ["chart"]
 DIGEST = "sha256:" + "d" * 64
-BASE_IMAGES = {role: f"ghcr.io/acme/shifter-gce-{role}@{DIGEST}" for role in ("kali", "ubuntu", "dc")}
+BASE_IMAGES = {role: f"ghcr.io/acme/bigrae/gce-{role}@{DIGEST}" for role in ("kali", "ubuntu", "dc")}
 
 
 @pytest.fixture
@@ -160,49 +160,45 @@ class TestReleaseBaseImages:
             version="1.0.0", source_revision="a" * 40, chart_version="1.0.0", images=images, base_images=base_images
         )
 
-    def test_imports_the_pinned_images_only_when_the_bundle_lacks_them(self, tmp_path, monkeypatch):
+    def test_imports_the_verified_images_only_when_the_bundle_lacks_them(self, tmp_path, monkeypatch):
+        from gcp_provenance import ReleaseTrust
+
         bundle = write_bundle(tmp_path / "b", range_images={})
         inputs = load_deployment_inputs(str(bundle), tmp_path / "w", FakeRunner(), {})
-        imported = []
+        verified, imported = [], []
 
-        def import_pinned(*, project, region, base_images):
-            imported.append((project, region, base_images))
+        def resolve_selection(base_images, *, repository_id, owner_id, oci, verifier, release_source):
+            verified.append((base_images, repository_id, owner_id, release_source))
+            return list(base_images)
+
+        def import_selection(artifacts, *, project, region):
+            imported.append((artifacts, project, region))
             return {
                 role: gcp_base_images.ImportedImage(
                     role, f"shifter-{role}", f"projects/{project}/global/images/{role}", DIGEST, False
                 )
-                for role in base_images
+                for role in artifacts
             }
 
-        monkeypatch.setattr(gcp_base_images, "import_pinned", import_pinned)
+        monkeypatch.setattr(gcp_base_images, "resolve_selection", resolve_selection)
+        monkeypatch.setattr(gcp_base_images, "import_selection", import_selection)
+        monkeypatch.setattr("gcp_provenance.default_verifier", lambda: object())
         written = []
         monkeypatch.setattr(
             "gcp_config_store.write_range_images", lambda store, images: written.append((store, images))
         )
-        options = DeployOptions(source="gs://acme-shifter-deployment-config")
-        updated = import_release_base_images(options, inputs, self._manifest(BASE_IMAGES))
-        assert imported == [(PROJECT, "us-central1", BASE_IMAGES)]
+        options = DeployOptions(source="gs://acme-shifter-deployment-config", release_source="mirror.example/r")
+        trust = ReleaseTrust(repository_id="11", owner_id="22", source_revision="a" * 40)
+        runner = FakeRunner()
+        updated = import_release_base_images(runner, options, inputs, self._manifest(BASE_IMAGES), trust)
+        # Every guest is verified against the trust anchor before the import.
+        assert verified == [(BASE_IMAGES, "11", "22", "mirror.example/r")]
+        assert imported == [(["kali", "ubuntu", "dc"], PROJECT, "us-central1")]
         assert set(updated.range_images) == {"linux", "kali", "dc"}
         assert written == [("gs://acme-shifter-deployment-config", dict(updated.range_images))]
-        assert import_release_base_images(options, updated, self._manifest(BASE_IMAGES)) is updated
-        assert import_release_base_images(options, inputs, self._manifest({})) is inputs
+        assert import_release_base_images(runner, options, updated, self._manifest(BASE_IMAGES), trust) is updated
+        assert import_release_base_images(runner, options, inputs, self._manifest({}), trust) is inputs
         assert len(imported) == 1
-
-    def test_pinned_artifacts_must_name_the_role_package_and_digest(self, monkeypatch):
-        with pytest.raises(gcp_base_images.BaseImageError, match="shifter-gce-kali"):
-            gcp_base_images.resolve_pinned_artifact("kali", f"ghcr.io/acme/other@{DIGEST}")
-        with pytest.raises(gcp_base_images.BaseImageError):
-            gcp_base_images.resolve_pinned_artifact("kali", "ghcr.io/acme/shifter-gce-kali:latest")
-        with pytest.raises(gcp_base_images.BaseImageError, match="exactly"):
-            gcp_base_images.import_pinned(project=PROJECT, region="us-central1", base_images={"kali": "x"})
-        monkeypatch.setattr(
-            gcp_base_images,
-            "resolve_artifact",
-            lambda role, source: gcp_base_images.ResolvedArtifact(
-                role, f"{source}/shifter-gce-{role}", DIGEST, DIGEST, "r"
-            ),
-        )
-        assert gcp_base_images.resolve_release_base_images("ghcr.io/acme") == BASE_IMAGES
 
 
 class TestCommandLine:
@@ -225,12 +221,18 @@ class TestCommandLine:
         assert bootstrap_core.assume_yes_enabled()
         assert "gcp-install" in gcp_cli.LIFECYCLE_COMMANDS
 
-        def resolve(source):
+        def newest(registry):
             print("Running: oras repo tags")
             return BASE_IMAGES
 
-        monkeypatch.setattr(cli, "resolve_release_base_images", resolve)
-        assert cli.print_release_base_images("ghcr.io/acme") == BASE_IMAGES
+        verified = []
+        monkeypatch.setattr(cli, "newest_publications", newest)
+        monkeypatch.setattr(cli, "resolve_selection", lambda images, **kwargs: verified.append((images, kwargs)))
+        monkeypatch.setattr("gcp_provenance.default_verifier", lambda: object())
+        assert cli.print_release_base_images("ghcr.io/acme/bigrae", "11", "22") == BASE_IMAGES
+        # The release records only guest images that verify against this repository.
+        assert verified[0][0] == BASE_IMAGES
+        assert (verified[0][1]["repository_id"], verified[0][1]["owner_id"]) == ("11", "22")
         captured = capsys.readouterr()
         # Only the JSON reaches stdout, so the release workflow can parse it.
         assert json.loads(captured.out) == BASE_IMAGES

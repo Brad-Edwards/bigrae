@@ -48,11 +48,15 @@ from ._deploy_workflow_action_pin import (
 from ._release_workflow_caller import _caller_violations
 from ._release_workflow_common import (
     RELEASE_WORKFLOW_PATH,
+    _environment_name,
     _is_true,
+    _rejects_refs_outside,
     _step_with,
+    _trigger_events,
     _uses_action,
     _violation,
 )
+from ._release_workflow_guests import _guest_publication_violations
 
 _WORKFLOWS_PREFIX = ".github/workflows/"
 RELEASE_TRIGGERS = frozenset({"workflow_dispatch", "workflow_call"})
@@ -60,13 +64,8 @@ RELEASE_ENVIRONMENT = "gcp-release"
 _BUILD_ACTION = "docker/build-push-action@"
 _ATTEST_ACTION = "actions/attest-build-provenance@"
 _LOGIN_ACTION = "docker/login-action@"
-# The ref guard is a shell `case` on GITHUB_REF whose only admitted branch
-# lists release refs and whose fallback branch exits non-zero.
+# The ref guard admits only the release refs.
 RELEASE_REFS = frozenset({"refs/heads/main", "refs/heads/dev", "refs/heads/deploy-test"})
-_REF_GUARD_CASE = re.compile(
-    r'case\s+"\$\{GITHUB_REF\}"\s+in\s+(?P<refs>[^)\s]+)\)\s*;;\s*\*\)(?P<fallback>.*?);;\s*esac',
-    re.DOTALL,
-)
 _STEP_DIGEST_REF = re.compile(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.digest\s*\}\}")
 DEPLOYER_DOCKERFILE = "platform/deployer/gcp/Dockerfile"
 DEPLOYER_IGNORE_FILE = "platform/deployer/gcp/trivyignore.yaml"
@@ -91,36 +90,9 @@ def _relevant(files: list[str] | None) -> bool:
     return any(path.startswith(_WORKFLOWS_PREFIX) or is_guard_source_path(path) for path in files)
 
 
-def _trigger_events(on: object) -> set[str]:
-    """Return the event names of a workflow ``on:`` value."""
-    if isinstance(on, str):
-        return {on}
-    if isinstance(on, (list, dict)):
-        return {str(event) for event in on}
-    return set()
-
-
-def _environment_name(job: dict[str, object]) -> str:
-    """Return the job's GitHub Environment name, or ``""`` when it binds none."""
-    environment = job.get("environment")
-    if isinstance(environment, dict):
-        environment = environment.get("name")
-    return environment.strip() if isinstance(environment, str) else ""
-
-
 def _rejects_non_release_refs(step: object) -> bool:
     """True when the step always runs and fails on every ref outside ``RELEASE_REFS``."""
-    if not isinstance(step, dict) or "if" in step or _is_true(step.get("continue-on-error")):
-        return False
-    script = step.get("run")
-    if not isinstance(script, str):
-        return False
-    match = _REF_GUARD_CASE.search(script)
-    return bool(
-        match
-        and set(match.group("refs").split("|")) <= RELEASE_REFS
-        and re.search(r"\bexit\s+1\b", match.group("fallback"))
-    )
+    return _rejects_refs_outside(step, RELEASE_REFS)
 
 
 def _subject_build_ids(step: object) -> list[str]:
@@ -329,5 +301,5 @@ def check_release_workflow(repo_root: Path, files: list[str] | None) -> list[Vio
         return []
     workflow = _load_release_workflow(repo_root)
     if isinstance(workflow, Violation):
-        return [workflow]
-    return [*_workflow_violations(workflow), *_caller_violations(repo_root)]
+        return [workflow, *_guest_publication_violations(repo_root)]
+    return [*_workflow_violations(workflow), *_caller_violations(repo_root), *_guest_publication_violations(repo_root)]

@@ -283,6 +283,7 @@ def write_manifest(
     images: Mapping[str, str] | None = None,
     revision: str = REVISION,
     authorization_model: Mapping[str, object] | None = None,
+    base_images: Mapping[str, str] | None = None,
 ) -> Path:
     """Write a valid release manifest file."""
     payload: dict[str, object] = {
@@ -292,6 +293,8 @@ def write_manifest(
         "chart_version": "0.2.0",
         "images": dict(images or release_images()),
     }
+    if base_images:
+        payload["base_images"] = dict(base_images)
     if authorization_model is not None:
         payload["authorization_model"] = dict(authorization_model)
     with open(path, "w", encoding="utf-8") as handle:

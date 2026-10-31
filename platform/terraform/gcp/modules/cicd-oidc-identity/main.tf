@@ -11,7 +11,6 @@ locals {
   # only for a federated build purpose or a foundation image-build network.
   builder_enabled      = local.build_enabled || var.image_builder_enabled
   validate_enabled     = contains(keys(var.purpose_contexts), "validate")
-  promote_enabled      = contains(keys(var.purpose_contexts), "promote")
   release_scan_enabled = contains(keys(var.purpose_contexts), "release_scan") || contains(keys(var.impersonation_principals), "release_scan")
   deploy_enabled       = contains(keys(var.purpose_contexts), "deploy") || contains(keys(var.impersonation_principals), "deploy")
   destroy_enabled      = contains(keys(var.purpose_contexts), "destroy") || contains(keys(var.impersonation_principals), "destroy")
@@ -19,7 +18,6 @@ locals {
   service_account_ids = {
     build        = "${replace(var.name_prefix, "-", "")}-packer"
     validate     = "${replace(var.name_prefix, "-", "")}-validate"
-    promote      = "${replace(var.name_prefix, "-", "")}-promote"
     release_scan = "${replace(var.name_prefix, "-", "")}-scan"
     deploy       = "${replace(var.name_prefix, "-", "")}-deploy"
     destroy      = "${replace(var.name_prefix, "-", "")}-destroy"
@@ -32,7 +30,7 @@ locals {
   }
   subject_prefix = var.github_subject_format == "immutable" ? "repo:${var.github_org}@${var.github_owner_id}/${var.github_repo}@${var.github_repository_id}" : "repo:${var.github_org}/${var.github_repo}"
   purpose_subjects = {
-    for purpose in ["build", "validate", "promote", "release_scan", "deploy", "destroy"] :
+    for purpose in ["build", "validate", "release_scan", "deploy", "destroy"] :
     purpose => distinct([for context in lookup(var.purpose_contexts, purpose, []) : "${local.subject_prefix}:environment:${context.environment}"])
   }
   federated_subjects = toset(flatten(values(local.purpose_subjects)))
@@ -47,10 +45,10 @@ locals {
     lower("${var.project_id}-${replace(var.environment, "_", "-")}-assets"),
     lower("${var.project_id}-${replace(var.environment, "_", "-")}-audit-logs"),
     lower("${var.project_id}-${var.name_prefix}-gdc-vm-images"),
-    # daisy export scratch bucket created by packer-build-infra
-    # (google_storage_bucket.daisy_export_scratch, name fixed by daisy as
-    # <project>-daisy-bkt-<region>); the platform-core deploy/destroy create and
-    # tear it down, so it must be in the conditioned platform-storage allow-list.
+    # The platform root no longer creates the image buckets above and below
+    # (#2679, #2668). They stay in the allow-list so that the next deploy of an
+    # older tenant can delete them. The Daisy scratch bucket name is fixed by
+    # Daisy as <project>-daisy-bkt-<region>.
     lower("${var.project_id}-daisy-bkt-${var.region}"),
   ])
   platform_storage_condition = join(" || ", concat(
@@ -146,13 +144,6 @@ resource "google_service_account" "validate" {
   display_name = "Shifter ${var.environment} GCE image validator"
 }
 
-resource "google_service_account" "promote" {
-  count        = local.promote_enabled ? 1 : 0
-  project      = var.project_id
-  account_id   = "${replace(var.name_prefix, "-", "")}-promote"
-  display_name = "Shifter prod GCE image promoter"
-}
-
 resource "google_service_account" "deploy" {
   count        = local.deploy_enabled ? 1 : 0
   project      = var.project_id
@@ -186,14 +177,6 @@ resource "google_service_account_iam_member" "validate_wif" {
   depends_on         = [google_service_account.validate, google_iam_workload_identity_pool_provider.github]
   for_each           = local.purpose_subject_principals.validate
   service_account_id = local.service_account_names.validate
-  role               = "roles/iam.workloadIdentityUser"
-  member             = each.value
-}
-
-resource "google_service_account_iam_member" "promote_wif" {
-  depends_on         = [google_service_account.promote, google_iam_workload_identity_pool_provider.github]
-  for_each           = local.purpose_subject_principals.promote
-  service_account_id = local.service_account_names.promote
   role               = "roles/iam.workloadIdentityUser"
   member             = each.value
 }
@@ -258,7 +241,7 @@ resource "google_project_iam_member" "packer_build_roles" {
 }
 
 # Build inputs are granted by their owning bucket, not through project-wide
-# Storage Admin. The exported-image bucket writer lives in packer-build-infra.
+# Storage Admin. The export storage of a build project grants its own writers.
 resource "google_storage_bucket_iam_member" "packer_build_reader" {
   depends_on = [google_service_account.packer_build]
   for_each   = local.build_enabled ? var.build_read_bucket_names : toset([])
@@ -282,30 +265,6 @@ resource "google_project_iam_member" "validate_roles" {
   project    = var.project_id
   role       = each.value
   member     = "serviceAccount:${local.service_account_emails.validate}"
-}
-
-resource "google_project_iam_custom_role" "promote" {
-  count       = local.promote_enabled ? 1 : 0
-  project     = var.project_id
-  role_id     = "${replace(var.name_prefix, "-", "_")}_promote"
-  title       = "Shifter GCE image promoter"
-  description = "Verified prod image copy, channel commit, and previous-head deprecation."
-  permissions = var.promote_permissions
-}
-
-resource "google_project_iam_member" "promote_role" {
-  depends_on = [google_service_account.promote, google_project_iam_custom_role.promote]
-  count      = local.promote_enabled ? 1 : 0
-  project    = var.project_id
-  role       = "projects/${var.project_id}/roles/${replace(var.name_prefix, "-", "_")}_promote"
-  member     = "serviceAccount:${local.service_account_emails.promote}"
-}
-
-resource "google_project_iam_member" "promotion_source_image_reader" {
-  count   = var.promotion_reader_service_account_email == "" ? 0 : 1
-  project = var.project_id
-  role    = "roles/compute.imageUser"
-  member  = "serviceAccount:${var.promotion_reader_service_account_email}"
 }
 
 resource "google_project_iam_member" "deploy_roles" {
@@ -600,19 +559,6 @@ resource "google_storage_bucket_iam_member" "deploy_evidence_reader" {
   bucket = google_storage_bucket.release_evidence.name
   role   = "roles/storage.objectViewer"
   member = "serviceAccount:${google_service_account.deploy[0].email}"
-}
-
-resource "google_storage_bucket_iam_member" "promotion_evidence_reader" {
-  count  = var.promotion_reader_service_account_email == "" ? 0 : 1
-  bucket = google_storage_bucket.release_evidence.name
-  role   = "roles/storage.objectViewer"
-  member = "serviceAccount:${var.promotion_reader_service_account_email}"
-
-  condition {
-    title       = "packer-validation-evidence-read-only"
-    description = "Promotion identity may read immutable validation records only."
-    expression  = "resource.name.startsWith('projects/_/buckets/${google_storage_bucket.release_evidence.name}/objects/packer-validation/')"
-  }
 }
 
 

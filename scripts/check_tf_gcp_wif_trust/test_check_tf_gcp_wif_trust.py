@@ -167,19 +167,6 @@ class GenericSourceTests(unittest.TestCase):
             "build role set must use resource-scoped GCS grants",
         )
 
-    def test_promote_permissions_cannot_manage_other_capabilities(self):
-        for permission in (
-            "compute.instances.create",
-            "storage.objects.get",
-            "cloudbuild.builds.create",
-            "iam.serviceAccounts.actAs",
-        ):
-            with self.subTest(permission=permission):
-                self.assert_violation(
-                    self.check_default_changed("promote_permissions", [permission]),
-                    "promote permission set crosses instance/storage/build/IAM authority",
-                )
-
     def test_release_scan_cannot_have_a_project_wide_role(self):
         resource = (MODULE / "main.tf").read_text()
         addition = '\nresource "google_project_iam_member" "invalid_scan_role" {\n  project = var.project_id\n  role = "roles/viewer"\n  member = "serviceAccount:${local.service_account_emails.release_scan}"\n}\n'
@@ -275,7 +262,6 @@ class GenericSourceTests(unittest.TestCase):
             "workload_identity_provider",
             "packer_build_service_account_email",
             "packer_validate_service_account_email",
-            "packer_promote_service_account_email",
             "release_scan_service_account_email",
             "deploy_service_account_email",
             "destroy_service_account_email",

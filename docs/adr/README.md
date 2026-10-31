@@ -29,10 +29,10 @@ cover the first-project ordering (ADR-004 purpose separation; ADR-008 private
 operator access).
 Native GCE image builds explicitly select `GCP_RANGE_BACKEND=gce` to omit the
 GDC-only disk export dependency. Builds retain their immutable image evidence.
-Separate candidate qualification is optional and off by default for bootstrap
-and deployment; it runs only when an operator dispatches the validation workflow.
-Bootstrap requires the configured guest images to exist, not a qualification
-verdict. The separate image-promotion workflow retains its evidence requirements.
+Each guest build calls the validation workflow for its exact candidate, and
+publishes the image only after validation passes (#2668). A release selects the
+published guest images; a deployment imports them after it verifies their build
+provenance. No image-promotion workflow exists.
 
 SDK candidate distributions from pull-request CI include their SHA-256 checksums
 and are retained under a revision-specific artifact name for independent adapter
@@ -103,7 +103,7 @@ directory credentials.
 ## Runtime Enforcement
 
 ADR-004-R23 generalizes the GCP CI identity module: purpose-separated build,
-validate, promote, release-scan, deploy and destroy identities are rendered from
+validate, release-scan, deploy and destroy identities are rendered from
 explicit per-deployment inputs rather than tenant-name branches. The source WIF
 guard enforces the generic template with pinned CKV_GCP_125 success and no
 Checkov waiver; numeric repository/owner IDs and exact workflow/ref/Environment

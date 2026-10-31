@@ -7,7 +7,7 @@
 #
 # The WIF pool/provider and purpose-scoped service accounts are the identities
 # CI authenticates as. They must OUTLIVE the platform: a
-# `gcp-dev-destroy` tears down the platform-core root, and the subsequent CI
+# platform destroy tears down the platform-core root, and the subsequent CI
 # rebuild has to authenticate (via this WIF) to run at all. So this identity
 # lives in its own Terraform root with a state prefix separate from the platform
 # root -- exactly like platform/terraform/gcp/global/github-runner -- and the
@@ -40,24 +40,23 @@ provider "google" {
 module "cicd_oidc_identity" {
   source = "../../modules/cicd-oidc-identity"
 
-  project_id                             = var.project_id
-  project_number                         = var.project_number
-  github_repository_id                   = var.github_repository_id
-  github_owner_id                        = var.github_owner_id
-  github_subject_format                  = var.github_subject_format
-  purpose_contexts                       = var.purpose_contexts
-  release_evidence_bucket_name           = var.release_evidence_bucket_name
-  region                                 = var.region
-  environment                            = var.environment
-  name_prefix                            = var.name_prefix
-  github_org                             = var.github_org
-  github_repo                            = var.github_repo
-  build_read_bucket_names                = var.build_read_bucket_names
-  promotion_reader_service_account_email = var.promotion_reader_service_account_email
-  terraform_state_bucket_name            = var.terraform_state_bucket_name
-  platform_external_bucket_names         = var.platform_external_bucket_names
-  impersonation_principals               = var.impersonation_principals
-  deployment_config_bucket_name          = var.deployment_config_bucket_name
-  enable_gcs_usage_log_delivery          = var.enable_gcs_usage_log_delivery
-  image_builder_enabled                  = var.enable_image_build_network
+  project_id                     = var.project_id
+  project_number                 = var.project_number
+  github_repository_id           = var.github_repository_id
+  github_owner_id                = var.github_owner_id
+  github_subject_format          = var.github_subject_format
+  purpose_contexts               = var.purpose_contexts
+  release_evidence_bucket_name   = var.release_evidence_bucket_name
+  region                         = var.region
+  environment                    = var.environment
+  name_prefix                    = var.name_prefix
+  github_org                     = var.github_org
+  github_repo                    = var.github_repo
+  build_read_bucket_names        = var.build_read_bucket_names
+  terraform_state_bucket_name    = var.terraform_state_bucket_name
+  platform_external_bucket_names = var.platform_external_bucket_names
+  impersonation_principals       = var.impersonation_principals
+  deployment_config_bucket_name  = var.deployment_config_bucket_name
+  enable_gcs_usage_log_delivery  = var.enable_gcs_usage_log_delivery
+  image_builder_enabled          = var.enable_image_build_network
 }

@@ -54,12 +54,25 @@ def _expected_impersonation(expected: dict[str, Any]) -> set[tuple[str, str]]:
     }
 
 
+def _unauthorized_account_removal(kind: str, actions: list[str], change: dict[str, Any], expected: dict[str, Any]) -> bool:
+    """True for a plain delete of a service account that the record does not authorize."""
+    if kind != "google_service_account" or actions != ["delete"]:
+        return False
+    before = change.get("before")
+    if not isinstance(before, dict):
+        return False
+    name = before.get("name") or f"projects/{before.get('project', '')}/serviceAccounts/{before.get('email', '')}"
+    return bool(before.get("email")) and name not in expected["service_accounts"].values()
+
+
 def check_resolved_plan(plan: dict[str, Any], expected: dict[str, Any]) -> list[str]:
     """Require the entire provider/binding set, not the first matching resource.
 
     `expected` is generated from the authorized common record by the bootstrap
     caller, never loaded from an independently supplied policy file. Existing
-    obsolete bindings may be deleted; identity foundations cannot be replaced.
+    obsolete bindings may be deleted; identity foundations cannot be replaced. A service
+    account that the record does not authorize may be deleted, for example the builder
+    identity of a foundation that builds no images (#2679).
     A record with no federated subjects authorizes no provider (ADR-070); its
     `impersonation` map names the only principals that may mint purpose tokens.
     """
@@ -79,7 +92,7 @@ def check_resolved_plan(plan: dict[str, Any], expected: dict[str, Any]) -> list[
             "google_iam_workload_identity_pool", "google_iam_workload_identity_pool_provider",
             "google_service_account", "google_storage_bucket", "google_project_iam_custom_role",
         }
-        if foundation and "delete" in actions:
+        if foundation and "delete" in actions and not _unauthorized_account_removal(kind, actions, change, expected):
             errors.append("Migration would delete or replace an identity foundation")
         if actions == ["delete"]:
             continue

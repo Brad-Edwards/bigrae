@@ -1,5 +1,5 @@
 variable "project_id" {
-  description = "GCP project ID for gcp-dev."
+  description = "GCP project ID of the deployment."
   type        = string
 }
 
@@ -37,9 +37,8 @@ variable "provisioner_static_secret_refs" {
 }
 
 variable "environment" {
-  description = "Environment name."
+  description = "Deployment name. The deploy command renders it from deployment.name."
   type        = string
-  default     = "gcp-dev"
 }
 
 variable "region" {
@@ -202,7 +201,7 @@ variable "cloud_sql_user_name" {
 }
 
 variable "cloud_sql_deletion_protection" {
-  description = "Enable Cloud SQL deletion protection on the platform instance. Default true. The gcp-dev-destroy workflow renders this false into an ephemeral tfvars so terraform destroy can delete the instance; without this variable being declared and wired to module.platform_core, that override is an undeclared-variable no-op and destroy fails with 'deletion_protection is set to true' (#2258)."
+  description = "Enable Cloud SQL deletion protection on the platform instance. Default true. deploy.py gcp-destroy renders this false into an ephemeral tfvars so terraform destroy can delete the instance; without this variable being declared and wired to module.platform_core, that override is an undeclared-variable no-op and destroy fails with 'deletion_protection is set to true' (#2258)."
   type        = bool
   default     = true
 }
@@ -225,7 +224,7 @@ variable "public_hostname" {
 
   validation {
     condition     = length(trimspace(var.public_hostname)) > 0
-    error_message = "public_hostname must be non-empty for the gcp-dev environment."
+    error_message = "public_hostname must be non-empty."
   }
 }
 
@@ -235,7 +234,7 @@ variable "enable_managed_tls" {
 
   validation {
     condition     = var.enable_managed_tls
-    error_message = "enable_managed_tls must be true for the gcp-dev environment; the portal serves over HTTPS only and the runtime renderer fails closed without managed TLS."
+    error_message = "enable_managed_tls must be true; the portal serves over HTTPS only and the runtime renderer fails closed without managed TLS."
   }
 }
 
@@ -293,9 +292,9 @@ variable "enable_identity_blocking_function" {
     allowlist fail-closed at login).
   EOT
   type        = bool
-  # gcp-dev runs under a Domain Restricted Sharing org policy that forbids the
-  # required `allUsers` invoker binding, so the blocking function is disabled
-  # here; the portal enforces the same allowlist fail-closed at session creation.
+  # A project under a Domain Restricted Sharing org policy forbids the required
+  # `allUsers` invoker binding, so the blocking function is disabled by default;
+  # the portal enforces the same allowlist fail-closed at session creation.
   default = false
 }
 
@@ -359,11 +358,6 @@ variable "ctf_content_bucket_name" {
   default     = ""
 }
 
-variable "gdc_vm_runtime_image_readers" {
-  description = "Service accounts granted read on the GDC VM image bucket (GDC VM Runtime image-pull identity). Empty on the default GCE range backend, which never creates the GDC substrate SA; set to the baremetal-gcr SA only for a GDC deployment (--range-backend gdc), which is what creates that SA. A hardcoded baremetal-gcr entry breaks a fresh GCE apply because the SA does not exist (ADR: GDC plumbing must not be selected by default). Mirrors the optional-empty vmseries_bootstrap_bucket_name pattern."
-  type        = list(string)
-  default     = []
-}
 
 # ------------------------------------------------------------------------------
 # Messaging DLQ / Retry / Alerting
@@ -494,12 +488,6 @@ variable "gcs_force_destroy" {
 
 variable "adopt_artifact_registry_kms" {
   description = "Adopt an existing Artifact Registry key ring and key that a previous gcp-destroy left in place. gcp-deploy sets this value."
-  type        = bool
-  default     = false
-}
-
-variable "enable_image_build_infra" {
-  description = "Create the image-build subnet, IAP firewalls, and image buckets. Only maintainer image-build environments set this (#2679)."
   type        = bool
   default     = false
 }
