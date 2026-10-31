@@ -57,6 +57,20 @@ def test_native_owner_job_retains_password_duty_without_an_iam_login():
     assert env["SHIFTER_IDENTITY_MAINTENANCE"]["value"] == "true"
 
 
+def test_duties_only_job_reconciles_without_a_schema_migration():
+    """#2704: the deploy reconciles the SQL duties before the identity probe."""
+    image = "example.invalid/platform@sha256:" + "1" * 64
+    job = render_migration_job(image, job_name="platform-duties", duties_only=True)
+    container = job["spec"]["template"]["spec"]["containers"][0]
+    env = {item["name"]: item["value"] for item in container["env"] if "value" in item}
+    assert job["metadata"]["name"] == "platform-duties"
+    assert container["args"][-1] == "python manage.py reconcile_gcp_database_duties"
+    assert env["SKIP_MIGRATIONS"] == "1"
+    full = render_migration_job(image)["spec"]["template"]["spec"]["containers"][0]
+    assert "seed_raes_image_registry" in full["args"][-1]
+    assert {item["name"]: item.get("value") for item in full["env"]}["SKIP_MIGRATIONS"] == ""
+
+
 def test_runtime_projection_rejects_a_login_for_another_workload_identity():
     roles = (
         "portal",

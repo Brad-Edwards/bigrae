@@ -55,9 +55,17 @@ def render_migration_native_sql_egress(database_cidrs: list[str], *, provider_ap
 
 
 def render_migration_job(
-    platform_image: str, *, instance_connection_name: str = "", job_name: str = "platform-migrate"
+    platform_image: str,
+    *,
+    instance_connection_name: str = "",
+    job_name: str = "platform-migrate",
+    duties_only: bool = False,
 ) -> dict[str, object]:
-    """Build the hardened one-off schema migration Job."""
+    """Build the hardened one-off schema migration Job.
+
+    ``duties_only`` skips the schema migration and runs only the SQL duty
+    reconciliation, which the deploy runs before the identity probe (#2704).
+    """
     labels = {"app.kubernetes.io/part-of": "shifter", "app.kubernetes.io/component": "migrator"}
     job = {
         "apiVersion": "batch/v1",
@@ -86,8 +94,12 @@ def render_migration_job(
                                 "/bin/sh",
                                 "-c",
                                 "python manage.py reconcile_gcp_database_duties"
-                                " && python manage.py seed_raes_image_registry"
-                                " && python manage.py acquire_feature_artifacts",
+                                + (
+                                    ""
+                                    if duties_only
+                                    else " && python manage.py seed_raes_image_registry"
+                                    " && python manage.py acquire_feature_artifacts"
+                                ),
                             ],
                             "envFrom": [{"configMapRef": {"name": "platform-runtime"}}],
                             "env": [
@@ -102,7 +114,7 @@ def render_migration_job(
                                 },
                                 {"name": "DB_AUTH_MODE", "value": "password"},
                                 {"name": "TMPDIR", "value": "/var/run/shifter-migrate"},
-                                {"name": "SKIP_MIGRATIONS", "value": ""},
+                                {"name": "SKIP_MIGRATIONS", "value": "1" if duties_only else ""},
                                 {"name": "GUACAMOLE_SECRET_ID", "value": ""},
                                 {"name": "DC_DOMAIN_PASSWORD_SECRET_ID", "value": ""},
                                 {"name": "REDIS_SECRET_ID", "value": ""},

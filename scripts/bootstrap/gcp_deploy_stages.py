@@ -476,6 +476,8 @@ def rollout_stage(
         # Only prerequisite bindings change before a conclusive probe. Policy
         # rotation that makes the incumbent runtime unverifiable stops here.
         policy_enabled = sync_policy_credentials(runner, inputs, outputs)
+        # The probe connects as a native login, which needs its SQL duty first (#2704).
+        run_gcp_database_migrations(outputs, release.values_file, duties_only=True)
         with identity_cutover_boundary(
             runner,
             release.documents,

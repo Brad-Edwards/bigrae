@@ -526,7 +526,7 @@ The command runs these stages in order:
 | Images | Deploy | Copy each release image and its attestations into the deployment registry by digest. |
 | Scan | Release scan | Scan each exact digest with Trivy for HIGH and CRITICAL findings. |
 | Verify | Deploy | Verify the provenance of each image. There is no bypass. |
-| Rollout | Deploy | Create the OpenFGA credentials on first use, probe and drain when required, migrate storage, publish the release's authorization model, verify native activation, restore the Helm release, wait for readiness, roll out the OpenVPN pool, record the running images, and wait for the ingress and certificate. |
+| Rollout | Deploy | Create the OpenFGA credentials on first use, reconcile the SQL duties, probe and drain when required, migrate storage, publish the release's authorization model, verify native activation, restore the Helm release, wait for readiness, roll out the OpenVPN pool, record the running images, and wait for the ingress and certificate. |
 | Catalog | Bootstrap administrator, or a supplied native credential | Register the in-box catalog after readiness through ordinary registration, conformance and publication. A failure leaves catalog work pending with a warning; the application stays active. |
 | Smoke | Deploy | Run the advisory range smoke. |
 
