@@ -18,6 +18,7 @@ from gcp_prereqs import (
     ensure_identity_platform,
     ensure_state_bucket,
     release_disabled_broker_load_balancer,
+    remove_deleted_role_bindings,
 )
 from gcp_process import GcpCommandError, ProcessResult
 from gcp_terraform import (
@@ -327,6 +328,51 @@ class TestPrerequisites:
         with pytest.raises(PrerequisiteError):
             release_disabled_broker_load_balancer(
                 failing, {}, broker_enabled=False, project_id=PROJECT, region="r", cluster="c", kube_env={}
+            )
+
+
+class TestDeletedRoleBindings:
+    def test_only_bindings_to_deleted_custom_roles_are_removed(self):
+        """#2702: a binding to a deleted role blocks every project policy write."""
+        deleted_role = f"projects/{PROJECT}/roles/packerImageExportBucketDiscovery"
+        live_role = f"projects/{PROJECT}/roles/shifterDirectoryReader"
+        roles = json.dumps([{"name": deleted_role, "deleted": True}, {"name": live_role}])
+        stale = f"deleted:serviceAccount:old@{PROJECT}.iam.gserviceaccount.com?uid=1"
+        policy = json.dumps(
+            {
+                "bindings": [
+                    {"role": deleted_role, "members": [stale]},
+                    {"role": live_role, "members": [f"serviceAccount:portal@{PROJECT}.iam.gserviceaccount.com"]},
+                ]
+            }
+        )
+        runner = (
+            FakeRunner()
+            .on(["gcloud", "iam", "roles", "list"], ProcessResult(0, roles))
+            .on(["gcloud", "projects", "get-iam-policy"], ProcessResult(0, policy))
+        )
+        remove_deleted_role_bindings(runner, {}, project_id=PROJECT)
+        removals = [call.argv for call in runner.find("gcloud", "projects", "remove-iam-policy-binding")]
+        assert removals == [
+            [
+                "gcloud",
+                "projects",
+                "remove-iam-policy-binding",
+                PROJECT,
+                f"--member={stale}",
+                f"--role={deleted_role}",
+                "--all",
+            ]
+        ]
+        # No deleted role: the policy is not read or changed.
+        quiet = FakeRunner().on(["gcloud", "iam", "roles", "list"], ProcessResult(0, json.dumps([{"name": live_role}])))
+        remove_deleted_role_bindings(quiet, {}, project_id=PROJECT)
+        assert not quiet.find("gcloud", "projects")
+        with pytest.raises(PrerequisiteError):
+            remove_deleted_role_bindings(
+                FakeRunner().on(["gcloud", "iam", "roles", "list"], ProcessResult(0, "not json")),
+                {},
+                project_id=PROJECT,
             )
 
 

@@ -203,7 +203,12 @@ def infrastructure_stage(
 ) -> tuple[DeploymentInputs, InfrastructureResult]:
     """Prepare the project, apply the platform Terraform, and seed the first operator."""
     from gcp_control_plane import ensure_gcp_artifact_registry_service_identity
-    from gcp_prereqs import ensure_identity_platform, ensure_state_bucket, release_disabled_broker_load_balancer
+    from gcp_prereqs import (
+        ensure_identity_platform,
+        ensure_state_bucket,
+        release_disabled_broker_load_balancer,
+        remove_deleted_role_bindings,
+    )
     from gcp_runtime import gdc_config
     from gcp_terraform import (
         artifact_registry_kms_adoption,
@@ -238,6 +243,7 @@ def infrastructure_stage(
             inputs = apply_broker_overlay(runner, inputs, mode="ensure", context=context)
     bucket = state_bucket_name(inputs.project_id)
     ensure_state_bucket(runner, {}, bucket=bucket, project_id=inputs.project_id, region=inputs.region)
+    remove_deleted_role_bindings(runner, {}, project_id=inputs.project_id)
     ensure_gcp_artifact_registry_service_identity(gdc_config(inputs))
     ctx = terraform_context(inputs, inputs.workdir, {})
     terraform_init(runner, ctx, state_bucket=bucket, prefix=backend_prefix(inputs.environment))

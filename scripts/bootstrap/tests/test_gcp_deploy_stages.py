@@ -58,7 +58,12 @@ def recorder(monkeypatch, chart):
 
     for module, names in {
         "gcp_catalog": ("initialize_catalog",),
-        "gcp_prereqs": ("ensure_identity_platform", "ensure_state_bucket", "release_disabled_broker_load_balancer"),
+        "gcp_prereqs": (
+            "ensure_identity_platform",
+            "ensure_state_bucket",
+            "release_disabled_broker_load_balancer",
+            "remove_deleted_role_bindings",
+        ),
         "gcp_control_plane": (
             "ensure_gcp_artifact_registry_service_identity",
             "ensure_gcp_control_plane_namespaces",
@@ -112,6 +117,7 @@ class TestInfrastructureStage:
         assert order == [
             "ensure_identity_platform",
             "ensure_state_bucket",
+            "remove_deleted_role_bindings",
             "ensure_gcp_artifact_registry_service_identity",
             "terraform_context",
             "terraform_init",
