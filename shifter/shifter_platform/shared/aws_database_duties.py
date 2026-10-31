@@ -119,8 +119,9 @@ def rds_ca_path(environ: Mapping[str, str] = os.environ) -> str:
     if configured:
         return configured
     try:
+        # Malformed base64 raises binascii.Error, which is a ValueError.
         bundle = base64.b64decode(environ.get("DB_SSL_ROOT_CERT_PEM_B64", "").strip(), validate=True)
-    except ValueError:  # binascii.Error is a ValueError.
+    except ValueError:
         raise ValueError("RDS CA bundle is not valid base64") from None
     if b"-----BEGIN CERTIFICATE-----" not in bundle:
         raise ValueError("RDS CA bundle holds no certificate")
